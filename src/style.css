@@ -70,3 +70,10 @@ dialog p { line-height: 1.6; white-space: pre-wrap; max-height: 50vh; overflow: 
 #dialog-input { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--page); color: var(--text); }
 #dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 20px; }
 @media (max-width: 900px) { header { gap: 10px; padding: 10px; } .brand small { display: none; } .brand strong { font-size: 13px; } nav { gap: 3px; } button { padding: 7px 9px; } }
+
+/* ==> Section 4 - Document Properties And Active Formatting <== */
+#document-properties { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 16px 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--page); font-size: 12px; }
+#properties-title { margin-right: 8px; }
+#target-note { color: var(--muted); flex: 1; min-width: 120px; }
+#format-toolbar button[aria-pressed=true] { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+.color-control.active { background: var(--accent-bg); border-radius: 4px; outline: 1px solid var(--accent); }

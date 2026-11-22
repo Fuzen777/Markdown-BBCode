@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2 — 2026-11-23
+
+1. Added .mdbbcode documents with YAML format, version and export target metadata.
+2. Added a visual Document Properties panel with a Nexus Mods target dropdown and reserved Steam option.
+3. Preserved invalid metadata while pausing export, retained unknown fields/comments and supported Save As conversion from Markdown.
+4. Added active formatting indicators and selection-aware heading styles, including mixed selections and undo updates.
+5. Excluded portable runtime caches from development file watching to avoid locked-file failures.
+
 ## 0.1.1 — 2026-11-22
 
 1. Replaced SCEditor with visual Markdown editing and raw Markdown Source.

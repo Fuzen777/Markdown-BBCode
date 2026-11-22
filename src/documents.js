@@ -1,7 +1,7 @@
 // ==> Section 1 - Document Identity <==
-import { markdownToBBCode } from './markdown.js';
+import { documentToBBCode, prepareDocumentSource } from './document-format.js';
 export function pathKey(path) { return path?.replace(/^\\\\\?\\/, '').replaceAll('/', '\\').toLowerCase(); }
-export function outputPath(path) { return path.replace(/\.(md|markdown)$/i, '.bbcode'); }
+export function outputPath(path) { return path.replace(/\.(mdbbcode|md|markdown)$/i, '.bbcode'); }
 export function documentName(documentRecord) { return documentRecord.path?.split(/[\\/]/).at(-1) || documentRecord.name || 'Untitled'; }
 export function createDocument(content = '') {
   return { id: crypto.randomUUID(), name: 'Untitled', path: null, content, savedContent: '', revision: null, mode: 'visual', open: true, error: null, outputError: null, outputSource: null, importedFrom: null };
@@ -56,7 +56,7 @@ export class DocumentStore {
     return documentRecord;
   }
   async open(path) {
-    if (!/\.(md|markdown)$/i.test(path)) throw new Error('Open a Markdown file, or use Import BBCode for an existing BBCode document.');
+    if (!/\.(mdbbcode|md|markdown)$/i.test(path)) throw new Error('Open an MDBBCode or Markdown file, or use Import BBCode for an existing BBCode document.');
     const snapshot = await this.backend.readFile(path);
     const existing = this.documents.find(documentRecord => pathKey(documentRecord.path) === pathKey(snapshot.path));
     if (existing) { existing.open = true; this.activeId = existing.id; return existing; }
@@ -78,7 +78,7 @@ export class DocumentStore {
   async syncOutput(documentRecord, source, reviewedRevision) {
     const targetPath = outputPath(documentRecord.path);
     try {
-      const bbcode = markdownToBBCode(source);
+      const bbcode = documentToBBCode(source, documentRecord.path);
       const knownOutput = this.exports[pathKey(targetPath)];
       const expectedRevision = reviewedRevision !== undefined ? reviewedRevision : (pathKey(knownOutput?.sourcePath) === pathKey(documentRecord.path) ? knownOutput?.revision : null) ?? null;
       const snapshot = await this.backend.saveFile(targetPath, bbcode, expectedRevision);
@@ -108,13 +108,15 @@ export class DocumentStore {
     });
   }
   async saveAs(documentRecord, path, expectedRevision = null) {
-    if (!/\.(md|markdown)$/i.test(path)) throw new Error('The editable original must be a Markdown file.');
+    if (!/\.(mdbbcode|md|markdown)$/i.test(path)) throw new Error('The editable original must be a Markdown file.');
     if (documentRecord.importedFrom && pathKey(outputPath(path)) === pathKey(documentRecord.importedFrom)) throw new Error('Choose a new filename so the generated BBCode cannot replace the original import.');
     if (this.documents.some(otherDocument => otherDocument.id !== documentRecord.id && pathKey(otherDocument.path) === pathKey(path))) throw new Error('That Markdown file is already open in another tab.');
     if (pathKey(documentRecord.path) === pathKey(path)) return this.flush(documentRecord);
     return this.enqueue(documentRecord, async () => {
-      const source = documentRecord.content;
+      const originalSource = documentRecord.content;
+      const source = prepareDocumentSource(originalSource, path);
       const snapshot = await this.backend.saveFile(path, source, expectedRevision);
+      if (documentRecord.content === originalSource) documentRecord.content = source;
       Object.assign(documentRecord, { path: snapshot.path, revision: snapshot.revision, savedContent: source, error: null, outputError: null, outputSource: null });
       await this.syncOutput(documentRecord, source);
       this.onChange();

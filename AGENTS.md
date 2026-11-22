@@ -2,7 +2,7 @@
 
 ## Scope
 
-Portable Windows app built with Tauri 2, Rust, vanilla JavaScript and Tiptap 3. Read DESIGN.md before changing user-facing behaviour. Markdown is authoritative; Nexus BBCode is generated beside it. Steam is deferred.
+Portable Windows app built with Tauri 2, Rust, vanilla JavaScript and Tiptap 3. Read DESIGN.md before changing user-facing behaviour. MDBBCode documents contain a YAML header plus Markdown; the full source is authoritative; Nexus BBCode is generated beside it. Steam is deferred.
 
 ## Development
 
@@ -19,3 +19,7 @@ src/markdown.js owns the schema, custom spoiler/center/color extensions, Markdow
 ## Validation And Documentation
 
 Run npm test, npm run test:ui, npm run lint, npm run build, Rust tests and Clippy. After packaging, scripts/native-smoke.mjs exercises the real desktop bridge in an isolated test folder. Keep DESIGN.md, FEATURES.md, README.md, CHANGELOG.md and VALIDATION.md aligned. Do not commit builds, dependencies or recovery data. This project shares its parent Git repository; stage and commit only this project's files.
+
+## Metadata And Toolbar State
+
+src/document-format.js owns frontmatter parsing, metadata validation, .mdbbcode preparation and target-aware export. Use documentToBBCode for full document export/copy; markdownToBBCode only accepts the body. Visual editing preserves the header; Source contains the complete file. Never drop unknown properties or overwrite invalid metadata during autosave. Plain .md/.markdown remain supported. YAML is parsed using the [yaml Document API](https://eemeli.org/yaml/#documents), retaining unknown fields and comments. Selection indicators derive from Tiptap transactions and selections, never stale toolbar values. Development file watching excludes portable runtime caches and build output.

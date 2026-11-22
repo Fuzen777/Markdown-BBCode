@@ -8,16 +8,34 @@ Extract the portable folder into a writable location and run **BBCode Editor.exe
 
 ## Documents And Saving
 
-1. Use **New** or **Open** for Markdown documents in tabs. **Visual** provides formatted editing; **Source** edits Markdown directly.
-2. **Save** names a new draft. Named documents autosave after a 750 ms typing pause. Saving `Description.md` also generates `Description.bbcode` next to it.
+1. Use **New** or **Open** for `.mdbbcode` documents in tabs. Existing `.md` and `.markdown` files remain supported. **Visual** provides formatted editing; **Source** edits Markdown directly.
+2. **Save** names a new draft. Named documents autosave after a 750 ms typing pause. Saving `Description.mdbbcode` also generates `Description.bbcode` next to it.
 3. **Copy BBCode** converts and copies the current document for Nexus Mods.
-4. **Import BBCode** makes a one-time Markdown draft. Unsupported formatting is reported before acceptance. Save it under the suggested `.imported.md` name; the original BBCode stays intact.
+4. **Import BBCode** makes a one-time Markdown draft. Unsupported formatting is reported before acceptance. Save it under the suggested `.imported.mdbbcode` name; the original BBCode stays intact.
 
 Markdown is the editable original. Changes to the generated BBCode are not imported back. Existing or externally changed BBCode requires confirmation before replacement. If conversion or output saving fails, Markdown still saves and **BBCode Out Of Date** remains visible. Correct unsupported source or use **Regenerate BBCode** to retry.
 
 Source conflicts offer **Load Disk Version**, **Keep My Edits**, or **Save As**. Source save failures prevent closing until resolved. Output-only failures allow explicitly closing with outdated BBCode after Markdown has saved.
 
 Unnamed documents are recovered after restarting. Closed unnamed documents remain available through **Drafts**. Recovery snapshots are written after a 250 ms pause; changes since the latest successful write can be lost on abrupt power loss.
+
+## Document Properties
+
+New documents use the `.mdbbcode` extension: plain-text Markdown with a YAML header. In Visual view, **Document Properties** presents **Target** as a dropdown. Nexus Mods is supported; Steam is listed but unavailable until its converter is implemented. Source shows the entire file, including YAML:
+
+```markdown
+---
+format: mdbbcode
+version: 1
+target: nexus
+---
+
+# Mod Description
+```
+
+Format and version are managed automatically. Dropdown changes update the YAML; Source changes appear in the panel when returning to Visual. Unknown fields and comments are preserved. Invalid YAML, unsupported format/version or missing required fields remain saved and source-editable while BBCode generation pauses. Unsupported targets can be changed to Nexus Mods in the panel.
+
+Opening existing Markdown does not rewrite it. **Save As** suggests `.mdbbcode` and adds metadata when converting plain Markdown. If the new file shares an existing BBCode companion, replacement requires confirmation.
 
 ## Formatting
 
@@ -30,7 +48,7 @@ Standard formatting includes headings, bold, italic, strikethrough, lists, quote
 | Center | `<div style="text-align: center">` around Markdown blocks, followed by `</div>`. |
 | Color | `<span style="color: #e6a050">Text</span>` |
 
-Spoilers stay expanded during editing. Colors use hexadecimal values. Tables, task lists and arbitrary HTML are not supported for visual editing or BBCode conversion; their Markdown remains saved and source-editable. Ordered lists must start at 1. Images require web URLs; uploading or managing local attachments is not included. The app works offline except for loading remote images.
+Formatting buttons highlight styles active at the cursor or across the selection. The paragraph dropdown follows headings 1–6, shows Mixed for different paragraph styles and Other Block for code blocks. Mixed text styles are not shown as fully active. Indicators update after edits, selection changes and undo. Spoilers stay expanded during editing. Colors use hexadecimal values. Tables, task lists and arbitrary HTML are not supported for visual editing or BBCode conversion; their Markdown remains saved and source-editable. Ordered lists must start at 1. Images require web URLs; uploading or managing local attachments is not included. The app works offline except for loading remote images.
 
 Visual editing may normalize Markdown syntax after an edit; simply opening a file preserves its source. Switching tabs or modes resets visual undo history. Nexus appearance may differ; check the final description there. Steam support is deferred.
 
@@ -45,7 +63,7 @@ Visual editing may normalize Markdown syntax after an edit; simply opening a fil
 | Ctrl+W | Close Tab |
 | Ctrl+Shift+C | Copy BBCode |
 
-Use Windows **Open With** to associate `.md` files with the executable if desired. Subsequent file launches open tabs in the existing window. No association is changed automatically.
+Use Windows **Open With** to associate `.mdbbcode` files with the executable if desired. Subsequent file launches open tabs in the existing window. No association is changed automatically.
 
 ## Upgrading From 0.1.0
 

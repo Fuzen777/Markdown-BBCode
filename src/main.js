@@ -4,7 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { DocumentStore, documentName, pathKey, outputPath } from './documents.js';
 import { MarkdownEditor } from './visual-editor.js';
-import { markdownToBBCode } from './markdown.js';
+import { documentToBBCode, withDocumentMetadata, hasDocumentContent } from './document-format.js';
 import { importBBCode } from './bbcode-import.js';
 import './style.css';
 
@@ -40,6 +40,17 @@ async function persist() {
 }
 
 // ==> Section 2 - Editor And Tab Rendering <==
+function renderFormatting() {
+  if (!editor) return;
+  const state = editor.formattingState();
+  for (const button of document.querySelectorAll('[data-format]')) {
+    if (button.dataset.format !== 'clear') button.setAttribute('aria-pressed', String(Boolean(state?.[button.dataset.format])));
+  }
+  elements.heading.value = state?.heading || '0';
+  elements['text-color'].closest('label').classList.toggle('active', Boolean(state?.color));
+  if (state?.color) elements['text-color'].value = state.color;
+}
+
 function render() {
   if (!editor) return;
   const activeDocument = store.active;
@@ -75,6 +86,16 @@ function render() {
   const sourceMode = editor.sourceMode();
   elements.visual.setAttribute('aria-pressed', String(!sourceMode));
   elements.source.setAttribute('aria-pressed', String(sourceMode));
+  elements['document-properties'].hidden = sourceMode;
+  if (!sourceMode && editor.documentSource) {
+    const target = editor.documentSource.target;
+    const knownTarget = ['nexus', 'steam'].includes(target);
+    elements['unknown-target'].hidden = knownTarget;
+    elements['unknown-target'].textContent = knownTarget ? 'Unsupported Target' : target + ' (Unsupported)';
+    elements['document-target'].value = knownTarget ? target : 'unknown';
+    elements['target-note'].textContent = target === 'nexus' ? 'Generates Nexus Mods BBCode' : 'Unsupported Target — Choose Nexus Mods To Generate BBCode';
+  }
+  renderFormatting();
   const error = activeDocument?.error;
   elements['notice-text'].textContent = error ? errorMessage(error) : globalError || safetyNotice;
   elements.notice.hidden = !elements['notice-text'].textContent;
@@ -112,7 +133,7 @@ function showDocument() {
   loadingDocument = true;
   try {
     const documentRecord = store.active;
-    safetyNotice = editor.load(documentRecord.content, documentRecord.mode);
+    safetyNotice = editor.load(documentRecord.content, documentRecord.mode, documentRecord.path);
     documentRecord.mode = editor.sourceMode() ? 'source' : 'visual';
     baselineValue = editor.val();
   } finally { loadingDocument = false; }
@@ -161,10 +182,11 @@ async function choose(title, message, choices, inputValue) {
 async function saveDocument(documentRecord = store.active, saveAs = false) {
   capture();
   if (!documentRecord.path || saveAs) {
-    const selectedPath = await save({ defaultPath: (documentRecord.path || documentRecord.suggestedPath)?.replace(/^\\\\\?\\/, '') || `${documentName(documentRecord)}.md`, filters: [{ name: 'Markdown Documents', extensions: ['md'] }] });
+    const selectedPath = await save({ defaultPath: (documentRecord.path?.replace(/\.(md|markdown)$/i, '.mdbbcode') || documentRecord.suggestedPath)?.replace(/^\\\\\?\\/, '') || `${documentName(documentRecord)}.mdbbcode`, filters: [{ name: 'MDBBCode Documents', extensions: ['mdbbcode'] }, { name: 'Markdown Documents', extensions: ['md'] }] });
     if (!selectedPath) return false;
-    const targetPath = /\.(md|markdown)$/i.test(selectedPath) ? selectedPath : `${selectedPath}.md`;
+    const targetPath = /\.(mdbbcode|md|markdown)$/i.test(selectedPath) ? selectedPath : `${selectedPath}.mdbbcode`;
     if (pathKey(documentRecord.path) === pathKey(targetPath)) return saveDocument(documentRecord, false);
+    const previousContent = documentRecord.content;
     try { await store.saveAs(documentRecord, targetPath); }
     catch (error) {
       if (error.kind !== 'conflict') throw error;
@@ -173,6 +195,7 @@ async function saveDocument(documentRecord = store.active, saveAs = false) {
       if (choice !== 'replace') return false;
       await store.saveAs(documentRecord, targetPath, snapshot.revision);
     }
+    if (store.activeId === documentRecord.id && documentRecord.content !== previousContent) showDocument();
   } else {
     if (documentRecord.error?.kind === 'conflict') return resolveConflict(documentRecord);
     documentRecord.error = null;
@@ -242,11 +265,11 @@ async function closeTab(documentRecord) {
     const choice = await choose('BBCode Out Of Date', 'Your Markdown is saved, but the BBCode copy is not current. Close this tab anyway?', [['close', 'Close Tab'], ['cancel', 'Cancel']]);
     if (choice !== 'close') return;
   }
-  if (!documentRecord.path && documentRecord.content) documentRecord.open = false;
+  if (!documentRecord.path && hasDocumentContent(documentRecord.content)) documentRecord.open = false;
   else store.documents = store.documents.filter(otherDocument => otherDocument.id !== documentRecord.id);
   if (store.activeId === documentRecord.id) {
     store.activeId = store.documents.find(otherDocument => otherDocument.open)?.id;
-    if (!store.activeId) store.add();
+    if (!store.activeId) store.add(withDocumentMetadata(''));
     showDocument();
   }
   await persist();
@@ -280,7 +303,7 @@ async function closeWindow() {
 function keyboardShortcut(event) {
   if (!event.ctrlKey || event.altKey || elements['choice-dialog'].open) return;
   const key = event.key.toLowerCase();
-  const action = key === 'n' ? () => { capture(); store.add(); showDocument(); return persist(); }
+  const action = key === 'n' ? () => { capture(); store.add(withDocumentMetadata('')); showDocument(); return persist(); }
     : key === 'o' ? () => elements.open.click()
     : key === 's' ? () => saveDocument(store.active, event.shiftKey)
     : key === 'w' ? () => closeTab(store.active)
@@ -290,7 +313,7 @@ function keyboardShortcut(event) {
 
 async function copySource() {
   capture();
-  await navigator.clipboard.writeText(markdownToBBCode(store.active.content));
+  await navigator.clipboard.writeText(documentToBBCode(store.active.content, store.active.path));
   elements['save-status'].textContent = 'BBCode Copied';
 }
 
@@ -302,11 +325,11 @@ async function importDocument(snapshot) {
     if (choice !== 'import') return false;
   }
   capture();
-  const documentRecord = store.add(result.markdown);
+  const documentRecord = store.add(withDocumentMetadata(result.markdown));
   documentRecord.importedFrom = snapshot.path || null;
   const originalName = snapshot.path?.split(/[\\/]/).at(-1) || snapshot.name || 'Recovered';
   documentRecord.name = originalName.replace(/\.[^.]+$/, '') + '.imported';
-  documentRecord.suggestedPath = snapshot.path ? snapshot.path.replace(/\.[^.]+$/, '') + '.imported.md' : documentRecord.name + '.md';
+  documentRecord.suggestedPath = snapshot.path ? snapshot.path.replace(/\.[^.]+$/, '') + '.imported.mdbbcode' : documentRecord.name + '.mdbbcode';
   showDocument();
   await persist();
   return true;
@@ -343,11 +366,11 @@ async function formatDocument(command, value) {
 }
 
 async function initialize() {
-  editor = new MarkdownEditor(elements['visual-editor'], elements['markdown-source'], capture);
+  editor = new MarkdownEditor(elements['visual-editor'], elements['markdown-source'], capture, renderFormatting);
   document.addEventListener('keydown', keyboardShortcut, true);
-  elements.new.onclick = () => runAction(async () => { capture(); store.add(); showDocument(); await persist(); editor.focus(); });
+  elements.new.onclick = () => runAction(async () => { capture(); store.add(withDocumentMetadata('')); showDocument(); await persist(); editor.focus(); });
   elements.open.onclick = () => runAction(async () => {
-    const paths = await open({ multiple: true, filters: [{ name: 'Markdown Documents', extensions: ['md', 'markdown'] }] });
+    const paths = await open({ multiple: true, filters: [{ name: 'Editor Documents', extensions: ['mdbbcode', 'md', 'markdown'] }] });
     if (paths) await openPaths(Array.isArray(paths) ? paths : [paths]);
   });
   elements.save.onclick = () => runAction(() => saveDocument());
@@ -364,6 +387,7 @@ async function initialize() {
     await persist();
     render();
   });
+  elements['document-target'].onchange = () => runAction(() => { editor.setTarget(elements['document-target'].value); render(); });
   elements.regenerate.onclick = () => runAction(regenerateOutput);
   for (const button of document.querySelectorAll('[data-format]')) {
     button.onmousedown = event => event.preventDefault();
@@ -383,7 +407,7 @@ async function initialize() {
   await listen('request-close', () => runAction(closeWindow));
   await listen('open-files', () => { if (startupComplete) void runAction(async () => openPaths(await invoke('take_pending_paths'))); });
   await store.restore();
-  if (!store.active) store.add();
+  if (!store.active) store.add(withDocumentMetadata(''));
   showDocument();
   startupComplete = true;
   try { await openPaths(await invoke('take_pending_paths')); }

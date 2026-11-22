@@ -1,17 +1,22 @@
 // ==> Section 1 - Visual And Source Editor Adapter <==
+import { readDocumentSource, isMdbbcode, withDocumentMetadata } from './document-format.js';
 import { Editor } from '@tiptap/core';
 import { editorExtensions, parseMarkdown, serializeMarkdown } from './markdown.js';
 
 export class MarkdownEditor {
-  constructor(visualElement, sourceElement, onChange) {
+  constructor(visualElement, sourceElement, onChange, onSelectionChange = () => {}) {
     this.visualElement = visualElement;
     this.sourceElement = sourceElement;
     this.onChange = onChange;
+    this.onSelectionChange = onSelectionChange;
     this.mode = 'source';
     this.readonly = false;
     sourceElement.addEventListener('input', () => onChange());
   }
-  load(source, mode) {
+  load(source, mode, path) {
+    this.path = path;
+    this.visualChanged = false;
+    this.documentSource = null;
     this.editor?.destroy();
     this.editor = null;
     this.sourceElement.value = source;
@@ -19,12 +24,15 @@ export class MarkdownEditor {
     let warning = '';
     if (mode === 'visual') {
       try {
-        const content = parseMarkdown(source);
+        this.documentSource = readDocumentSource(source, isMdbbcode(path));
+        const content = parseMarkdown(this.documentSource.body);
         this.editor = new Editor({
           element: this.visualElement, extensions: editorExtensions, content,
           editable: !this.readonly,
           editorProps: { attributes: { 'aria-label': 'Visual Markdown Editor', role: 'textbox', spellcheck: 'true' }, handleClick: (view, position, event) => Boolean(event.target.closest('a')) },
-          onUpdate: () => this.onChange(),
+          onUpdate: () => { this.visualChanged = true; this.onChange(); },
+          onSelectionUpdate: () => this.onSelectionChange(),
+          onTransaction: () => this.onSelectionChange(),
         });
       } catch (error) { warning = `Source view preserves this document: ${error.message}`; this.mode = 'source'; }
     }
@@ -33,7 +41,33 @@ export class MarkdownEditor {
     this.sourceElement.readOnly = this.readonly;
     return warning;
   }
-  val() { return this.mode === 'source' ? this.sourceElement.value : serializeMarkdown(this.editor.getJSON()); }
+  val() { return this.mode === 'source' ? this.sourceElement.value : this.documentSource.prefix + (this.visualChanged ? serializeMarkdown(this.editor.getJSON()) : this.documentSource.body); }
+  setTarget(target) {
+    if (this.readonly || this.sourceMode() || target !== 'nexus') return;
+    const source = withDocumentMetadata(this.val(), target);
+    this.load(source, 'visual', this.path);
+    this.onChange();
+  }
+  formattingState() {
+    if (this.sourceMode() || !this.editor) return null;
+    const editor = this.editor;
+    const active = name => editor.isActive(name);
+    const paragraphStyles = new Set();
+    const selection = editor.state.selection;
+    const recordStyle = node => {
+      if (node.isTextblock) paragraphStyles.add(node.type.name === 'heading' ? String(node.attrs.level) : node.type.name === 'paragraph' ? '0' : 'other');
+    };
+    if (selection.empty) recordStyle(selection.$from.parent);
+    else editor.state.doc.nodesBetween(selection.from, selection.to, recordStyle);
+    return {
+      heading: paragraphStyles.size === 1 ? [...paragraphStyles][0] : 'mixed',
+      bold: active('bold'), italic: active('italic'), strike: active('strike'),
+      bullet: active('bulletList'), numbered: active('orderedList'), quote: active('blockquote'),
+      code: active('codeBlock') || active('code'), link: active('link'), image: active('image'),
+      spoiler: active('spoiler') || active('spoilerBlock'), center: active('centerBlock'),
+      color: active('textColor') ? editor.getAttributes('textColor').color : null,
+    };
+  }
   sourceMode() { return this.mode === 'source'; }
   focus() { if (this.sourceMode()) this.sourceElement.focus(); else this.editor.commands.focus(); }
   readOnly(value) { this.readonly = value; this.sourceElement.readOnly = value; this.editor?.setEditable(!value); }

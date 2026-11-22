@@ -18,7 +18,7 @@ test.beforeEach(async ({ page }) => {
         if (command === 'plugin:event|listen') { eventHandlers[argumentsObject.event] = argumentsObject.handler; return ++callbackId; }
         if (command === 'plugin:event|unlisten') return;
         if (command === 'plugin:dialog|open') return desktop.openPaths;
-        if (command === 'plugin:dialog|save') return desktop.savePath;
+        if (command === 'plugin:dialog|save') { desktop.lastSaveOptions = argumentsObject; return desktop.savePath; }
         if (command === 'load_session') return structuredClone(desktop.session);
         if (command === 'save_session') { desktop.session = structuredClone(argumentsObject.session); return; }
         if (command === 'take_pending_paths') return [];
@@ -49,18 +49,18 @@ async function setSource(page, content) {
 async function saveDraft(page, path = 'C:\\Page.md') {
   await page.evaluate(selected => { window.testDesktop.savePath = selected; }, path);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect.poll(() => page.evaluate(selected => Boolean(window.testDesktop.files[selected]), path)).toBe(true);
+  await expect.poll(() => page.evaluate(selected => Boolean(window.testDesktop.files[selected]), /\.(mdbbcode|md|markdown)$/i.test(path) ? path : path + '.mdbbcode')).toBe(true);
 }
 
 // ==> Section 2 - Markdown UI And Conversion <==
 test('visual editing, Markdown source, and independent tabs', async ({ page }) => {
   await page.getByRole('textbox', { name: 'Visual Markdown Editor' }).fill('A Markdown description');
   await page.getByRole('button', { name: 'Source', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('A Markdown description');
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue(/target: nexus[\s\S]*A Markdown description$/);
   await page.getByRole('button', { name: 'New', exact: true }).click();
   await setSource(page, 'Second document');
   await page.getByRole('tab', { name: /Untitled 1/ }).click();
-  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('A Markdown description');
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue(/target: nexus[\s\S]*A Markdown description$/);
 });
 
 test('spoilers, colors, and centered blocks render and export', async ({ page }) => {
@@ -168,4 +168,97 @@ test('light, dark, and narrow layouts fit the window', async ({ page }) => {
   await page.setViewportSize({ width: 720, height: 480 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expect(page.locator('.tiptap')).toBeVisible();
+});
+
+// ==> Section 3 - Metadata And Selection State <==
+test('new documents expose properties and include metadata in Source', async ({ page }) => {
+  await expect(page.getByRole('region', { name: 'Document Properties' })).toBeVisible();
+  await expect(page.getByLabel('Target', { exact: true })).toHaveValue('nexus');
+  await expect(page.locator('#document-target option[value=steam]')).toBeDisabled();
+  await page.getByRole('textbox', { name: 'Visual Markdown Editor' }).fill('Body');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.locator('#document-properties')).toBeHidden();
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('---\nformat: mdbbcode\nversion: 1\ntarget: nexus\n---\n\nBody');
+  await saveDraft(page, 'C:\\New Document');
+});
+
+test('Steam metadata is visible and changing the dropdown updates source and output', async ({ page }) => {
+  const source = '---\nformat: mdbbcode\nversion: 1\ntarget: steam\n# Retain this\nauthor: Someone\n---\n\n**Original**';
+  await setSource(page, source);
+  await saveDraft(page, 'C:\\Page.mdbbcode');
+  await expect(page.locator('#output-notice')).toContainText('Unsupported Target: steam');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await expect(page.getByLabel('Target', { exact: true })).toHaveValue('steam');
+  await expect(page.locator('.tiptap')).toHaveText('Original');
+  await page.getByLabel('Target', { exact: true }).selectOption('nexus');
+  await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode']?.content)).toBe('[b]Original[/b]');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.locator('#markdown-source')).toHaveValue(/target: nexus[\s\S]*# Retain this[\s\S]*author: Someone[\s\S]*\*\*Original\*\*/);
+});
+
+test('malformed YAML autosaves without replacing good BBCode and can be corrected', async ({ page }) => {
+  const good = '---\nformat: mdbbcode\nversion: 1\ntarget: nexus\n---\n\nGood';
+  await setSource(page, good);
+  await saveDraft(page, 'C:\\Page.mdbbcode');
+  const invalid = good.replace('target: nexus', 'target: [');
+  await page.locator('#markdown-source').fill(invalid);
+  await expect(page.locator('#output-notice')).toContainText('Invalid YAML');
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.mdbbcode'].content)).toBe(invalid);
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('Good');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await expect(page.locator('#markdown-source')).toBeVisible();
+  await page.locator('#markdown-source').fill(good.replace('Good', 'Corrected'));
+  await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('Corrected');
+});
+
+test('Save As from plain Markdown adds metadata and leaves the original untouched', async ({ page }) => {
+  await page.evaluate(() => {
+    window.testDesktop.files['C:\\Original.md'] = { path: 'C:\\Original.md', content: '**Body**', revision: 'original' };
+    window.testDesktop.openPaths = ['C:\\Original.md'];
+    window.testDesktop.savePath = 'C:\\Converted.mdbbcode';
+  });
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.getByRole('button', { name: 'Save As', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\Converted.mdbbcode']?.content)).toContain('format: mdbbcode');
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Original.md'].content)).toBe('**Body**');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.locator('#markdown-source')).toHaveValue(/format: mdbbcode[\s\S]*\*\*Body\*\*/);
+});
+
+async function selectText(page, selector, entireNode = false) {
+  await page.locator(selector).evaluate((element, selectAll) => {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    if (!selectAll) range.collapse(true);
+    element.closest('.tiptap').focus();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+  }, entireNode);
+}
+
+test('formatting controls follow the cursor, selection, mixed styles, and tab changes', async ({ page }) => {
+  await setSource(page, '# Heading\n\n**Bold text** and plain text\n\n*Italic text*\n\nNormal paragraph');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await selectText(page, '.tiptap h1');
+  await expect(page.getByLabel('Paragraph Style')).toHaveValue('1');
+  await selectText(page, '.tiptap strong', true);
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByLabel('Paragraph Style')).toHaveValue('0');
+  await selectText(page, '.tiptap em', true);
+  await expect(page.getByRole('button', { name: 'Italic', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await selectText(page, '.tiptap', true);
+  await expect(page.getByLabel('Paragraph Style')).toHaveValue('mixed');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await selectText(page, '.tiptap p:last-child');
+  await expect(page.getByLabel('Paragraph Style')).toHaveValue('0');
+  await page.getByLabel('Paragraph Style').selectOption('2');
+  await expect(page.locator('.tiptap h2')).toHaveText('Normal paragraph');
+  await page.getByRole('textbox', { name: 'Visual Markdown Editor' }).press('Control+z');
+  await expect(page.getByLabel('Paragraph Style')).toHaveValue('0');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await expect(page.getByLabel('Paragraph Style')).toHaveValue('0');
+  await expect(page.getByRole('button', { name: 'Italic', exact: true })).toHaveAttribute('aria-pressed', 'false');
 });
