@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3 — 2026-11-23
+
+1. Fixed ineffective regeneration for .mdbbcode files without metadata: Initialize Document Properties adds Nexus settings and generates output.
+2. Replaced conversion retries with Fix Source when metadata or content needs correction.
+3. Preserved document text and existing-output protection during initialization; added browser and native regression coverage.
+
 ## 0.1.2 — 2026-11-23
 
 1. Added .mdbbcode documents with YAML format, version and export target metadata.

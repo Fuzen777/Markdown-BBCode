@@ -86,7 +86,7 @@ export class DocumentStore {
       documentRecord.outputSource = source;
       documentRecord.outputError = null;
     } catch (error) {
-      documentRecord.outputError = { kind: error.kind || 'conversion', message: `BBCode Out Of Date: ${error.message || String(error)}`, source };
+      documentRecord.outputError = { action: error.action || (error.kind ? 'retry' : 'source'), kind: error.kind || 'conversion', message: `BBCode Out Of Date: ${error.message || String(error)}`, source };
     }
   }
   async flush(documentRecord) {

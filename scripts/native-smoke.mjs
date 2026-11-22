@@ -16,7 +16,7 @@ await copyFile(`release/BBCode Editor ${version}/BBCode Editor.exe`, executableP
 const metadataHeader = '---\nformat: mdbbcode\nversion: 1\ntarget: nexus\n---\n\n';
 const firstPath = resolve(testDirectory, 'Native Smoke.mdbbcode');
 const secondPath = resolve(testDirectory, 'Second Document.md');
-await writeFile(firstPath, metadataHeader + '**Native Test**\nOriginal description', 'utf8');
+await writeFile(firstPath, '**Native Test**\nOriginal description', 'utf8');
 await writeFile(secondPath, '||Second document||', 'utf8');
 const portServer = createServer();
 portServer.listen(0, '127.0.0.1');
@@ -44,6 +44,8 @@ try {
   await expect(page.locator('html')).toHaveAttribute('data-ready', 'true');
   await expect(page.getByRole('tab', { name: 'Native Smoke.mdbbcode', exact: true })).toBeVisible();
   const startupMilliseconds = Math.round(performance.now() - startedAt);
+  await page.getByRole('button', { name: 'Initialize Document Properties', exact: true }).click();
+  await expect.poll(() => readFile(firstPath, 'utf8')).toBe(metadataHeader + '**Native Test**\nOriginal description');
   await page.getByRole('button', { name: 'Source', exact: true }).click();
   await page.getByRole('textbox', { name: 'Markdown Source' }).fill(metadataHeader + '**Native Test**\nAutosaved through Rust ✓');
   await expect.poll(() => readFile(firstPath, 'utf8')).toBe(metadataHeader + '**Native Test**\nAutosaved through Rust ✓');
@@ -75,7 +77,7 @@ try {
   const legacyBackup = JSON.parse(await readFile(resolve(testDirectory, 'portable-data/session-v1-backup.json'), 'utf8'));
   expect(legacyBackup).toEqual(legacySession);
   expect(pageErrors).toEqual([]);
-  const results = { startupMilliseconds, secondFileOpenMilliseconds: openMilliseconds, tabCloseMilliseconds: closeMilliseconds, nativeAutosave: true, companionOutput: true, yamlMetadata: true, activeFormatting: true, legacySessionBackup: true, clipboard: true, singleInstance: true, recovery: true, pageErrors };
+  const results = { startupMilliseconds, secondFileOpenMilliseconds: openMilliseconds, tabCloseMilliseconds: closeMilliseconds, nativeAutosave: true, companionOutput: true, yamlMetadata: true, metadataInitialization: true, activeFormatting: true, legacySessionBackup: true, clipboard: true, singleInstance: true, recovery: true, pageErrors };
   await writeFile('test-results/native-results.json', JSON.stringify(results, null, 2));
   console.log(JSON.stringify(results, null, 2));
 } finally {

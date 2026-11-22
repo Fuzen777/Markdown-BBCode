@@ -16,6 +16,8 @@ A YAML header uses format: mdbbcode, version: 1 and target: nexus. In Visual vie
 
 New files and imports default to .mdbbcode. Existing .md/.markdown files still open without automatic rewriting; Save As offers conversion. The generated companion keeps the same basename. File association remains manual and applies to .mdbbcode independently of ordinary Markdown.
 
+Missing YAML headers offer Initialize Document Properties, which adds Nexus metadata, saves the source and generates BBCode. The body is preserved. Invalid metadata or unsupported content offers Fix Source instead of an ineffective retry. Existing BBCode still requires reviewed replacement.
+
 ## Files And Recovery
 
 Save Markdown first, then generate BBCode. Conversion or output failures must never prevent saving valid source text. Show output failure separately as BBCode Out Of Date. Existing and externally modified outputs require reviewed replacement with a revision check. Source conflicts retain the existing explicit resolution workflow. Source failures block close; output-only failures permit explicit close after warning.

@@ -104,6 +104,7 @@ function render() {
   elements.retry.hidden = !error || error.kind === 'conflict';
   elements['output-notice'].hidden = !activeDocument?.outputError;
   elements['output-notice-text'].textContent = activeDocument?.outputError?.message || '';
+  elements.regenerate.textContent = activeDocument?.outputError?.action === 'initialize' ? 'Initialize Document Properties' : activeDocument?.outputError?.kind === 'conversion' ? 'Fix Source' : 'Regenerate BBCode';
   const changed = activeDocument && activeDocument.content !== activeDocument.savedContent;
   elements['save-status'].textContent = error || globalError ? 'Needs Attention' : !activeDocument?.path ? 'Draft Recovery On' : changed ? 'Saving…' : activeDocument.outputError ? 'Markdown Saved · BBCode Out Of Date' : activeDocument.outputSource !== activeDocument.content ? 'Markdown Saved · Generating BBCode…' : 'Markdown And BBCode Saved';
   elements['document-stats'].textContent = activeDocument ? `${activeDocument.content.length.toLocaleString()} Characters` : '';
@@ -335,6 +336,34 @@ async function importDocument(snapshot) {
   return true;
 }
 
+async function handleOutputAction() {
+  capture();
+  const documentRecord = store.active;
+  if (documentRecord.outputError?.kind !== 'conversion') return regenerateOutput();
+  // Revalidate current text so a stale notice cannot replace newly entered metadata.
+  try { documentToBBCode(documentRecord.content, documentRecord.path); }
+  catch (error) {
+    if (error.action === 'initialize') {
+      documentRecord.content = withDocumentMetadata(documentRecord.content, 'nexus');
+      documentRecord.mode = 'visual';
+      showDocument();
+      await persist();
+      await store.flush(documentRecord);
+      await persist();
+      globalError = '';
+      render();
+      return;
+    }
+    await changeMode('source');
+    safetyNotice = errorMessage(error);
+    elements['markdown-source'].scrollTop = 0;
+    elements['markdown-source'].setSelectionRange(0, 0);
+    render();
+    return;
+  }
+  await regenerateOutput();
+}
+
 async function regenerateOutput() {
   capture();
   const documentRecord = store.active;
@@ -388,7 +417,7 @@ async function initialize() {
     render();
   });
   elements['document-target'].onchange = () => runAction(() => { editor.setTarget(elements['document-target'].value); render(); });
-  elements.regenerate.onclick = () => runAction(regenerateOutput);
+  elements.regenerate.onclick = () => runAction(handleOutputAction);
   for (const button of document.querySelectorAll('[data-format]')) {
     button.onmousedown = event => event.preventDefault();
     button.onclick = () => runAction(() => formatDocument(button.dataset.format));

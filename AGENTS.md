@@ -23,3 +23,8 @@ Run npm test, npm run test:ui, npm run lint, npm run build, Rust tests and Clipp
 ## Metadata And Toolbar State
 
 src/document-format.js owns frontmatter parsing, metadata validation, .mdbbcode preparation and target-aware export. Use documentToBBCode for full document export/copy; markdownToBBCode only accepts the body. Visual editing preserves the header; Source contains the complete file. Never drop unknown properties or overwrite invalid metadata during autosave. Plain .md/.markdown remain supported. YAML is parsed using the [yaml Document API](https://eemeli.org/yaml/#documents), retaining unknown fields and comments. Selection indicators derive from Tiptap transactions and selections, never stale toolbar values. Development file watching excludes portable runtime caches and build output.
+
+
+## Output Error Actions
+
+Missing-header errors carry action: initialize; other conversion failures offer Fix Source. Revalidate current source before initialization so stale notices cannot replace metadata entered since the error. Preserve source-conflict and companion-replacement checks when initializing.

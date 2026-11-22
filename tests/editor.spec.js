@@ -262,3 +262,46 @@ test('formatting controls follow the cursor, selection, mixed styles, and tab ch
   await expect(page.getByLabel('Paragraph Style')).toHaveValue('0');
   await expect(page.getByRole('button', { name: 'Italic', exact: true })).toHaveAttribute('aria-pressed', 'false');
 });
+
+// ==> Section 4 - Actionable Output Failures <==
+test('missing properties offer initialization and generate BBCode without changing the body', async ({ page }) => {
+  const original = 'NAME\nExample Mod\n\n# Description\n\n**Body** with ||spoilers||.';
+  await page.evaluate(content => {
+    window.testDesktop.files['C:\\Page.mdbbcode'] = { path: 'C:\\Page.mdbbcode', content, revision: 'original' };
+    window.testDesktop.openPaths = ['C:\\Page.mdbbcode'];
+  }, original);
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.getByRole('button', { name: 'Initialize Document Properties', exact: true }).click();
+  await expect(page.getByLabel('Target', { exact: true })).toHaveValue('nexus');
+  await expect(page.locator('#save-status')).toHaveText('Markdown And BBCode Saved');
+  const saved = await page.evaluate(() => window.testDesktop.files['C:\\Page.mdbbcode'].content);
+  expect(saved).toBe('---\nformat: mdbbcode\nversion: 1\ntarget: nexus\n---\n\n' + original);
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toContain('[b]Body[/b]');
+  await expect(page.locator('#output-notice')).toBeHidden();
+});
+
+test('invalid metadata offers Fix Source instead of an ineffective regeneration retry', async ({ page }) => {
+  const source = '---\nformat: mdbbcode\nversion: 1\ntarget: [\n---\n\nBody';
+  await setSource(page, source);
+  await saveDraft(page, 'C:\\Page.mdbbcode');
+  await page.getByRole('button', { name: 'Fix Source', exact: true }).click();
+  await expect(page.locator('#markdown-source')).toBeFocused();
+  await expect(page.locator('#markdown-source')).toHaveValue(source);
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'])).toBeUndefined();
+  await expect(page.getByRole('button', { name: 'Regenerate BBCode', exact: true })).toHaveCount(0);
+});
+
+test('initializing properties does not replace an existing BBCode copy without review', async ({ page }) => {
+  await page.evaluate(() => {
+    window.testDesktop.files['C:\\Page.mdbbcode'] = { path: 'C:\\Page.mdbbcode', content: '**Body**', revision: 'original' };
+    window.testDesktop.files['C:\\Page.bbcode'] = { path: 'C:\\Page.bbcode', content: 'Keep this', revision: 'existing' };
+    window.testDesktop.openPaths = ['C:\\Page.mdbbcode'];
+  });
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.getByRole('button', { name: 'Initialize Document Properties', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Regenerate BBCode', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('Keep this');
+  await page.getByRole('button', { name: 'Regenerate BBCode', exact: true }).click();
+  await page.getByRole('button', { name: 'Regenerate And Replace', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('[b]Body[/b]');
+});

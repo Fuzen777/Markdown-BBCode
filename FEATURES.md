@@ -24,3 +24,8 @@ No Steam profile, publishing integration, image uploads or managed local attachm
 ## Document Properties
 
 Visual Target dropdown synchronized with YAML in Source. Nexus is supported; Steam remains unavailable. Invalid YAML saves without generating output. Unknown properties and comments are retained. Save As converts existing Markdown to .mdbbcode with metadata; imports use the new extension too.
+
+
+## Output Recovery
+
+Missing YAML headers offer Initialize Document Properties, which adds Nexus metadata, saves the source and generates BBCode. The body is preserved. Invalid metadata or unsupported content offers Fix Source instead of an ineffective retry. Existing BBCode still requires reviewed replacement.

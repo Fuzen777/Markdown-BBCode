@@ -35,6 +35,8 @@ target: nexus
 
 Format and version are managed automatically. Dropdown changes update the YAML; Source changes appear in the panel when returning to Visual. Unknown fields and comments are preserved. Invalid YAML, unsupported format/version or missing required fields remain saved and source-editable while BBCode generation pauses. Unsupported targets can be changed to Nexus Mods in the panel.
 
+If a .mdbbcode file has no YAML header, click **Initialize Document Properties** to add Nexus settings and generate its BBCode copy. For malformed metadata or unsupported content, **Fix Source** takes you to the source text without changing it.
+
 Opening existing Markdown does not rewrite it. **Save As** suggests `.mdbbcode` and adds metadata when converting plain Markdown. If the new file shares an existing BBCode companion, replacement requires confirmation.
 
 ## Formatting

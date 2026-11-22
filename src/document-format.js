@@ -6,7 +6,7 @@ export function isMdbbcode(path) { return /\.mdbbcode$/i.test(path || ''); }
 export function readDocumentSource(source, required = false) {
   const opening = source.match(/^\uFEFF?---[ \t]*\r?\n/);
   if (!opening) {
-    if (required) throw new Error('Missing YAML header. Add format: mdbbcode, version: 1 and target: nexus between --- lines in Source.');
+    if (required) throw Object.assign(new Error('Missing document properties. Initialize them for Nexus Mods, or add a YAML header in Source.'), { action: 'initialize' });
     return { prefix: '', body: source, target: 'nexus', yaml: null };
   }
   const remaining = source.slice(opening[0].length);
