@@ -6,6 +6,7 @@ import { DocumentStore, documentName, pathKey, outputPath } from './documents.js
 import { MarkdownEditor } from './visual-editor.js';
 import { documentToBBCode, withDocumentMetadata, hasDocumentContent } from './document-format.js';
 import { importBBCode } from './bbcode-import.js';
+import { ColorPicker } from './color-picker.js';
 import './style.css';
 
 const elements = Object.fromEntries([...document.querySelectorAll('[id]')].map(element => [element.id, element]));
@@ -17,6 +18,7 @@ const backend = {
 };
 const store = new DocumentStore(backend, render);
 let editor;
+let colorPicker;
 let baselineValue = '';
 let loadingDocument = false;
 let recoveryTimer;
@@ -47,8 +49,10 @@ function renderFormatting() {
     if (button.dataset.format !== 'clear') button.setAttribute('aria-pressed', String(Boolean(state?.[button.dataset.format])));
   }
   elements.heading.value = state?.heading || '0';
-  elements['text-color'].closest('label').classList.toggle('active', Boolean(state?.color));
-  if (state?.color) elements['text-color'].value = state.color;
+  elements['apply-color'].setAttribute('aria-pressed', String(Boolean(state?.color)));
+  elements['last-color-swatch'].style.backgroundColor = store.preferences.lastColor;
+  elements['apply-color'].title = `Apply Last Color (${store.preferences.lastColor})`;
+  elements['apply-color'].dataset.color = store.preferences.lastColor;
 }
 
 function render() {
@@ -302,7 +306,7 @@ async function closeWindow() {
 
 // ==> Section 4 - Keyboard And Window Events <==
 function keyboardShortcut(event) {
-  if (!event.ctrlKey || event.altKey || elements['choice-dialog'].open) return;
+  if (!event.ctrlKey || event.altKey || elements['choice-dialog'].open || elements['color-dialog'].open) return;
   const key = event.key.toLowerCase();
   const action = key === 'n' ? () => { capture(); store.add(withDocumentMetadata('')); showDocument(); return persist(); }
     : key === 'o' ? () => elements.open.click()
@@ -383,6 +387,13 @@ async function regenerateOutput() {
   render();
 }
 
+async function applyColor(color) {
+  const applied = editor.format('color', color);
+  capture();
+  if (applied !== false) { store.preferences.lastColor = color; await persist(); }
+  renderFormatting();
+}
+
 async function formatDocument(command, value) {
   if (command === 'link' || command === 'image') {
     const choice = await choose(command === 'link' ? 'Insert Link' : 'Insert Image', 'Enter a complete HTTP or HTTPS address.', [['apply', 'Insert'], ['cancel', 'Cancel']], 'https://');
@@ -423,7 +434,16 @@ async function initialize() {
     button.onclick = () => runAction(() => formatDocument(button.dataset.format));
   }
   elements.heading.onchange = () => runAction(() => formatDocument('heading', elements.heading.value));
-  elements['text-color'].onchange = () => runAction(() => formatDocument('color', elements['text-color'].value));
+  colorPicker = new ColorPicker(elements, mode => { store.preferences.colorMode = mode; void persist().catch(() => {}); });
+  for (const id of ['apply-color', 'choose-color']) elements[id].onmousedown = event => event.preventDefault();
+  elements['apply-color'].onclick = () => runAction(() => applyColor(store.preferences.lastColor));
+  elements['choose-color'].onclick = () => runAction(async () => {
+    capture();
+    const bookmark = editor.selectionBookmark();
+    const color = await colorPicker.open(store.preferences);
+    editor.restoreSelection(bookmark);
+    if (color) await applyColor(color);
+  });
   elements.visual.onclick = () => runAction(() => changeMode('visual'));
   elements.source.onclick = () => runAction(() => changeMode('source'));
   elements.resolve.onclick = () => runAction(() => resolveConflict());

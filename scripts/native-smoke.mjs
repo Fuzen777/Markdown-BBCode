@@ -27,6 +27,8 @@ const startedAt = performance.now();
 const application = spawn(executablePath, [firstPath], { windowsHide: true, env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}` } });
 const applicationExit = once(application, 'exit');
 let browser;
+let restartedApplication;
+let restartedBrowser;
 
 // ==> Section 2 - Native UI And File Persistence <==
 try {
@@ -67,6 +69,12 @@ try {
   await expect(page.getByLabel('Target', { exact: true })).toHaveValue('nexus');
   await page.locator('.tiptap strong').click();
   await expect(page.getByRole('button', { name: 'Bold', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Choose Text Color', exact: true }).click();
+  await page.getByLabel('Hex', { exact: true }).fill('123456');
+  await page.getByRole('button', { name: 'Apply Color', exact: true }).click();
+  await page.getByRole('button', { name: 'Choose Text Color', exact: true }).click();
+  await page.getByLabel('Value Type').selectOption('rgb');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.screenshot({ path: 'test-results/native-window.png' });
   await page.evaluate(() => window.__TAURI_INTERNALS__.invoke('plugin:event|emit', { event: 'request-close', payload: null }));
   await applicationExit;
@@ -76,11 +84,38 @@ try {
   expect(recoverySession.pendingImports[0].content).toBe('[b]Recovered legacy draft[/b]');
   const legacyBackup = JSON.parse(await readFile(resolve(testDirectory, 'portable-data/session-v1-backup.json'), 'utf8'));
   expect(legacyBackup).toEqual(legacySession);
+  expect(recoverySession.preferences).toEqual({ lastColor: '#123456', colorMode: 'rgb' });
+  await browser.close();
+  const restartPortServer = createServer();
+  restartPortServer.listen(0, '127.0.0.1');
+  await once(restartPortServer, 'listening');
+  const restartPort = restartPortServer.address().port;
+  await new Promise(resolveClose => restartPortServer.close(resolveClose));
+  restartedApplication = spawn(executablePath, [], { windowsHide: true, env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=' + restartPort } });
+  const restartedExit = once(restartedApplication, 'exit');
+  for (let attempt = 0; attempt < 100; attempt++) {
+    try { restartedBrowser = await chromium.connectOverCDP('http://127.0.0.1:' + restartPort); break; }
+    catch { await new Promise(resolveWait => setTimeout(resolveWait, 100)); }
+  }
+  if (!restartedBrowser) throw new Error('Restarted app did not expose a testing connection.');
+  let restartedPage;
+  await expect.poll(() => { restartedPage = restartedBrowser.contexts()[0].pages().find(candidate => !candidate.url().startsWith('devtools:')); return Boolean(restartedPage); }).toBe(true);
+  restartedPage.on('pageerror', error => pageErrors.push(error.message));
+  await expect(restartedPage.locator('html')).toHaveAttribute('data-ready', 'true');
+  await expect(restartedPage.locator('#apply-color')).toHaveAttribute('data-color', '#123456');
+  await restartedPage.getByRole('button', { name: 'Choose Text Color', exact: true }).click();
+  await expect(restartedPage.getByLabel('Value Type')).toHaveValue('rgb');
+  await expect(restartedPage.getByLabel('Red', { exact: true })).toHaveValue('18');
+  await restartedPage.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await restartedPage.evaluate(() => window.__TAURI_INTERNALS__.invoke('plugin:event|emit', { event: 'request-close', payload: null }));
+  await restartedExit;
   expect(pageErrors).toEqual([]);
-  const results = { startupMilliseconds, secondFileOpenMilliseconds: openMilliseconds, tabCloseMilliseconds: closeMilliseconds, nativeAutosave: true, companionOutput: true, yamlMetadata: true, metadataInitialization: true, activeFormatting: true, legacySessionBackup: true, clipboard: true, singleInstance: true, recovery: true, pageErrors };
+  const results = { startupMilliseconds, secondFileOpenMilliseconds: openMilliseconds, tabCloseMilliseconds: closeMilliseconds, nativeAutosave: true, companionOutput: true, yamlMetadata: true, metadataInitialization: true, colorPreferencesAcrossLaunches: true, activeFormatting: true, legacySessionBackup: true, clipboard: true, singleInstance: true, recovery: true, pageErrors };
   await writeFile('test-results/native-results.json', JSON.stringify(results, null, 2));
   console.log(JSON.stringify(results, null, 2));
 } finally {
   await browser?.close().catch(() => {});
+  await restartedBrowser?.close().catch(() => {});
+  if (restartedApplication?.exitCode === null) restartedApplication.kill();
   if (application.exitCode === null) application.kill();
 }

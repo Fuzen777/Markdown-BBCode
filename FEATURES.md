@@ -29,3 +29,8 @@ Visual Target dropdown synchronized with YAML in Source. Nexus is supported; Ste
 ## Output Recovery
 
 Missing YAML headers offer Initialize Document Properties, which adds Nexus metadata, saves the source and generates BBCode. The body is preserved. Invalid metadata or unsupported content offers Fix Source instead of an ineffective retry. Existing BBCode still requires reviewed replacement.
+
+
+## Color Picker
+
+The Color control is split: click the swatch to apply the last-used color immediately, or the arrow to open the in-app picker. Hex, RGB and HSL input modes and hue/saturation/lightness sliders are supported. Hex accepts 3 or 6 digits with an optional #. The last-applied color and selected input mode persist across launches in portable-data; changing mode is remembered even when canceling. Selecting colored text highlights the control without replacing the remembered color. Cancel/Escape leaves document content unchanged. Visual and Source selections are preserved while choosing a color.

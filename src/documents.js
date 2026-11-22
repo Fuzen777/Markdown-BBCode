@@ -1,4 +1,5 @@
 // ==> Section 1 - Document Identity <==
+import { colorPreferences } from './colors.js';
 import { documentToBBCode, prepareDocumentSource } from './document-format.js';
 export function pathKey(path) { return path?.replace(/^\\\\\?\\/, '').replaceAll('/', '\\').toLowerCase(); }
 export function outputPath(path) { return path.replace(/\.(mdbbcode|md|markdown)$/i, '.bbcode'); }
@@ -14,6 +15,7 @@ export class DocumentStore {
     this.onChange = onChange;
     this.documents = [];
     this.pendingImports = [];
+    this.preferences = colorPreferences();
     this.exports = {};
     this.activeId = null;
     this.sessionQueue = Promise.resolve();
@@ -28,6 +30,7 @@ export class DocumentStore {
       this.pendingImports = session.documents.filter(documentRecord => documentRecord.content).map(documentRecord => ({ id: documentRecord.id, name: documentName(documentRecord), path: documentRecord.path, content: documentRecord.content }));
       return;
     }
+    this.preferences = colorPreferences(session.preferences);
     this.exports = session.exports || {};
     this.pendingImports = session.pendingImports || [];
     this.documents = session.documents.map(documentRecord => ({ ...createDocument(), ...documentRecord, error: null, outputError: null }));
@@ -41,7 +44,7 @@ export class DocumentStore {
     this.activeId = this.documents.find(documentRecord => documentRecord.id === session.activeId && documentRecord.open)?.id || this.documents.find(documentRecord => documentRecord.open)?.id || null;
   }
   snapshot() {
-    return { version: 2, activeId: this.activeId, exports: structuredClone(this.exports), pendingImports: structuredClone(this.pendingImports), documents: this.documents.map(documentRecord => ({ ...documentRecord, error: null, outputError: null })) };
+    return { version: 2, preferences: { ...this.preferences }, activeId: this.activeId, exports: structuredClone(this.exports), pendingImports: structuredClone(this.pendingImports), documents: this.documents.map(documentRecord => ({ ...documentRecord, error: null, outputError: null })) };
   }
   persist() {
     const snapshot = this.snapshot();

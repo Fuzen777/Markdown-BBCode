@@ -54,6 +54,10 @@ Formatting buttons highlight styles active at the cursor or across the selection
 
 Visual editing may normalize Markdown syntax after an edit; simply opening a file preserves its source. Switching tabs or modes resets visual undo history. Nexus appearance may differ; check the final description there. Steam support is deferred.
 
+## Color Picker
+
+The Color control is split: click the swatch to apply the last-used color immediately, or the arrow to open the in-app picker. Hex, RGB and HSL input modes and hue/saturation/lightness sliders are supported. Hex accepts 3 or 6 digits with an optional #. The last-applied color and selected input mode persist across launches in portable-data; changing mode is remembered even when canceling. Selecting colored text highlights the control without replacing the remembered color. Cancel/Escape leaves document content unchanged. Visual and Source selections are preserved while choosing a color.
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |

@@ -47,8 +47,8 @@ footer { display: flex; gap: 24px; padding: 8px 20px; border-top: 1px solid var(
 #format-toolbar button:hover { background: var(--accent-bg); }
 select { font: inherit; font-size: 12px; padding: 5px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; }
 .toolbar-divider { height: 22px; width: 1px; background: var(--line); margin: 0 4px; }
-.color-control { display: flex; align-items: center; gap: 5px; padding: 0 6px; font-size: 12px; }
-input[type=color] { width: 26px; height: 25px; border: 0; padding: 0; background: transparent; cursor: pointer; }
+.color-control { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 5px; }
+#last-color-swatch { display: inline-block; width: 20px; height: 14px; vertical-align: middle; border: 1px solid var(--muted); margin-left: 4px; }
 #visual-editor { flex: 1; min-height: 0; overflow: auto; cursor: text; }
 .tiptap { min-height: 100%; padding: 22px 28px; outline: none; font: 15px/1.7 'Segoe UI', sans-serif; overflow-wrap: anywhere; }
 .tiptap > :first-child { margin-top: 0; }
@@ -76,4 +76,23 @@ dialog p { line-height: 1.6; white-space: pre-wrap; max-height: 50vh; overflow: 
 #properties-title { margin-right: 8px; }
 #target-note { color: var(--muted); flex: 1; min-width: 120px; }
 #format-toolbar button[aria-pressed=true] { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
-.color-control.active { background: var(--accent-bg); border-radius: 4px; outline: 1px solid var(--accent); }
+
+
+/* ==> Section 5 - In-App Color Picker <== */
+#format-toolbar #choose-color { border-left: 1px solid var(--line); border-radius: 0 4px 4px 0; }
+#color-dialog { width: 390px; max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); overflow: auto; padding: 22px; }
+.color-preview-row { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; font-family: Consolas, monospace; }
+#color-preview { width: 48px; height: 36px; border: 1px solid var(--muted); border-radius: 5px; }
+.color-sliders { display: grid; gap: 12px; margin-bottom: 20px; }
+.color-sliders label { display: grid; grid-template-columns: 80px 1fr; align-items: center; font-size: 12px; }
+.color-sliders input { width: 100%; margin: 0; height: 12px; border-radius: 7px; appearance: none; border: 1px solid var(--line); }
+.color-sliders input::-webkit-slider-thumb { appearance: none; width: 16px; height: 20px; border-radius: 5px; border: 2px solid var(--panel); background: var(--text); box-shadow: 0 0 0 1px var(--muted); cursor: pointer; }
+#color-hue { background: linear-gradient(to right, red, yellow, lime, cyan, blue, magenta, red); }
+.color-mode-label { margin-right: 12px; font-size: 13px; }
+.color-values { display: flex; gap: 10px; margin-top: 14px; }
+.color-values label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
+.color-values input { width: 100%; padding: 8px; color: var(--text); background: var(--panel); border: 1px solid var(--line); border-radius: 5px; font: 14px Consolas, monospace; }
+#color-hex-fields { flex-direction: column; gap: 6px; }
+#color-hex-help { color: var(--muted); }
+#color-error { font-size: 12px; min-height: 18px; margin: 12px 0; }
+.color-actions { display: flex; justify-content: flex-end; gap: 8px; }

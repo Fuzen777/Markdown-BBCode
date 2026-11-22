@@ -86,7 +86,9 @@ test('formatting buttons update the Markdown source', async ({ page }) => {
   await visual.press('Control+a');
   await page.getByRole('button', { name: 'Bold', exact: true }).click();
   await page.getByRole('button', { name: 'Spoiler', exact: true }).click();
-  await page.locator('#text-color').evaluate(element => { element.value = '#ff0000'; element.dispatchEvent(new Event('change', { bubbles: true })); });
+  await page.getByRole('button', { name: 'Choose Text Color', exact: true }).click();
+  await page.getByLabel('Hex', { exact: true }).fill('ff0000');
+  await page.getByRole('button', { name: 'Apply Color', exact: true }).click();
   await page.getByRole('button', { name: 'Center', exact: true }).click();
   await page.getByRole('button', { name: 'Source', exact: true }).click();
   const source = await page.getByRole('textbox', { name: 'Markdown Source' }).inputValue();
@@ -304,4 +306,78 @@ test('initializing properties does not replace an existing BBCode copy without r
   await page.getByRole('button', { name: 'Regenerate BBCode', exact: true }).click();
   await page.getByRole('button', { name: 'Regenerate And Replace', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('[b]Body[/b]');
+});
+
+// ==> Section 5 - Persistent Color Picker <==
+test('picker preserves visual selection and last color is independent of selected text', async ({ page }) => {
+  await setSource(page, 'First paragraph\n\n<span style="color: #0000ff">Blue text</span>');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await selectText(page, '.tiptap p:first-child', true);
+  await page.getByRole('button', { name: 'Choose Text Color', exact: true }).click();
+  await page.getByLabel('Hex', { exact: true }).fill('f00');
+  await page.getByRole('button', { name: 'Apply Color', exact: true }).click();
+  await expect(page.locator('.tiptap p:first-child span')).toHaveCSS('color', 'rgb(255, 0, 0)');
+  await selectText(page, '.tiptap p:last-child', true);
+  await expect(page.locator('#apply-color')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#apply-color')).toHaveAttribute('data-color', '#ff0000');
+  await page.getByRole('button', { name: 'Apply Last Color', exact: true }).click();
+  await expect(page.locator('.tiptap p:last-child span')).toHaveCSS('color', 'rgb(255, 0, 0)');
+  await expect(page.locator('#color-dialog')).not.toBeVisible();
+});
+
+test('mode persists on cancel and last-applied color persists after reload', async ({ page }) => {
+  await page.getByRole('textbox', { name: 'Visual Markdown Editor' }).fill('Color this');
+  await selectText(page, '.tiptap p', true);
+  await page.getByRole('button', { name: 'Choose Text Color', exact: true }).click();
+  await page.getByLabel('Value Type').selectOption('rgb');
+  await page.getByLabel('Red', { exact: true }).fill('18');
+  await page.getByLabel('Green', { exact: true }).fill('52');
+  await page.getByLabel('Blue', { exact: true }).fill('86');
+  await page.getByRole('button', { name: 'Apply Color', exact: true }).click();
+  await expect(page.locator('#apply-color')).toHaveAttribute('data-color', '#123456');
+  await page.getByRole('button', { name: 'Choose Text Color', exact: true }).click();
+  await page.getByLabel('Value Type').selectOption('hsl');
+  await page.getByLabel('Hue', { exact: true }).fill('120');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session.preferences)).toEqual({ colorMode: 'hsl', lastColor: '#123456' });
+  await page.evaluate(() => localStorage.setItem('seedSession', JSON.stringify(window.testDesktop.session)));
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-ready', 'true');
+  await expect(page.locator('#apply-color')).toHaveAttribute('data-color', '#123456');
+  await page.getByRole('button', { name: 'Choose Text Color', exact: true }).click();
+  await expect(page.getByLabel('Value Type')).toHaveValue('hsl');
+  await expect(page.locator('#color-preview-value')).toHaveText('#123456');
+});
+
+test('invalid input cannot apply and source selection survives the picker', async ({ page }) => {
+  await setSource(page, 'Before Selected After');
+  await page.locator('#markdown-source').evaluate(element => element.setSelectionRange(7, 15));
+  await page.getByRole('button', { name: 'Choose Text Color', exact: true }).click();
+  await page.getByLabel('Hex', { exact: true }).fill('not hex');
+  await page.getByRole('button', { name: 'Apply Color', exact: true }).click();
+  await expect(page.locator('#color-error')).toContainText('hexadecimal');
+  await expect(page.locator('#color-dialog')).toBeVisible();
+  await page.getByLabel('Hex', { exact: true }).fill('00ff00');
+  await page.getByRole('button', { name: 'Apply Color', exact: true }).click();
+  await expect(page.locator('#markdown-source')).toHaveValue('Before <span style="color: #00ff00">Selected</span> After');
+});
+
+test('HSL and visual sliders update the preview and picker fits light dark and narrow views', async ({ page }) => {
+  await page.getByRole('button', { name: 'Choose Text Color', exact: true }).click();
+  await page.getByLabel('Value Type').selectOption('hsl');
+  await page.getByLabel('Hue', { exact: true }).fill('120');
+  await page.getByLabel('Saturation (%)', { exact: true }).fill('100');
+  await page.getByLabel('Lightness (%)', { exact: true }).fill('50');
+  await expect(page.locator('#color-preview-value')).toHaveText('#00ff00');
+  await page.getByLabel('Hue Slider', { exact: true }).fill('240');
+  await expect(page.locator('#color-preview-value')).toHaveText('#0000ff');
+  await page.screenshot({ path: 'test-results/color-light.png' });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: 'test-results/color-dark.png' });
+  await page.setViewportSize({ width: 720, height: 480 });
+  await expect(page.getByRole('button', { name: 'Apply Color', exact: true })).toBeInViewport();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#color-dialog')).not.toBeVisible();
+  await expect(page.locator('#apply-color')).toHaveAttribute('data-color', '#e6a050');
 });

@@ -28,3 +28,8 @@ src/document-format.js owns frontmatter parsing, metadata validation, .mdbbcode 
 ## Output Error Actions
 
 Missing-header errors carry action: initialize; other conversion failures offer Fix Source. Revalidate current source before initialization so stale notices cannot replace metadata entered since the error. Preserve source-conflict and companion-replacement checks when initializing.
+
+
+## Color Preferences
+
+src/colors.js owns numeric conversion and preference validation; src/color-picker.js owns the modal picker. Session preferences.lastColor and preferences.colorMode are global, portable settings. Restore with defaults for older sessions. Only applying a color changes lastColor; selection changes must not overwrite it. Save mode changes immediately, including on cancellation. Editor selection bookmarks preserve Visual and Source selection across the dialog.

@@ -72,10 +72,19 @@ export class MarkdownEditor {
   focus() { if (this.sourceMode()) this.sourceElement.focus(); else this.editor.commands.focus(); }
   readOnly(value) { this.readonly = value; this.sourceElement.readOnly = value; this.editor?.setEditable(!value); }
 
+  selectionBookmark() {
+    return this.sourceMode() ? { start: this.sourceElement.selectionStart, end: this.sourceElement.selectionEnd, direction: this.sourceElement.selectionDirection } : this.editor.state.selection.getBookmark();
+  }
+  restoreSelection(bookmark) {
+    if (this.sourceMode()) this.sourceElement.setSelectionRange(bookmark.start, bookmark.end, bookmark.direction);
+    else this.editor.view.dispatch(this.editor.state.tr.setSelection(bookmark.resolve(this.editor.state.doc)));
+    this.focus();
+  }
+
   // ==> Section 2 - Formatting Commands <==
   format(command, value) {
     if (this.readonly) return;
-    if (this.sourceMode()) { this.formatSource(command, value); return; }
+    if (this.sourceMode()) return this.formatSource(command, value);
     const chain = this.editor.chain().focus();
     const actions = {
       bold: () => chain.toggleBold(), italic: () => chain.toggleItalic(), strike: () => chain.toggleStrike(),
@@ -90,7 +99,7 @@ export class MarkdownEditor {
         return !selection.empty && selection.$from.sameParent(selection.$to) ? chain.toggleMark('spoiler') : chain.wrapIn('spoilerBlock');
       },
     };
-    actions[command]?.().run();
+    return actions[command]?.().run();
   }
   formatSource(command, value) {
     const textarea = this.sourceElement;
@@ -112,5 +121,6 @@ export class MarkdownEditor {
     textarea.setRangeText(replacement, start, end, 'select');
     textarea.focus();
     this.onChange();
+    return true;
   }
 }

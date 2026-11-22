@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4 — 2026-11-23
+
+1. Added one-click application of the last-used text color with a split Color button.
+2. Replaced the native picker with an in-app Hex/RGB/HSL picker and visual sliders; hex accepts an optional #.
+3. Persisted last-applied color and input mode across launches, independently of selection styles.
+4. Preserved Visual and Source selections across color picking, with validation and cancellation protection.
+
 ## 0.1.3 — 2026-11-23
 
 1. Fixed ineffective regeneration for .mdbbcode files without metadata: Initialize Document Properties adds Nexus settings and generates output.

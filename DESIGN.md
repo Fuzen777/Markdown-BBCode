@@ -33,3 +33,8 @@ Legacy session documents remain pending BBCode imports until explicitly accepted
 ## Interface
 
 Use system light/dark appearance, compact file controls, tabs, formatting toolbar, Visual/Source switch and separate Markdown/output status. Highlight active formatting at the cursor or across the whole selection. The paragraph dropdown reflects headings 1–6, Paragraph, Mixed or Other Block. Recompute indicators on selection, edits and undo; source mode has no inferred formatting state. Keep standard file shortcuts and single-instance opening. Windows file association remains manual.
+
+
+## Color Preferences
+
+The Color control is split: click the swatch to apply the last-used color immediately, or the arrow to open the in-app picker. Hex, RGB and HSL input modes and hue/saturation/lightness sliders are supported. Hex accepts 3 or 6 digits with an optional #. The last-applied color and selected input mode persist across launches in portable-data; changing mode is remembered even when canceling. Selecting colored text highlights the control without replacing the remembered color. Cancel/Escape leaves document content unchanged. Visual and Source selections are preserved while choosing a color.
