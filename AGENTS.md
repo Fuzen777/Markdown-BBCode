@@ -2,20 +2,20 @@
 
 ## Scope
 
-Portable Windows app built with Tauri 2, Rust, vanilla JavaScript, and SCEditor 3. Read DESIGN.md before changing user-facing behaviour. Nexus mod descriptions are the current target; Steam is deferred.
+Portable Windows app built with Tauri 2, Rust, vanilla JavaScript and Tiptap 3. Read DESIGN.md before changing user-facing behaviour. Markdown is authoritative; Nexus BBCode is generated beside it. Steam is deferred.
 
 ## Development
 
-Run `npm install`, then `npm run tauri dev`. Use `npm run portable` for the Windows x64 portable folder under `release`. WebView2 is required. Keep frontend packages and Rust dependencies locked.
+Run `npm ci`, then `npm run tauri dev`. `npm run portable` creates a versioned release folder. Keep dependencies locked. WebView2 is required.
 
-## Safety And Persistence
+## Persistence
 
-Never silently discard unknown BBCode or overwrite external changes. Keep original source unchanged until an actual edit. Recovery snapshots and settings belong beside the executable. Only local UI has Tauri capabilities; remote images must not receive filesystem or IPC access.
+Save Markdown independently before output generation. Never silently replace existing or externally changed files. Preserve untouched source. Keep legacy recovery as pending imports and back up version-1 sessions. Imports must not overwrite their original BBCode. Export ownership records include the source path as well as the output revision. Settings and recovery belong beside the executable.
 
-## Validation
+## Conversion
 
-Run `npm test`, `npm run test:ui`, `npm run lint`, `npm run build`, and Rust tests and Clippy. Keep tests focused on round trips and persistence failure cases. Do not commit generated builds, dependency folders, or user recovery data.
+src/markdown.js owns the schema, custom spoiler/center/color extensions, Markdown conversion and Nexus output. src/bbcode-import.js owns one-time imports and loss warnings. The Tiptap Markdown manager is used directly with an isolated Marked instance; the visual editor works with validated schema JSON. Its escapeMarkdownSyntax override escapes literal pipes to distinguish them from spoiler delimiters. Recheck this override when upgrading Tiptap Markdown, which is a beta API. Visual editors are recreated on tab/mode changes, resetting undo history.
 
-## Documentation
+## Validation And Documentation
 
-Keep DESIGN.md, FEATURES.md, and CHANGELOG.md aligned with implemented behaviour. This project shares the parent repository; stage and commit only this project's files.
+Run npm test, npm run test:ui, npm run lint, npm run build, Rust tests and Clippy. After packaging, scripts/native-smoke.mjs exercises the real desktop bridge in an isolated test folder. Keep DESIGN.md, FEATURES.md, README.md, CHANGELOG.md and VALIDATION.md aligned. Do not commit builds, dependencies or recovery data. This project shares its parent Git repository; stage and commit only this project's files.

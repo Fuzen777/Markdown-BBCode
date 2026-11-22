@@ -2,30 +2,31 @@
 
 ## Automated Checks
 
-Validated on the available Windows x64 machine on 2026-11-22.
+Validated version 0.1.1 on Windows x64 on 2026-11-22.
 
-| Check | Coverage |
+| Check | Result And Coverage |
 | --- | --- |
-| JavaScript Tests | Untouched source, in-flight save edits, external conflicts, recovered drafts, failed saves, session write order, Windows path identity, and unknown tags. |
-| Browser Integration | Real SCEditor visual/source conversion, supported formatting, autosave conflicts, save failures, tab isolation, light/dark layout, toolbar-generated Nexus lists, spoiler edits, and unchanged file preservation. |
-| Rust Tests | Atomic replacement, external revision checks, deleted files, Unicode, Save As protection, and non-UTF-8 rejection. |
-| Lint | ESLint and Rust Clippy with warnings treated as errors. |
-| Native Smoke Test | Release executable running in WebView2 with real Rust file writes, clipboard copying, single-instance file dispatch, tab close, and recovery snapshot persistence. |
+| JavaScript | 29 passed: Markdown round trips, custom formatting, import warnings, migration, paired saves, conflicts, in-flight edits and output failures. |
+| Browser Integration | 9 passed: real Tiptap editing, formatting buttons, source switching, imports, recovery, autosave conflicts, save failures and responsive light/dark layouts. |
+| Rust | 3 passed: atomic replacement, revision checks, missing files, Unicode, Save As protection and invalid UTF-8. |
+| Lint | ESLint and Rust Clippy passed; Rust formatting applied. |
+| Production Build | Frontend and portable Windows executable built successfully. Vite reports a non-blocking JavaScript chunk-size warning. |
+| Native Smoke | Real Rust source writes, generated BBCode, clipboard copy, single-instance dispatch, tab close, recovery persistence and version-1 session backup passed with no page errors. |
 
-The browser tests replace the desktop bridge with an in-memory test backend. The native smoke test uses an isolated copy under `test-results/native` and exercises the real desktop bridge. Its debugging connection is supplied by the test process environment, not enabled by the distributed application.
+Browser integration uses an in-memory desktop bridge. Native validation uses an isolated copy under test-results/native with a test-only debugging connection supplied through its environment. The distributed app does not enable that connection. Light, dark and native screenshots were inspected.
 
 ## Timing Sample
 
 | Operation | Observed Time |
 | --- | --- |
-| Launch To Ready With A Document | 1,153 ms |
-| Second File Launch Into Existing Window | 120 ms |
-| Closing A Document Tab | 31 ms |
+| Launch To Ready With A Document | 1,051 ms |
+| Second File Launch Into Existing Window | 91 ms |
+| Closing A Document Tab | 44 ms |
 
-These are single automated observations on the development machine, including automation overhead. They are not a benchmark guarantee and do not represent large-document performance.
+Single observations on the development machine, including automation overhead; not guarantees or large-document benchmarks.
 
 ## Remaining Manual Checks
 
-1. Native Windows Open/Save dialog interaction: the computer-control tool failed to initialize because its sandbox launcher could not create a process security environment. Native file persistence, startup file arguments, and clipboard operations were tested separately.
-2. Final rendering of a representative mod description on Nexus Mods. No content was published or submitted during testing.
-3. Windows Open With association on the user's chosen permanent portable-app path. No system file association was changed during implementation.
+1. Native Open/Save dialog interaction: computer-control tools could not initialize due to their sandbox launcher. Real native file writes and startup arguments were tested independently.
+2. Final appearance of a representative description on Nexus Mods. Nothing was published during validation.
+3. Windows Open With association at the user's chosen permanent path. No system association was changed.

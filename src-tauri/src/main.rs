@@ -68,7 +68,16 @@ fn atomicWrite(path: &Path, bytes: &[u8]) -> Result<(), StorageError> {
 }
 
 fn readSnapshot(path: &Path) -> Result<FileSnapshot, StorageError> {
-    let resolvedPath = path.canonicalize().map_err(StorageError::io)?;
+    let resolvedPath = path.canonicalize().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            StorageError {
+                kind: "missing".into(),
+                message: "The file no longer exists.".into(),
+            }
+        } else {
+            StorageError::io(error)
+        }
+    })?;
     let bytes = fs::read(&resolvedPath).map_err(StorageError::io)?;
     let content = String::from_utf8(bytes.clone()).map_err(|_| {
         StorageError::io("This file is not UTF-8 text. Convert a copy to UTF-8 before opening it.")
@@ -139,6 +148,19 @@ fn save_session(
 ) -> Result<(), StorageError> {
     let _writeGuard = state.writeLock.lock().map_err(StorageError::io)?;
     let bytes = serde_json::to_vec(&session).map_err(StorageError::io)?;
+    let sessionPath = state.dataDirectory.join("session.json");
+    let backupPath = state.dataDirectory.join("session-v1-backup.json");
+    if session.get("version").and_then(|value| value.as_u64()) == Some(2) && !backupPath.exists() {
+        if let Ok(previousBytes) = fs::read(&sessionPath) {
+            if serde_json::from_slice::<serde_json::Value>(&previousBytes)
+                .ok()
+                .and_then(|previous| previous.get("version").and_then(|value| value.as_u64()))
+                == Some(1)
+            {
+                atomicWrite(&backupPath, &previousBytes)?;
+            }
+        }
+    }
     atomicWrite(&state.dataDirectory.join("session.json"), &bytes)
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "bbcode-editor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,7 +17,11 @@
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
-    "sceditor": "^3.2.0"
+    "@tiptap/core": "^3.35.0",
+    "@tiptap/extension-image": "^3.35.0",
+    "@tiptap/markdown": "^3.35.0",
+    "@tiptap/starter-kit": "^3.35.0",
+    "marked": "^18.2.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

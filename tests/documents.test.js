@@ -1,123 +1,176 @@
-// ==> Section 1 - Persistence Test Backend <==
+// ==> Section 1 - Paired File Persistence Tests <==
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DocumentStore, pathKey } from '../src/documents.js';
-import { unsupportedTags, visualSafety } from '../src/nexus.js';
+import { DocumentStore, pathKey, outputPath } from '../src/documents.js';
+import { backendFixture } from './backend.js';
 
-function backendFixture() {
-  const files = new Map();
-  let session = null;
-  let revisionCounter = 0;
-  return {
-    files,
-    async readFile(path) {
-      if (!files.has(path)) throw new Error('Missing file');
-      return structuredClone(files.get(path));
-    },
-    async saveFile(path, content, expectedRevision) {
-      if ((files.get(path)?.revision || null) !== expectedRevision) throw { kind: 'conflict', message: 'Changed outside editor' };
-      const snapshot = { path, content, revision: String(++revisionCounter) };
-      files.set(path, snapshot);
-      return snapshot;
-    },
-    async loadSession() { return structuredClone(session); },
-    async saveSession(snapshot) { session = structuredClone(snapshot); },
-  };
-}
-
-// ==> Section 2 - Document Safety Tests <==
-test('opening and persisting an untouched file never normalizes its bytes', async () => {
+test('Markdown is preserved byte-for-byte and creates a BBCode companion', async () => {
   const backend = backendFixture();
-  const original = '\uFEFF[B]é[/B]\r\n\r\n';
-  await backend.saveFile('C:\\sample.bbcode', original, null);
+  const original = '\uFEFF**é**\r\n\r\n';
+  await backend.saveFile('C:\\Page.md', original, null);
   const store = new DocumentStore(backend);
-  const documentRecord = await store.open('C:\\sample.bbcode');
+  const documentRecord = await store.open('C:\\Page.md');
   await store.flush(documentRecord);
-  await store.persist();
-  assert.equal(backend.files.get(documentRecord.path).content, original);
+  assert.equal(backend.files.get('C:\\Page.md').content, original);
+  assert.match(backend.files.get('C:\\Page.bbcode').content, /\[b\]é\[\/b\]/);
+  assert.equal(documentRecord.outputSource, original);
 });
 
-test('edits made during an in-flight save are not marked saved or discarded', async () => {
+test('existing output blocks replacement but not Markdown saving', async () => {
   const backend = backendFixture();
-  await backend.saveFile('file.bbcode', 'Original', null);
+  await backend.saveFile('Page.md', 'Original', null);
+  const output = await backend.saveFile('Page.bbcode', 'Existing output', null);
   const store = new DocumentStore(backend);
-  const documentRecord = await store.open('file.bbcode');
+  const documentRecord = await store.open('Page.md');
+  documentRecord.content = '**Edited**';
+  await store.flush(documentRecord);
+  assert.equal(backend.files.get('Page.md').content, '**Edited**');
+  assert.equal(backend.files.get('Page.bbcode').content, 'Existing output');
+  assert.equal(documentRecord.outputError.kind, 'conflict');
+  await store.regenerate(documentRecord, output.revision);
+  assert.equal(backend.files.get('Page.bbcode').content, '[b]Edited[/b]');
+  assert.equal(documentRecord.outputError, null);
+});
+
+test('conversion failure saves Markdown and retains the last good BBCode', async () => {
+  const backend = backendFixture();
+  const store = new DocumentStore(backend);
+  const documentRecord = store.add('Good');
+  await store.saveAs(documentRecord, 'Page.md');
+  documentRecord.content = '<script>unsupported</script>';
+  await store.flush(documentRecord);
+  assert.equal(backend.files.get('Page.md').content, documentRecord.content);
+  assert.equal(backend.files.get('Page.bbcode').content, 'Good');
+  assert.equal(documentRecord.outputError.kind, 'conversion');
+});
+
+test('output disk failures do not mark Markdown as unsaved', async () => {
+  const backend = backendFixture();
+  const store = new DocumentStore(backend);
   const originalSave = backend.saveFile;
-  let releaseSave;
-  backend.saveFile = async (...argumentsList) => {
-    await new Promise(resolve => { releaseSave = resolve; });
-    return originalSave(...argumentsList);
+  backend.saveFile = async (path, ...argumentsList) => {
+    if (path.endsWith('.bbcode')) throw { kind: 'io', message: 'Disk full' };
+    return originalSave(path, ...argumentsList);
   };
-  documentRecord.content = 'First';
-  const pendingSave = store.flush(documentRecord);
-  await new Promise(resolve => setImmediate(resolve));
-  documentRecord.content = 'Second';
-  releaseSave();
-  await pendingSave;
-  assert.equal(documentRecord.savedContent, 'First');
-  assert.equal(documentRecord.content, 'Second');
-  backend.saveFile = originalSave;
-  await store.flush(documentRecord);
-  assert.equal(backend.files.get('file.bbcode').content, 'Second');
+  const documentRecord = store.add('Important');
+  await store.saveAs(documentRecord, 'Page.md');
+  assert.equal(documentRecord.savedContent, 'Important');
+  assert.equal(documentRecord.error, null);
+  assert.equal(documentRecord.outputError.kind, 'io');
 });
 
-test('external changes block autosave and local edits survive recovery', async () => {
+test('external Markdown changes still block source overwrites and survive recovery', async () => {
   const backend = backendFixture();
-  await backend.saveFile('file.bbcode', 'Original', null);
+  const initial = await backend.saveFile('Page.md', 'Original', null);
   const store = new DocumentStore(backend);
-  const documentRecord = await store.open('file.bbcode');
-  documentRecord.content = 'Local edit';
-  await backend.saveFile('file.bbcode', 'External edit', documentRecord.revision);
+  const documentRecord = await store.open('Page.md');
+  documentRecord.content = 'My edit';
+  await backend.saveFile('Page.md', 'External edit', initial.revision);
   await assert.rejects(store.flush(documentRecord), { kind: 'conflict' });
   await store.persist();
   const restored = new DocumentStore(backend);
   await restored.restore();
-  assert.equal(restored.active.content, 'Local edit');
+  assert.equal(restored.active.content, 'My edit');
   assert.equal(restored.active.error.kind, 'conflict');
-  assert.equal(backend.files.get('file.bbcode').content, 'External edit');
 });
 
-test('unnamed drafts survive restart and duplicate open keeps pending edits', async () => {
+test('external BBCode changes are detected even while Markdown is unchanged', async () => {
   const backend = backendFixture();
   const store = new DocumentStore(backend);
-  const draft = store.add();
-  draft.content = 'Recovered text';
+  const documentRecord = store.add('One');
+  await store.saveAs(documentRecord, 'Page.md');
+  await backend.saveFile('Page.bbcode', 'External', backend.files.get('Page.bbcode').revision);
+  await store.checkExternal(documentRecord);
+  assert.equal(documentRecord.outputError.kind, 'conflict');
+  documentRecord.content = 'Two';
+  await store.flush(documentRecord);
+  assert.equal(backend.files.get('Page.md').content, 'Two');
+  assert.equal(backend.files.get('Page.bbcode').content, 'External');
+});
+
+test('legacy recovery remains pending import and never overwrites BBCode', async () => {
+  const backend = backendFixture();
+  await backend.saveSession({ version: 1, documents: [{ id: 'legacy', path: 'Original.bbcode', content: '[b]Pending[/b]', savedContent: '[b]Saved[/b]' }] });
+  const store = new DocumentStore(backend);
+  await store.restore();
+  assert.equal(store.documents.length, 0);
+  assert.equal(store.pendingImports[0].content, '[b]Pending[/b]');
+  await store.persist();
+  assert.equal((await backend.loadSession()).pendingImports[0].content, '[b]Pending[/b]');
+  const imported = store.add('**Pending**');
+  imported.importedFrom = 'Original.bbcode';
+  await assert.rejects(store.saveAs(imported, 'Original.md'), /new filename/);
+  assert.equal(backend.files.size, 0);
+});
+
+test('new edits during an in-flight save stay dirty until their own save', async () => {
+  const backend = backendFixture();
+  const store = new DocumentStore(backend);
+  const documentRecord = store.add('Original');
+  await store.saveAs(documentRecord, 'Page.md');
+  const originalSave = backend.saveFile;
+  let releaseSave;
+  backend.saveFile = async (path, ...argumentsList) => {
+    if (path.endsWith('.md')) await new Promise(resolve => { releaseSave = resolve; });
+    return originalSave(path, ...argumentsList);
+  };
+  documentRecord.content = 'First';
+  const firstSave = store.flush(documentRecord);
+  await new Promise(resolve => setImmediate(resolve));
+  documentRecord.content = 'Second';
+  releaseSave();
+  await firstSave;
+  assert.equal(documentRecord.savedContent, 'First');
+  assert.equal(documentRecord.outputSource, 'First');
+  backend.saveFile = originalSave;
+  await store.flush(documentRecord);
+  assert.equal(backend.files.get('Page.bbcode').content, 'Second');
+});
+
+test('known output ownership survives closing and reopening a tab', async () => {
+  const backend = backendFixture();
+  const store = new DocumentStore(backend);
+  await store.saveAs(store.add('First'), 'Page.md');
+  store.documents = [];
+  await store.persist();
+  const restored = new DocumentStore(backend);
+  await restored.restore();
+  const documentRecord = await restored.open('Page.md');
+  documentRecord.content = 'Second';
+  await restored.flush(documentRecord);
+  assert.equal(documentRecord.outputError, null);
+  assert.equal(backend.files.get('Page.bbcode').content, 'Second');
+});
+
+test('Save As leaves the original pair alone and draft recovery keeps text', async () => {
+  const backend = backendFixture();
+  const store = new DocumentStore(backend);
+  const documentRecord = store.add('First');
+  await store.saveAs(documentRecord, 'First.md');
+  documentRecord.content = 'Second';
+  await store.saveAs(documentRecord, 'Second.md');
+  assert.equal(backend.files.get('First.md').content, 'First');
+  assert.equal(backend.files.get('First.bbcode').content, 'First');
+  const draft = store.add('Recover me');
   await store.persist();
   const restored = new DocumentStore(backend);
   await restored.restore();
   assert.equal(restored.active.content, draft.content);
-  await backend.saveFile('file.bbcode', 'Original', null);
-  const firstOpen = await restored.open('file.bbcode');
-  firstOpen.content = 'Pending';
-  assert.equal((await restored.open('file.bbcode')).content, 'Pending');
-  assert.equal(restored.documents.length, 2);
 });
 
-test('save failure preserves the document and session writes stay ordered', async () => {
+test('Windows identity and output paths are consistent', () => {
+  assert.equal(pathKey('\\\\?\\C:\\Mods\\Page.md'), pathKey('c:/mods/page.md'));
+  assert.equal(outputPath('C:\\Mods\\Page.markdown'), 'C:\\Mods\\Page.bbcode');
+});
+
+test('different Markdown extensions cannot silently take over the same companion', async () => {
   const backend = backendFixture();
-  await backend.saveFile('file.bbcode', 'Original', null);
+  await backend.saveFile('Page.md', 'First', null);
+  await backend.saveFile('Page.markdown', 'Second', null);
   const store = new DocumentStore(backend);
-  const documentRecord = await store.open('file.bbcode');
-  documentRecord.content = 'Unsaved';
-  backend.saveFile = async () => { throw new Error('Disk full'); };
-  await assert.rejects(store.flush(documentRecord), /Disk full/);
-  assert.equal(documentRecord.content, 'Unsaved');
-  assert.equal(documentRecord.savedContent, 'Original');
-  const firstPersist = store.persist();
-  documentRecord.content = 'Latest';
-  const lastPersist = store.persist();
-  await Promise.all([firstPersist, lastPersist]);
-  assert.equal((await backend.loadSession()).documents[0].content, 'Latest');
-});
-
-test('Windows path identity handles canonical prefixes and case', () => {
-  assert.equal(pathKey('\\\\?\\C:\\Mods\\Page.bbcode'), pathKey('c:/mods/page.bbcode'));
-});
-
-// ==> Section 3 - Markup Protection Tests <==
-test('unknown markup stays in Source and code literals are not interpreted as tags', () => {
-  assert.deepEqual(unsupportedTags('[custom]text[/custom][code][example][/example][/code]'), ['custom']);
-  assert.match(visualSafety('[custom]text[/custom]', 'text'), /unsupported/);
-  assert.match(visualSafety('[b]lost[/b]', 'lost'), /faithfully/);
-  assert.equal(visualSafety('[b]text[/b]', '[b]text[/b]'), '');
+  await store.flush(await store.open('Page.md'));
+  const second = await store.open('Page.markdown');
+  await store.flush(second);
+  assert.equal(second.outputError.kind, 'conflict');
+  assert.equal(backend.files.get('Page.bbcode').content, 'First');
 });

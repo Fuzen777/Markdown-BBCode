@@ -2,28 +2,26 @@
 
 ## Purpose
 
-A portable Windows x64 editor for local UTF-8 `.bbcode` documents, initially targeting Nexus Mods descriptions. Steam support is deferred.
-
-## Application Structure
-
-Tauri hosts SCEditor with all editor assets bundled locally. One application instance owns a tabbed window. Subsequent file launches open tabs in that window. Closing a tab keeps the application running; closing the window exits after pending writes finish.
+A portable Windows visual Markdown editor for Nexus mod descriptions. Markdown is the source of truth; a same-stem `.bbcode` companion is generated alongside it. Steam support is deferred.
 
 ## Editing
 
-Switch between Visual and Source views. Copy BBCode copies the active document's source. The initial toolbar covers bold, italic, underline, strikethrough, size, colour, alignment, lists, links, images, quotes, code, and spoilers. Visual rendering approximates Nexus appearance; the published site's rendering remains authoritative.
+Tauri hosts Tiptap with locally bundled assets. Tabs offer Visual and Markdown Source views. Copy BBCode converts the active document. Spoilers use `||text||`, or standalone delimiter lines around multiple paragraphs. Centered blocks use `<div style="text-align: center">`; colors use `<span style="color: #rrggbb">`. Toolbar controls manage these extensions. Spoilers remain expanded while editing.
 
-Unknown tags and conversions that cannot safely preserve content keep the document in Source view. Simply opening or switching tabs must not rewrite files. No automatic Steam conversion is included.
+Supported Markdown covers headings, emphasis, strikethrough, lists, quotes, code, links and web images. Unsupported Markdown remains source-editable and saved, but blocks visual conversion and BBCode export. No silent dropping of unknown HTML. Merely opening or switching tabs must not rewrite source files. Actual visual edits may normalize syntax.
 
 ## Files And Recovery
 
-Named documents autosave after a short typing pause and flush pending changes before closing. New documents remain recoverable drafts until saved to a chosen path. Save As creates a separate file. Failed saves keep the document open with an actionable error. External changes are checked before overwriting and require conflict resolution.
+Save Markdown first, then generate BBCode. Conversion or output failures must never prevent saving valid source text. Show output failure separately as BBCode Out Of Date. Existing and externally modified outputs require reviewed replacement with a revision check. Source conflicts retain the existing explicit resolution workflow. Source failures block close; output-only failures permit explicit close after warning.
 
-Writes use a temporary file in the destination directory followed by replacement. Recovery data and preferences live in `portable-data` beside the executable. The portable folder must be writable. Recovery snapshots supplement autosave, including edits awaiting a successful file write.
+New documents are recoverable drafts until named. Save As creates a separate pair. Autosave runs after 750 ms; session recovery after 250 ms. Atomic replacement and SHA-256 revision checks protect local files. Settings and recovery live beside the executable in portable-data.
+
+## Import And Migration
+
+BBCode import is one-time conversion, with unsupported formatting reported before acceptance. Save imported drafts to a different basename, keeping the original BBCode intact. Do not synchronize edits back from BBCode.
+
+Legacy session documents remain pending BBCode imports until explicitly accepted. Save a version-1 session backup before writing the new session format. New portable releases use separate versioned folders.
 
 ## Interface
 
-Use the system light/dark preference, a compact file toolbar, document tabs, a Visual/Source switch, a formatting toolbar, and a status bar. Standard shortcuts include Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Shift+S, and Ctrl+W. `.bbcode` association is configured manually through Windows Open With.
-
-## Validation
-
-Test safe formatting conversions, unknown-tag protection, file replacement, conflict detection, draft recovery, tab isolation, save failures, and portable startup. Measure application and document operations on the available machine. Verify Nexus output against documented syntax; live publishing is outside the implementation scope.
+Use system light/dark appearance, compact file controls, tabs, formatting toolbar, Visual/Source switch and separate Markdown/output status. Keep standard file shortcuts and single-instance opening. Windows file association remains manual.

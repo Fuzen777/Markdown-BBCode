@@ -4,35 +4,50 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>BBCode Editor</title>
-    <link rel="stylesheet" href="/vendor/themes/default.min.css">
-    <script src="/vendor/sceditor.min.js"></script>
-    <script src="/vendor/formats/bbcode.js"></script>
   </head>
   <body>
     <header>
-      <div class="brand"><span class="brand-mark">[b]</span><div><strong>BBCode Editor</strong><small>Nexus Mod Descriptions</small></div></div>
+      <div class="brand"><span class="brand-mark">[b]</span><div><strong>BBCode Editor</strong><small>Markdown → Nexus BBCode</small></div></div>
       <nav aria-label="Files">
         <button id="new" title="New Document (Ctrl+N)">New</button>
-        <button id="open" title="Open Files (Ctrl+O)">Open</button>
-        <button id="save" title="Save Document (Ctrl+S)">Save</button>
+        <button id="open" title="Open Markdown (Ctrl+O)">Open</button>
+        <button id="import">Import BBCode</button>
+        <button id="save" title="Save Markdown (Ctrl+S)">Save</button>
         <button id="save-as" title="Save As (Ctrl+Shift+S)">Save As</button>
         <button id="drafts" hidden>Drafts</button>
+        <button id="recovered" hidden>Recovered BBCode</button>
       </nav>
       <button id="copy" class="primary" title="Copy BBCode (Ctrl+Shift+C)">Copy BBCode</button>
     </header>
     <div id="tabs" role="tablist" aria-label="Documents"></div>
     <main>
       <div class="document-bar">
-        <div id="document-path" title="Local Document">Recoverable Draft</div>
-        <div class="mode-switch" aria-label="Editor Mode">
-          <button id="visual" aria-pressed="true">Visual</button><button id="source" aria-pressed="false">Source</button>
-        </div>
+        <div class="document-location"><div id="document-path">Recoverable Markdown Draft</div><small id="output-path">Save To Create A BBCode Copy</small></div>
+        <div class="mode-switch" aria-label="Editor Mode"><button id="visual" aria-pressed="true">Visual</button><button id="source" aria-pressed="false">Source</button></div>
       </div>
       <div id="notice" role="status" hidden><span id="notice-text"></span><button id="resolve" hidden>Resolve Conflict</button><button id="retry" hidden>Retry Save</button></div>
-      <div id="editor-host"><textarea id="editor" aria-label="BBCode Document"></textarea></div>
+      <div id="output-notice" role="status" hidden><span id="output-notice-text"></span><button id="regenerate">Regenerate BBCode</button></div>
+      <div id="editor-host">
+        <div id="format-toolbar" role="toolbar" aria-label="Formatting">
+          <select id="heading" aria-label="Paragraph Style"><option value="0">Paragraph</option><option value="1">Heading 1</option><option value="2">Heading 2</option><option value="3">Heading 3</option></select>
+          <button data-format="bold" aria-label="Bold" title="Bold (Ctrl+B)"><b>B</b></button>
+          <button data-format="italic" aria-label="Italic" title="Italic (Ctrl+I)"><i>I</i></button>
+          <button data-format="strike" aria-label="Strikethrough" title="Strikethrough"><s>S</s></button>
+          <span class="toolbar-divider"></span>
+          <button data-format="bullet" title="Bullet List">Bullets</button><button data-format="numbered" title="Numbered List">Numbers</button>
+          <button data-format="quote">Quote</button><button data-format="code">Code</button>
+          <button data-format="link">Link</button><button data-format="image">Image</button>
+          <span class="toolbar-divider"></span>
+          <button data-format="spoiler">Spoiler</button><button data-format="center">Center</button>
+          <label class="color-control" title="Apply Text Color">Color <input id="text-color" type="color" value="#e6a050" aria-label="Text Color"></label>
+          <button data-format="clear" title="Clear Text Formatting">Clear</button>
+        </div>
+        <div id="visual-editor"></div>
+        <textarea id="markdown-source" aria-label="Markdown Source" spellcheck="false" hidden></textarea>
+      </div>
     </main>
-    <footer><span id="save-status" role="status">Starting…</span><span id="document-stats"></span><span>Autosave · UTF-8 · Nexus</span></footer>
-    <dialog id="choice-dialog" aria-labelledby="dialog-title"><h2 id="dialog-title"></h2><p id="dialog-message"></p><div id="dialog-actions"></div></dialog>
+    <footer><span id="save-status" role="status">Starting…</span><span id="document-stats"></span><span>Autosave · Markdown → BBCode</span></footer>
+    <dialog id="choice-dialog" aria-labelledby="dialog-title"><h2 id="dialog-title"></h2><p id="dialog-message"></p><input id="dialog-input" aria-label="Value" hidden><div id="dialog-actions"></div></dialog>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
