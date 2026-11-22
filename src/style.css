@@ -1,0 +1,54 @@
+/* ==> Section 1 - Application Palette <== */
+:root { font: 14px 'Segoe UI', sans-serif; color-scheme: light dark; --page: #f4f5f7; --panel: #fff; --text: #23262f; --muted: #606775; --line: #dce0e7; --accent: #8b4c16; --accent-bg: #fff0df; --error-bg: #fff0eb; background: var(--page); color: var(--text); }
+@media (prefers-color-scheme: dark) { :root { --page: #171a20; --panel: #20242b; --text: #e5e8ee; --muted: #a4adbc; --line: #343b47; --accent: #f4b570; --accent-bg: #3b2b1d; --error-bg: #3d2424; } }
+* { box-sizing: border-box; }
+body { margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+button { font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; cursor: pointer; white-space: nowrap; }
+button:hover { background: var(--accent-bg); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: .5; cursor: default; }
+[hidden] { display: none !important; }
+
+/* ==> Section 2 - Document Navigation <== */
+header { display: flex; gap: 24px; align-items: center; padding: 14px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.brand { display: flex; gap: 10px; align-items: center; }
+.brand-mark { font: bold 23px Consolas, monospace; color: var(--accent); }
+.brand strong { font-size: 15px; }
+.brand small { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+nav { display: flex; gap: 6px; flex: 1; }
+.primary { background: var(--accent); color: var(--panel); border-color: transparent; font-weight: 600; }
+.primary:hover { background: var(--accent); filter: brightness(1.1); }
+#tabs { display: flex; gap: 4px; padding: 10px 14px 0; overflow-x: auto; min-height: 48px; }
+.tab-group { display: flex; border: 1px solid transparent; border-bottom: 0; border-radius: 7px 7px 0 0; max-width: 260px; }
+.tab-group.active { background: var(--panel); border-color: var(--line); }
+.tab-group button { border: 0; background: transparent; border-radius: 6px; }
+.tab { overflow: hidden; text-overflow: ellipsis; padding-right: 6px; }
+.close-tab { color: var(--muted); font-size: 19px; padding: 3px 9px; }
+main { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--panel); border-top: 1px solid var(--line); }
+.document-bar { display: flex; align-items: center; gap: 20px; padding: 12px 20px; }
+#document-path { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); font-size: 12px; }
+.mode-switch { display: flex; gap: 3px; border: 1px solid var(--line); border-radius: 7px; padding: 3px; }
+.mode-switch button { border: 0; padding: 5px 16px; background: transparent; }
+.mode-switch [aria-pressed=true] { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+#notice { display: flex; align-items: center; gap: 12px; padding: 10px 20px; background: var(--accent-bg); color: var(--text); font-size: 13px; }
+#notice.error { background: var(--error-bg); }
+#notice-text { flex: 1; white-space: pre-wrap; }
+footer { display: flex; gap: 24px; padding: 8px 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+#save-status { flex: 1; }
+
+/* ==> Section 3 - Editor Surface And Dialogs <== */
+#editor-host { flex: 1; min-height: 0; padding: 0 16px 14px; }
+div.sceditor-container { display: flex; flex-direction: column; box-sizing: border-box; width: 100% !important; height: 100% !important; border: 1px solid var(--line); background: var(--panel); border-radius: 7px; box-shadow: none; }
+div.sceditor-toolbar { flex: 0 0 auto; padding: 6px; border-bottom: 1px solid var(--line); background: var(--page); border-radius: 7px 7px 0 0; }
+div.sceditor-group { border: 0; border-right: 1px solid var(--line); background: transparent; box-shadow: none; border-radius: 0; padding-right: 7px; margin-right: 5px; }
+.sceditor-container iframe, .sceditor-container textarea { flex: 1; width: 100% !important; min-height: 0; margin: 0 !important; padding: 0 !important; }
+.sceditor-container textarea { box-sizing: border-box; padding: 22px !important; color: var(--text); background: var(--panel); font: 14px/1.7 Consolas, monospace; resize: none; }
+.sceditor-button-spoiler { width: 54px; }
+.sceditor-button-spoiler div { background: none; text-indent: 0; font: 11px/16px 'Segoe UI', sans-serif; width: auto; height: 16px; color: var(--text); }
+@media (prefers-color-scheme: dark) { .sceditor-button:not(.sceditor-button-spoiler) div { filter: invert(.9); } .sceditor-dropdown { background: #eee; color: #222; } }
+dialog { max-width: 570px; border: 1px solid var(--line); border-radius: 12px; padding: 26px; background: var(--panel); color: var(--text); box-shadow: 0 20px 70px #0005; }
+dialog::backdrop { background: #0007; }
+dialog h2 { font-size: 19px; margin-top: 0; }
+dialog p { line-height: 1.6; }
+#dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+@media (max-width: 900px) { header { gap: 10px; padding: 10px; } .brand small { display: none; } .brand strong { font-size: 13px; } nav { gap: 3px; } button { padding: 7px 9px; } }

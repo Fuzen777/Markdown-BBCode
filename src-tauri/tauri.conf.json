@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BBCode Editor",
+  "version": "0.1.0",
+  "identifier": "local.bbcode-editor.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:; connect-src ipc: http://ipc.localhost; frame-src 'self' about:; object-src 'none'; base-uri 'self'; form-action 'none'"
+    }
+  },
+  "bundle": { "active": false }
+}

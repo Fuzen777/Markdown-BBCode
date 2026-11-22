@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>BBCode Editor</title>
+    <link rel="stylesheet" href="/vendor/themes/default.min.css">
+    <script src="/vendor/sceditor.min.js"></script>
+    <script src="/vendor/formats/bbcode.js"></script>
+  </head>
+  <body>
+    <header>
+      <div class="brand"><span class="brand-mark">[b]</span><div><strong>BBCode Editor</strong><small>Nexus Mod Descriptions</small></div></div>
+      <nav aria-label="Files">
+        <button id="new" title="New Document (Ctrl+N)">New</button>
+        <button id="open" title="Open Files (Ctrl+O)">Open</button>
+        <button id="save" title="Save Document (Ctrl+S)">Save</button>
+        <button id="save-as" title="Save As (Ctrl+Shift+S)">Save As</button>
+        <button id="drafts" hidden>Drafts</button>
+      </nav>
+      <button id="copy" class="primary" title="Copy BBCode (Ctrl+Shift+C)">Copy BBCode</button>
+    </header>
+    <div id="tabs" role="tablist" aria-label="Documents"></div>
+    <main>
+      <div class="document-bar">
+        <div id="document-path" title="Local Document">Recoverable Draft</div>
+        <div class="mode-switch" aria-label="Editor Mode">
+          <button id="visual" aria-pressed="true">Visual</button><button id="source" aria-pressed="false">Source</button>
+        </div>
+      </div>
+      <div id="notice" role="status" hidden><span id="notice-text"></span><button id="resolve" hidden>Resolve Conflict</button><button id="retry" hidden>Retry Save</button></div>
+      <div id="editor-host"><textarea id="editor" aria-label="BBCode Document"></textarea></div>
+    </main>
+    <footer><span id="save-status" role="status">Starting…</span><span id="document-stats"></span><span>Autosave · UTF-8 · Nexus</span></footer>
+    <dialog id="choice-dialog" aria-labelledby="dialog-title"><h2 id="dialog-title"></h2><p id="dialog-message"></p><div id="dialog-actions"></div></dialog>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
