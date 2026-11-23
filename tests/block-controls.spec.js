@@ -254,3 +254,21 @@ test('Visual Shift+Click handles and left-gutter marquee run multi-block move, d
   await expect(page.locator('.tiptap p', { hasText: 'Second' })).toHaveCount(0);
   await expect(page.locator('.tiptap > p')).toHaveCount(2);
 });
+
+test('divider handle and add button center vertically on horizontal rule', async ({ page }) => {
+  await page.evaluate(() => window.blockEditor.commands.setContent('<p>Before</p><hr><p>After</p>'));
+  const hr = page.locator('.tiptap hr');
+  await expect(hr).toBeVisible();
+  const hrBox = await hr.boundingBox();
+  await page.mouse.move(hrBox.x + 20, hrBox.y + hrBox.height / 2);
+  const handle = page.getByRole('button', { name: 'Block Actions And Drag Handle', exact: true });
+  await expect(handle).toBeVisible();
+  const handleBox = await handle.boundingBox();
+  const hrCenterY = hrBox.y + hrBox.height / 2;
+  const handleCenterY = handleBox.y + handleBox.height / 2;
+  expect(Math.abs(handleCenterY - hrCenterY)).toBeLessThanOrEqual(4);
+
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleCenterY, { steps: 5 });
+  const lockedHandleBox = await handle.boundingBox();
+  expect(Math.abs((lockedHandleBox.y + lockedHandleBox.height / 2) - hrCenterY)).toBeLessThanOrEqual(4);
+});

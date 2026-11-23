@@ -69,7 +69,8 @@ export class MarkdownEditor {
     if (mode === 'hybrid') {
       try {
         this.documentSource = readDocumentSource(source, isMdbbcode(path));
-        this.hybridView = new HybridEditor(this.hybridElement, this.documentSource.body, this.onChange, this.onSelectionChange);
+        this.hybridView = new HybridEditor(this.hybridElement, this.documentSource.body, this.onChange, this.onSelectionChange, this.overlayCallbacks);
+        this.bubbleMenu = new BubbleMenu(this.hybridView.createBubbleAdapter(), this.hybridElement, (command, value) => this.onBubbleCommand(command, value));
       } catch (error) { warning = `Source view preserves this document: ${error.message}`; this.mode = 'source'; }
     }
     if (mode === 'visual') {

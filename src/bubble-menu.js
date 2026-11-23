@@ -1,4 +1,4 @@
-// ==> Section 1 - Floating Selection Formatting Toolbar <==
+// ==> Section 1 - Shared Selection Formatting Toolbar <==
 import { setButtonIcon, setMenuItemLabel, createIcon } from './icons.js';
 
 const bubbleItems = [
@@ -28,9 +28,45 @@ const turnIntoItems = [
 
 const colorSwatches = ['#e6a050', '#d9534f', '#3e9974', '#528ad4', '#9b6bcc', '#d4a017', '#2aa198', '#7a8291'];
 
+function createVisualAdapter(editor) {
+  return {
+    isDestroyed: () => editor.isDestroyed,
+    isEditable: () => editor.isEditable,
+    hasFocus: () => editor.view.hasFocus(),
+    hasSelection: () => {
+      const sel = editor.state.selection;
+      return !sel.empty && sel.$from.parent.type.name !== 'codeBlock';
+    },
+    getCoords: () => {
+      const sel = editor.state.selection;
+      return [editor.view.coordsAtPos(sel.from), editor.view.coordsAtPos(sel.to)];
+    },
+    getState: () => ({
+      heading: editor.isActive('heading') ? String(editor.getAttributes('heading').level || 1) : '0',
+      task: editor.isActive('taskList'),
+      bullet: editor.isActive('bulletList'),
+      numbered: editor.isActive('orderedList'),
+      callout: editor.isActive('callout'),
+      quote: editor.isActive('blockquote'),
+      code: editor.isActive('codeBlock'),
+      spoilerBlock: editor.isActive('spoilerBlock'),
+      centerBlock: editor.isActive('centerBlock'),
+      bold: editor.isActive('bold'),
+      italic: editor.isActive('italic'),
+      strike: editor.isActive('strike'),
+      inlineCode: editor.isActive('code'),
+      spoiler: editor.isActive('spoiler'),
+      link: editor.isActive('link'),
+      color: editor.isActive('textColor'),
+    }),
+    subscribe: fn => { editor.on('selectionUpdate', fn); editor.on('transaction', fn); },
+    unsubscribe: fn => { editor.off('selectionUpdate', fn); editor.off('transaction', fn); },
+  };
+}
+
 export class BubbleMenu {
-  constructor(editor, host, onCommand) {
-    this.editor = editor;
+  constructor(target, host, onCommand) {
+    this.adapter = typeof target?.getState === 'function' ? target : createVisualAdapter(target);
     this.host = host;
     this.onCommand = onCommand;
     this.menu = document.createElement('div');
@@ -156,8 +192,7 @@ export class BubbleMenu {
       }
       this.hide();
     };
-    editor.on('selectionUpdate', this.boundUpdate);
-    editor.on('transaction', this.boundUpdate);
+    this.adapter.subscribe(this.boundUpdate);
     host.addEventListener('scroll', this.boundUpdate);
     window.addEventListener('resize', this.boundUpdate);
     document.addEventListener('pointerdown', this.boundOutside);
@@ -186,16 +221,16 @@ export class BubbleMenu {
     }
   }
 
-  blockLabel() {
-    if (this.editor.isActive('heading')) return `H${this.editor.getAttributes('heading').level || 1}`;
-    if (this.editor.isActive('taskList')) return 'Task';
-    if (this.editor.isActive('bulletList')) return 'Bullet';
-    if (this.editor.isActive('orderedList')) return 'Number';
-    if (this.editor.isActive('callout')) return 'Callout';
-    if (this.editor.isActive('blockquote')) return 'Quote';
-    if (this.editor.isActive('codeBlock')) return 'Code';
-    if (this.editor.isActive('spoilerBlock')) return 'Spoiler';
-    if (this.editor.isActive('centerBlock')) return 'Center';
+  blockLabel(state) {
+    if (['1', '2', '3', '4', '5', '6'].includes(state.heading)) return `H${state.heading}`;
+    if (state.task) return 'Task';
+    if (state.bullet) return 'Bullet';
+    if (state.numbered) return 'Number';
+    if (state.callout) return 'Callout';
+    if (state.quote) return 'Quote';
+    if (state.code) return 'Code';
+    if (state.spoilerBlock) return 'Spoiler';
+    if (state.centerBlock) return 'Center';
     return 'Text';
   }
 
@@ -205,25 +240,21 @@ export class BubbleMenu {
   }
 
   update() {
-    if (this.editor.isDestroyed || !this.editor.isEditable) { this.hide(); return; }
-    const selection = this.editor.state.selection;
-    if (selection.empty || selection.$from.parent.type.name === 'codeBlock') { this.hide(); return; }
-    if (!this.editor.view.hasFocus() && !this.menu.contains(document.activeElement)) { this.hide(); return; }
-    const openBlockMenu = document.querySelector('.block-menu:not([hidden])');
+    if (this.adapter.isDestroyed() || !this.adapter.isEditable() || !this.adapter.hasSelection()) { this.hide(); return; }
+    if (!this.adapter.hasFocus() && !this.menu.contains(document.activeElement)) { this.hide(); return; }
+    const openBlockMenu = document.querySelector('.block-menu:not([hidden]), .hybrid-insert-menu, .hybrid-action-menu, .hybrid-slash-menu:not([hidden])');
     if (openBlockMenu) { this.hide(); return; }
 
-    this.turnLabel.textContent = this.blockLabel();
-    this.buttons.get('bold').setAttribute('aria-pressed', String(this.editor.isActive('bold')));
-    this.buttons.get('italic').setAttribute('aria-pressed', String(this.editor.isActive('italic')));
-    this.buttons.get('strike').setAttribute('aria-pressed', String(this.editor.isActive('strike')));
-    this.buttons.get('inlineCode').setAttribute('aria-pressed', String(this.editor.isActive('code')));
-    this.buttons.get('spoiler').setAttribute('aria-pressed', String(this.editor.isActive('spoiler')));
-    this.buttons.get('link').setAttribute('aria-pressed', String(this.editor.isActive('link')));
-    this.buttons.get('color').setAttribute('aria-pressed', String(this.editor.isActive('textColor')));
+    const coords = this.adapter.getCoords();
+    if (!coords?.[0] || !coords?.[1]) { this.hide(); return; }
+    const [fromCoords, toCoords] = coords;
+    const state = this.adapter.getState() || {};
+    this.turnLabel.textContent = this.blockLabel(state);
+    for (const [command, button] of this.buttons) {
+      button.setAttribute('aria-pressed', String(Boolean(state[command])));
+    }
 
     this.menu.hidden = false;
-    const fromCoords = this.editor.view.coordsAtPos(selection.from);
-    const toCoords = this.editor.view.coordsAtPos(selection.to);
     const hostRect = this.host.getBoundingClientRect();
     const minLeft = Math.min(fromCoords.left, toCoords.left);
     const maxRight = Math.max(fromCoords.right, toCoords.right);
@@ -240,8 +271,7 @@ export class BubbleMenu {
   }
 
   destroy() {
-    this.editor.off('selectionUpdate', this.boundUpdate);
-    this.editor.off('transaction', this.boundUpdate);
+    this.adapter.unsubscribe(this.boundUpdate);
     this.host.removeEventListener('scroll', this.boundUpdate);
     window.removeEventListener('resize', this.boundUpdate);
     document.removeEventListener('pointerdown', this.boundOutside);

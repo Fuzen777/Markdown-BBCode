@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.7 — 2026-11-23
+
+1. Centered gutter drag handles and `+` controls vertically on horizontal rules (`---` / `<hr>`) across both Visual and Hybrid modes, keeping hover locked across the approach band.
+2. Added Obsidian-style line/item-level Live Preview inside active Hybrid blocks: cursor-touched lines reveal distinct raw syntax markers while sibling lines in lists, tasks, callouts, quotes and paragraphs render headings, bullets, interactive checkboxes, callout badges and border colors, dividers and inline formatting live without altering source on disk.
+3. Improved Hybrid editing ergonomics with click-to-cursor placement near the clicked word, vertical `ArrowUp`/`ArrowDown` navigation across wrapped visual lines and adjacent blocks preserving column, boundary `Backspace`/`Delete` removal of top-level blank separators, direct task checkbox toggling and link hover/`Ctrl+Click` popovers in both previews and active blocks, click-below-last-block trailing creation and smart `Enter`/`Tab`/`Shift+Tab` list and quote continuation.
+4. Added Visual-mode parity and responsiveness to Hybrid: incremental sibling DOM preservation across non-splitting edits, live-filtering `/` slash menu with aliases and Image insertion on any line, `Turn Into` submenu in Block Actions, multi-block `Wrap In` and `Delete`/`Backspace` removal, and the shared floating selection bubble bar.
+
 ## 0.2.6 — 2026-11-23
 
 1. Prioritized Windows virtual keys (`VK_A`–`VK_Z`) over layout-shifted `event.key` characters for `Ctrl` shortcuts across Visual, Hybrid, and Source modes so split `Ctrl` drivers such as `BÉPO azerty-ctrl` match `Ctrl` shortcut keys reliably (including dead-key `Ctrl+Y` Redo).

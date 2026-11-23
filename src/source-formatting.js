@@ -105,6 +105,20 @@ export function formatMarkdownSelection(source, start, end, command, value) {
     }
     return null;
   }
+  if (command === 'clearColor') {
+    if (/(?:<span\s+style=(['"])\s*color:[^'"]+\1\s*>[\s\S]*?<\/span>)/i.test(selected)) {
+      const stripped = selected.replace(/<span\s+style=(['"])\s*color:[^'"]+\1\s*>([\s\S]*?)<\/span>/gi, '$2');
+      return { from: start, to: end, insert: stripped, start, end: start + stripped.length };
+    }
+    for (const match of source.matchAll(/<span\s+style=(['"])\s*color:[^'"]+\1\s*>([\s\S]*?)<\/span>/gi)) {
+      const matchStart = match.index;
+      const matchEnd = matchStart + match[0].length;
+      if (start >= matchStart && end <= matchEnd) {
+        return { from: matchStart, to: matchEnd, insert: match[2], start: matchStart, end: matchStart + match[2].length };
+      }
+    }
+    return null;
+  }
   if (command === 'clear') {
     let from = start;
     let to = end;
@@ -352,4 +366,62 @@ export function moveSourceLines(source, start, end, direction) {
     start: Math.max(0, Math.min(clampedStart + delta, nextValue.length)),
     end: Math.max(0, Math.min(clampedEnd + delta, nextValue.length)),
   };
+}
+
+// ==> Section 4 - Block Type Conversion <==
+function unwrapBlockLines(body, newline) {
+  const trimmed = body.trim();
+  const codeMatch = trimmed.match(/^(`{3,}|~{3,})[^\r\n]*\r?\n([\s\S]*?)\r?\n\1[ \t]*$/);
+  if (codeMatch) return codeMatch[2].split(/\r?\n/);
+
+  const spoilerMatch = trimmed.match(/^\|\|[ \t]*(?:\r?\n){1,2}([\s\S]*?)(?:\r?\n){1,2}[ \t]*\|\|$/);
+  if (spoilerMatch) return spoilerMatch[1].split(/\r?\n/);
+
+  const centerMatch = trimmed.match(/^<div\s+style=(['"])\s*text-align:\s*center\s*;?\s*\1\s*>\s*([\s\S]*?)\s*<\/div\s*>$/i);
+  if (centerMatch) return centerMatch[2].split(/\r?\n/);
+
+  const rawLines = body.split(/\r?\n/);
+  if (rawLines.every(line => /^ {0,3}>/.test(line) || !line.trim())) {
+    const cleaned = [];
+    rawLines.forEach((line, index) => {
+      const calloutHeader = index === 0 && line.match(/^ {0,3}>[ \t]?\[![\w-]+\][+-]?(?:[ \t]+(.*))?$/);
+      if (calloutHeader) {
+        if (calloutHeader[1]?.trim()) cleaned.push(calloutHeader[1].trimEnd());
+        return;
+      }
+      cleaned.push(line.replace(/^ {0,3}>[ \t]?/, ''));
+    });
+    if (cleaned.length) return cleaned;
+  }
+
+  return rawLines.map(line => line
+    .replace(/^ {0,3}#{1,6}[ \t]+/, '')
+    .replace(/^ {0,3}(?:[-*+]|\d+\.)[ \t]+\[[ xX]\][ \t]*/, '')
+    .replace(/^ {0,3}(?:[-*+]|\d+\.)[ \t]+/, ''),
+  ).join(newline).split(newline);
+}
+
+export function convertMarkdownBlock(raw, targetType) {
+  const eol = raw.match(/\r?\n$/)?.[0] || '';
+  const body = eol ? raw.slice(0, -eol.length) : raw;
+  const newline = body.includes('\r\n') ? '\r\n' : '\n';
+  const lines = unwrapBlockLines(body, newline);
+  const items = lines.filter(line => line.trim().length > 0);
+  const contentLines = items.length ? items : [''];
+
+  let converted = null;
+  if (targetType === 'paragraph') converted = lines.join(newline);
+  else if (targetType?.startsWith('heading')) {
+    const level = Math.max(1, Math.min(6, Number(targetType.at(-1)) || 1));
+    converted = contentLines.map(line => `${'#'.repeat(level)} ${line}`).join(newline);
+  } else if (targetType === 'bulletList') converted = contentLines.map(line => `- ${line}`).join(newline);
+  else if (targetType === 'orderedList') converted = contentLines.map((line, index) => `${index + 1}. ${line}`).join(newline);
+  else if (targetType === 'taskList') converted = contentLines.map(line => `- [ ] ${line}`).join(newline);
+  else if (targetType === 'blockquote') converted = lines.map(line => line ? `> ${line}` : '>').join(newline);
+  else if (targetType === 'codeBlock') converted = ['```', ...lines, '```'].join(newline);
+  else if (targetType === 'callout') converted = ['> [!note]', ...lines.map(line => line ? `> ${line}` : '>')].join(newline);
+  else if (targetType === 'spoilerBlock') converted = `||${newline.repeat(2)}${lines.join(newline)}${newline.repeat(2)}||`;
+  else if (targetType === 'centerBlock') converted = `<div style="text-align: center">${newline.repeat(2)}${lines.join(newline)}${newline.repeat(2)}</div>`;
+
+  return converted === null ? raw : converted + eol;
 }

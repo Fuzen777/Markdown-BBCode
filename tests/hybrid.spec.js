@@ -8,7 +8,7 @@ async function openDocument(page, source, mode = 'hybrid') {
     const path = 'C:\\Hybrid Test.md';
     const files = { [path]: { path, content: source, revision: '1' } };
     let session = { version: 2, activeId: 'hybrid-test', documents: [{ id: 'hybrid-test', path, content: source, savedContent: source, revision: '1', mode, open: true }] };
-    window.hybridDesktop = { files, path, saveCount: 0 };
+    window.hybridDesktop = { files, path, saveCount: 0, openedUrls: [] };
     window.__TAURI_INTERNALS__ = {
       transformCallback() { return ++callbackId; },
       unregisterCallback() {},
@@ -18,6 +18,7 @@ async function openDocument(page, source, mode = 'hybrid') {
         if (command === 'load_session') return structuredClone(session);
         if (command === 'save_session') { session = structuredClone(options.session); return; }
         if (command === 'take_pending_paths') return [];
+        if (command === 'open_external_url') { window.hybridDesktop.openedUrls.push(options.url); return; }
         if (command === 'read_file') {
           if (!files[options.path]) throw { kind: 'missing', message: 'Missing file' };
           return structuredClone(files[options.path]);
@@ -43,7 +44,7 @@ async function blockAction(page, index, action) {
   const block = page.locator('.hybrid-block:not(.blank-block)').nth(index - 1);
   await block.hover();
   await block.getByRole('button', { name: / Actions$/ }).click();
-  await expect(block.locator('.hybrid-action-menu [role="menuitem"] svg')).toHaveCount(4);
+  await expect(block.locator('.hybrid-action-menu > [role="menuitem"] svg')).toHaveCount(5);
   await block.getByRole('menuitem', { name: { up: 'Move Up', down: 'Move Down', duplicate: 'Duplicate', delete: 'Delete' }[action], exact: true }).click();
 }
 function activeBlock(page) { return page.getByRole('textbox', { name: 'Active Block Markdown', exact: true }); }
@@ -62,18 +63,25 @@ async function savedSource(page) {
 }
 
 // ==> Section 2 - Block Boundaries And Source Integrity <==
-test('Hybrid exposes a whole enclosing list or callout while other blocks remain rendered', async ({ page }) => {
+test('Hybrid reveals raw Markdown on active lines while keeping sibling lines rendered live and preserving source', async ({ page }) => {
   const source = '# Heading\n\n- Parent\n  - Nested child\n- Second item\n\n> [!warning]- Caution\n> First paragraph\n>\n> Second paragraph\n>\n> > [!tip] Nested\n> > Inner body\n\nTail paragraph';
   await openDocument(page, source);
   await expect(page.locator('.hybrid-preview h1')).toHaveText('Heading');
   await activateBlock(page, 2);
   await expect(activeBlock(page)).toContainText('- Parent');
   await expect(activeBlock(page)).toContainText('Nested child');
+  await expect(activeBlock(page)).toContainText('Second item');
+  await expect(page.locator('.hybrid-live-bullet')).toHaveCount(2);
+  await activeBlock(page).press('ArrowDown');
+  await activeBlock(page).press('ArrowDown');
   await expect(activeBlock(page)).toContainText('- Second item');
   await expect(page.locator('.hybrid-preview h1')).toHaveText('Heading');
   await activateBlock(page, 3);
   await expect(activeBlock(page)).toContainText('> [!warning]- Caution');
-  await expect(activeBlock(page)).toContainText('> Second paragraph');
+  await expect(activeBlock(page)).toContainText('Second paragraph');
+  await expect(page.locator('.hybrid-live-callout-badge')).toHaveText('Tip');
+  await expect(activeBlock(page)).toContainText('Inner body');
+  for (let step = 0; step < 5; step++) await activeBlock(page).press('ArrowDown');
   await expect(activeBlock(page)).toContainText('> > [!tip] Nested');
   await expect(page.locator('.hybrid-preview ul').first()).toBeVisible();
   expect(await savedSource(page)).toBe(source);
@@ -136,6 +144,8 @@ test('keyboard navigation crosses whole blocks and Escape restores the preview',
   await expect(activeBlock(page)).toHaveText('');
   await activeBlock(page).press('ArrowDown');
   await expect(activeBlock(page)).toContainText('- One');
+  await expect(activeBlock(page)).toContainText('Two');
+  await activeBlock(page).press('ArrowDown');
   await expect(activeBlock(page)).toContainText('- Two');
   await activeBlock(page).press('Control+Home');
   await activeBlock(page).press('ArrowUp');
@@ -347,4 +357,102 @@ test('Hybrid Shift+Click and marquee select multiple blocks for batch Move, Dupl
   await page.mouse.up();
   await page.getByRole('button', { name: 'Delete Selected', exact: true }).click();
   expect(await savedSource(page)).toBe('Alpha\n\nBeta\n\nAlpha\n\nBeta');
+});
+
+test('Hybrid aligns divider handles, places cursor near click, toggles tasks directly and opens links', async ({ page }) => {
+  await openDocument(page, 'Above line\n\n---\n\nAlpha beta **gamma** delta\n\n- [ ] Task one\n- [ ] Task two\n\nSee [Nexus](https://nexusmods.com) link');
+
+  const hrBlock = page.locator('.hybrid-block:not(.blank-block)').nth(1);
+  await hrBlock.hover();
+  const hrBox = await hrBlock.locator('hr').boundingBox();
+  const hrHandleBox = await hrBlock.getByRole('button', { name: 'Drag Block 3', exact: true }).boundingBox();
+  expect(Math.abs((hrHandleBox.y + hrHandleBox.height / 2) - (hrBox.y + hrBox.height / 2))).toBeLessThanOrEqual(4);
+
+  const linkBlock = page.locator('.hybrid-block:not(.blank-block)').nth(4);
+  await linkBlock.locator('.hybrid-preview a').hover();
+  const popover = page.locator('.hybrid-link-popover');
+  await expect(popover).toBeVisible();
+  await popover.getByRole('button', { name: 'Open Link', exact: true }).click();
+  expect(await page.evaluate(() => window.hybridDesktop.openedUrls)).toEqual(['https://nexusmods.com']);
+
+  const taskBlock = page.locator('.hybrid-block:not(.blank-block)').nth(3);
+  await taskBlock.locator('.hybrid-preview input[type="checkbox"]').nth(1).click();
+  expect(await savedSource(page)).toContain('- [ ] Task one\n- [x] Task two');
+  await activateBlock(page, 4);
+  await taskBlock.locator('.hybrid-live-checkbox').click();
+  expect(await savedSource(page)).toContain('- [ ] Task one\n- [ ] Task two');
+
+  const paraBlock = page.locator('.hybrid-block:not(.blank-block)').nth(2);
+  const paraBox = await paraBlock.locator('.hybrid-preview').boundingBox();
+  await page.mouse.click(paraBox.x + 80, paraBox.y + paraBox.height / 2);
+  await expect(activeBlock(page)).toBeFocused();
+  await page.keyboard.insertText('|');
+  const edited = await savedSource(page);
+  expect(edited.indexOf('|')).toBeGreaterThan(edited.indexOf('Alpha'));
+});
+
+test('Hybrid supports Enter list/callout continuation, Tab indent, slash filtering, incremental DOM and Turn Into/Wrap/Bubble', async ({ page }) => {
+  await openDocument(page, '- Item one\n\nStay untouched\n\nFinal block');
+
+  await activateBlock(page, 1);
+  await activeBlock(page).press('Control+End');
+  await activeBlock(page).press('Enter');
+  await page.keyboard.insertText('Child');
+  await activeBlock(page).press('Tab');
+  await expect(activeBlock(page)).toContainText('  - Child');
+  await activeBlock(page).press('Shift+Tab');
+  await expect(activeBlock(page)).toContainText('- Child');
+  await activeBlock(page).press('Enter');
+  await activeBlock(page).press('Enter');
+
+  // Record middle block DOM reference and switch in place without splitting to verify incremental stability
+  await activateBlock(page, 3);
+  await page.evaluate(() => {
+    window.__middleShell = document.querySelectorAll('.hybrid-block:not(.blank-block)')[1];
+  });
+  await activeBlock(page).press('Control+End');
+  await page.keyboard.insertText(' edited');
+  await activateBlock(page, 1);
+  expect(await page.evaluate(() => document.querySelectorAll('.hybrid-block:not(.blank-block)')[1] === window.__middleShell)).toBe(true);
+
+  // Slash alias filter inside block
+  await activateBlock(page, 3);
+  await activeBlock(page).press('Control+End');
+  await activeBlock(page).press('Enter');
+  await page.keyboard.insertText('/h2');
+  await expect(page.locator('.hybrid-slash-menu')).toBeVisible();
+  await activeBlock(page).press('Enter');
+  expect(await savedSource(page)).toContain('## Heading');
+
+  // Bubble bar formatting + Turn Into from Block Actions
+  await activateBlock(page, 2);
+  await activeBlock(page).press('Control+a');
+  const bubble = page.locator('.bubble-menu');
+  await expect(bubble).toBeVisible();
+  await bubble.getByRole('button', { name: 'Strikethrough Selection', exact: true }).click();
+  expect(await savedSource(page)).toContain('~~Stay untouched~~');
+
+  const midBlock = page.locator('.hybrid-block:not(.blank-block)').nth(1);
+  await midBlock.hover();
+  await midBlock.getByRole('button', { name: / Actions$/ }).click();
+  await midBlock.getByRole('menuitem', { name: 'Turn Into ▸', exact: true }).click();
+  await page.locator('.hybrid-turn-menu').getByRole('menuitem', { name: 'Quote', exact: true }).click();
+  expect(await savedSource(page)).toContain('> ~~Stay untouched~~');
+
+  // Multi-block Wrap In + Delete key
+  const b1 = page.locator('.hybrid-block:not(.blank-block)').nth(0);
+  const b2 = page.locator('.hybrid-block:not(.blank-block)').nth(1);
+  await b1.hover();
+  await b1.getByRole('button', { name: /^Drag Block/ }).click({ modifiers: ['Shift'] });
+  await b2.hover();
+  await b2.getByRole('button', { name: /^Drag Block/ }).click({ modifiers: ['Shift'] });
+  await page.getByRole('button', { name: 'Wrap Selected Blocks', exact: true }).click();
+  await page.locator('.multi-wrap-menu').getByRole('menuitem', { name: 'Callout', exact: true }).click();
+  expect(await savedSource(page)).toContain('> [!note]');
+
+  const wrapped = page.locator('.hybrid-block:not(.blank-block)').first();
+  await wrapped.hover();
+  await wrapped.getByRole('button', { name: /^Drag Block/ }).click({ modifiers: ['Shift'] });
+  await page.keyboard.press('Delete');
+  expect(await savedSource(page)).not.toContain('> [!note]');
 });

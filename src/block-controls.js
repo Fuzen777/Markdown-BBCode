@@ -548,7 +548,9 @@ export class BlockControls {
     const current = this.currentUnit();
     const currentRect = this.ownRect(current);
     const controlsRect = this.controls.getBoundingClientRect();
-    if (currentRect && !this.controls.hidden && event.clientX >= controlsRect.left - 4 && event.clientX <= currentRect.left && event.clientY >= currentRect.top - 4 && event.clientY <= currentRect.bottom + 4) {
+    const lockTop = currentRect ? Math.min(currentRect.top, controlsRect.top) - 4 : 0;
+    const lockBottom = currentRect ? Math.max(currentRect.bottom, controlsRect.bottom) + 4 : 0;
+    if (currentRect && !this.controls.hidden && event.clientX >= controlsRect.left - 4 && event.clientX <= currentRect.left && event.clientY >= lockTop && event.clientY <= lockBottom) {
       this.syncHighlight();
       return;
     }
@@ -591,7 +593,8 @@ export class BlockControls {
     this.controls.hidden = !this.editor.isEditable || rect.bottom < hostRect.top || rect.top > hostRect.bottom || hostRect.height === 0;
     const offset = unit.kind === 'listItem' && unit.listType !== 'taskList' ? 78 : 60;
     this.controls.style.left = `${Math.max(4, rect.left - offset)}px`;
-    this.controls.style.top = `${Math.max(hostRect.top, Math.min(rect.top, hostRect.bottom - 26))}px`;
+    const desiredTop = rect.height < 26 ? rect.top + (rect.height - 26) / 2 : rect.top;
+    this.controls.style.top = `${Math.max(hostRect.top, Math.min(desiredTop, hostRect.bottom - 26))}px`;
   }
 
   hostPointerDown(event) {
