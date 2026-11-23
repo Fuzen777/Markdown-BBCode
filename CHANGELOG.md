@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.9 — 2026-11-23
+
+1. Rebranded the application from `BBCode Editor` to `Markdown BBCode` across the interface, window title, executable (`Markdown BBCode.exe`), Tauri identifier (`com.fuzen777.markdown-bbcode`), single-instance lock and repository files.
+2. Created and integrated the new `[M↓]` monogram app icon across generated desktop icons, installers and the top navigation bar brand mark.
+3. Extracted the full commit and tag history (`v0.1.0`–`v0.2.8`) into its own standalone GitHub repository (`Fuzen777/Markdown-BBCode`).
+4. Added dual Portable (`Portable.txt` / `portable-data`) and Windows per-user NSIS Installed (`%APPDATA%\Markdown BBCode` with legacy data migration) modes alongside one-click signed GitHub auto-updates (silent startup check, footer manual version check button, header `Update vX.Y.Z` button, pre-update save flush and conflict guard, NSIS updater plugin and SHA-256 + Ed25519 minisign verified portable `.zip` swap).
+5. Updated `npm run portable` to deploy directly to `D:\Apps\Markdown BBCode\Markdown BBCode.exe` (gracefully closing and relaunching an already-open instance while keeping `portable-data` intact) and added `.github/workflows/release.yml` to build and sign official GitHub Releases only on explicit `workflow_dispatch` or `release/v*` tags.
+
 ## 0.2.8 — 2026-11-23
 
 1. Added a resizable, collapsible left-side Folder Browser (`Ctrl+Shift+E`, open by default with a close button and persisted state/width) for quick navigation across standalone files and multi-mod monorepos without mandatory setup.

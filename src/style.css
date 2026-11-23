@@ -37,8 +37,13 @@ main { flex: 1; min-height: 0; display: flex; flex-direction: column; background
 #notice-text { flex: 1; white-space: pre-wrap; }
 #output-notice { display: flex; align-items: center; gap: 12px; padding: 10px 20px; background: var(--accent-bg); font-size: 13px; }
 #output-notice-text { flex: 1; }
-footer { display: flex; gap: 24px; padding: 8px 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+footer { display: flex; align-items: center; gap: 20px; padding: 8px 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 #save-status { flex: 1; }
+.update-pill { background: var(--accent); color: var(--panel); border-color: transparent; font-weight: 600; font-size: 12px; padding: 5px 11px; }
+.update-pill:hover { background: var(--accent); filter: brightness(1.08); }
+.footer-version { border: 0; background: transparent; padding: 2px 6px; font-size: 12px; color: var(--muted); border-radius: 4px; }
+.footer-version:hover { background: var(--accent-bg); color: var(--text); }
+.footer-version.has-update { color: var(--accent); font-weight: 600; }
 
 /* ==> Section 3 - Editor Surface And Dialogs <== */
 #editor-host { flex: 1; min-height: 0; display: flex; flex-direction: column; margin: 0 16px 14px; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }

@@ -1,4 +1,4 @@
-# BBCode Editor Features
+# Markdown BBCode Features
 
 ## Documents
 
@@ -9,7 +9,8 @@
 | Optional YAML | Arbitrary frontmatter retained; legacy export target dropdown remains available. |
 | On-Demand BBCode | Copy or explicit Export with single-newline Nexus block spacing (preserving extra intentional blank lines), loss review, replacement confirmation and revision checks. |
 | One-Time Import | Auto-detects BBCode tags in opened `.txt` files (alongside `.bbcode` files), reviews unsupported formatting and protects originals. |
-| Recovery | Open tabs, unnamed drafts, preferences and legacy imports persist beside the executable. |
+| Recovery | Open tabs, unnamed drafts, preferences and legacy imports persist in `portable-data` (portable) or `%APPDATA%\Markdown BBCode` (installed). |
+| Auto-Updater | Silent startup check plus footer manual check and one-click header `Update` button for both NSIS installed and signed portable builds, flushing clean files and blocking on unresolved conflicts before restarting or swapping. |
 | Conflict Protection | External source changes require review; failed saves prevent closing. |
 
 ## Editing

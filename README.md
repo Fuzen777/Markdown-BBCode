@@ -1,10 +1,10 @@
-# BBCode Editor
+# Markdown BBCode
 
-A portable Windows x64 Markdown editor with optional Nexus Mods BBCode export. Built with Tauri and Tiptap.
+A fast Windows x64 Markdown editor with optional Nexus Mods BBCode export, available as both a portable executable and a per-user installer. Built with Tauri and Tiptap.
 
-## Running
+## Running And Updates
 
-Extract the portable folder into a writable location and run **BBCode Editor.exe**. Microsoft Edge WebView2 Runtime is required. Settings and recovery stay in `portable-data` beside the executable. Keep that folder when moving or upgrading the app, with both versions closed.
+Extract the portable release folder into a writable location (or run the portable build in `D:\Apps\Markdown BBCode`) and launch **Markdown BBCode.exe**, or install via the signed Windows NSIS setup executable. Microsoft Edge WebView2 Runtime is required. Portable launches keep settings, recovery drafts and WebView2 data in `portable-data` beside the executable (enabled by `Portable.txt`); installed launches store data in `%APPDATA%\Markdown BBCode`. Keep `portable-data` intact when moving a portable folder. Both modes check GitHub Releases silently on startup or on demand from the footer version button and provide a one-click header **Update** action that flushes clean open files first (and aborts if a file conflict exists) before verifying and applying the signed update.
 
 ## Documents And Saving
 
@@ -94,10 +94,11 @@ npm run build
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 npm run portable
+npm run build:installer
 npm run test:native
 ```
 
-Browser tests use installed Microsoft Edge. Automated test runners enforce process-tree timeout guards (`30s` unit tests, `120s` Playwright UI with a `20s` server startup limit, and `60s` native smoke). Portable builds appear under `release/BBCode Editor <version>`. Build the frontend before Rust checks on a clean checkout. Close other instances before running the isolated native smoke test.
+Browser tests use installed Microsoft Edge. Automated test runners enforce process-tree timeout guards (`30s` unit tests, `120s` Playwright UI with a `20s` server startup limit, and `60s` native smoke). `npm run portable` deploys directly to `D:\Apps\Markdown BBCode\Markdown BBCode.exe`, gracefully closing and relaunching an already-open instance in that directory. Signed GitHub Releases (NSIS installer, portable archive and updater manifests) build via `.github/workflows/release.yml` only on manual dispatch or `release/v*` tags. Build the frontend before Rust checks on a clean checkout. Close other instances before running the isolated native smoke test.
 
 ## Hybrid Blank Lines And Icons
 

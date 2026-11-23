@@ -2,21 +2,34 @@
 #![allow(non_snake_case)]
 
 // ==> Section 1 - Storage Types <==
+use base64::Engine as _;
+use minisign_verify::{PublicKey, Signature};
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::VecDeque,
     fs,
-    io::Write,
-    path::{Path, PathBuf},
+    io::{Cursor, Write},
+    path::{Component, Path, PathBuf},
     sync::Mutex,
 };
 use tauri::{Emitter, Manager};
+use tauri_plugin_updater::UpdaterExt;
+
+const UPDATER_PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFCMzBDOTA5QTExRTYwNDYKUldSR1lCNmhDY2t3R3l1VktrZ0duVE9tSFBkVW9kV0lpM0VCVkhrS2x4WWNxUHBwM2N1OGJhTVgK";
+const PORTABLE_MANIFEST_URL: &str =
+    "https://github.com/Fuzen777/Markdown-BBCode/releases/latest/download/portable-latest.json";
+
+struct PendingState {
+    pendingPaths: Mutex<Vec<String>>,
+}
 
 struct AppState {
     dataDirectory: PathBuf,
-    pendingPaths: Mutex<Vec<String>>,
     writeLock: Mutex<()>,
+    isPortable: bool,
+    executablePath: PathBuf,
 }
 
 #[derive(Debug, Serialize)]
@@ -84,6 +97,32 @@ struct PathKind {
     path: String,
     exists: bool,
     isDir: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RuntimeInfo {
+    version: String,
+    isPortable: bool,
+    executablePath: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct UpdateInfo {
+    available: bool,
+    currentVersion: String,
+    latestVersion: String,
+    notes: String,
+    isPortable: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct PortableManifest {
+    version: String,
+    #[serde(default)]
+    notes: String,
+    url: String,
+    sha256: String,
+    signature: String,
 }
 
 // ==> Section 2 - Atomic File Operations <==
@@ -204,7 +243,7 @@ fn save_session(
 }
 
 #[tauri::command]
-fn take_pending_paths(state: tauri::State<AppState>) -> Result<Vec<String>, StorageError> {
+fn take_pending_paths(state: tauri::State<PendingState>) -> Result<Vec<String>, StorageError> {
     Ok(std::mem::take(
         &mut *state.pendingPaths.lock().map_err(StorageError::io)?,
     ))
@@ -652,6 +691,255 @@ fn reveal_in_explorer(path: String) -> Result<(), StorageError> {
     Ok(())
 }
 
+// ==> Section 2C - Runtime Mode And Signed Auto-Updater <==
+fn detectPortableMode(executableDir: &Path) -> bool {
+    cfg!(debug_assertions)
+        || executableDir.join("Portable.txt").is_file()
+        || executableDir.join("portable-data").is_dir()
+}
+
+fn isNewerVersion(current: &str, candidate: &str) -> Result<bool, StorageError> {
+    let cur = Version::parse(current.trim().trim_start_matches('v')).map_err(StorageError::io)?;
+    let cand =
+        Version::parse(candidate.trim().trim_start_matches('v')).map_err(StorageError::io)?;
+    Ok(cand > cur)
+}
+
+fn decodeMaybeBase64(value: &str) -> Result<String, StorageError> {
+    let trimmed = value.trim();
+    if trimmed.starts_with("untrusted comment:") {
+        return Ok(trimmed.to_owned());
+    }
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(trimmed)
+        .map_err(|error| StorageError::io(format!("Invalid signature encoding: {error}")))?;
+    String::from_utf8(decoded)
+        .map_err(|error| StorageError::io(format!("Invalid UTF-8 signature: {error}")))
+}
+
+fn verifyPortablePayload(
+    bytes: &[u8],
+    expectedSha256: &str,
+    signatureRawOrB64: &str,
+    pubkeyRawOrB64: &str,
+) -> Result<(), StorageError> {
+    let actualHash = revision(bytes);
+    if !actualHash.eq_ignore_ascii_case(expectedSha256.trim()) {
+        return Err(StorageError::io(
+            "Portable update checksum verification failed.",
+        ));
+    }
+    let pubkeyText = decodeMaybeBase64(pubkeyRawOrB64)?;
+    let publicKey = PublicKey::decode(&pubkeyText)
+        .map_err(|error| StorageError::io(format!("Invalid updater public key: {error}")))?;
+    let sigText = decodeMaybeBase64(signatureRawOrB64)?;
+    let signature = Signature::decode(&sigText)
+        .map_err(|error| StorageError::io(format!("Invalid updater signature: {error}")))?;
+    publicKey.verify(bytes, &signature, true).map_err(|error| {
+        StorageError::io(format!("Updater signature verification failed: {error}"))
+    })
+}
+
+fn extractZipSafely(zipBytes: &[u8], extractDir: &Path) -> Result<(), StorageError> {
+    fs::create_dir_all(extractDir).map_err(StorageError::io)?;
+    let mut archive = zip::ZipArchive::new(Cursor::new(zipBytes)).map_err(StorageError::io)?;
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).map_err(StorageError::io)?;
+        let Some(relPath) = entry.enclosed_name().map(|p| p.to_path_buf()) else {
+            return Err(StorageError::io(
+                "Refusing unsafe path inside update archive.",
+            ));
+        };
+        let isPortableData = relPath.components().next().is_some_and(|first| {
+            matches!(first, Component::Normal(name) if name.to_string_lossy().eq_ignore_ascii_case("portable-data"))
+        });
+        if isPortableData {
+            continue;
+        }
+        let targetPath = extractDir.join(&relPath);
+        if entry.is_dir() {
+            fs::create_dir_all(&targetPath).map_err(StorageError::io)?;
+        } else {
+            if let Some(parent) = targetPath.parent() {
+                fs::create_dir_all(parent).map_err(StorageError::io)?;
+            }
+            let mut outFile = fs::File::create(&targetPath).map_err(StorageError::io)?;
+            std::io::copy(&mut entry, &mut outFile).map_err(StorageError::io)?;
+            outFile.sync_all().map_err(StorageError::io)?;
+        }
+    }
+    Ok(())
+}
+
+async fn fetchPortableManifest() -> Result<PortableManifest, StorageError> {
+    let client = reqwest::Client::builder()
+        .user_agent("Markdown-BBCode-Updater")
+        .build()
+        .map_err(StorageError::io)?;
+    let response = client
+        .get(PORTABLE_MANIFEST_URL)
+        .send()
+        .await
+        .map_err(StorageError::io)?
+        .error_for_status()
+        .map_err(StorageError::io)?;
+    response
+        .json::<PortableManifest>()
+        .await
+        .map_err(StorageError::io)
+}
+
+#[tauri::command]
+fn app_runtime_info(state: tauri::State<AppState>) -> RuntimeInfo {
+    RuntimeInfo {
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        isPortable: state.isPortable,
+        executablePath: normalizeDisplayPath(&state.executablePath),
+    }
+}
+
+#[tauri::command]
+async fn check_for_update(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<UpdateInfo, StorageError> {
+    let current = env!("CARGO_PKG_VERSION").to_owned();
+    if state.isPortable {
+        let manifest = fetchPortableManifest().await?;
+        let available = isNewerVersion(&current, &manifest.version)?;
+        return Ok(UpdateInfo {
+            available,
+            currentVersion: current,
+            latestVersion: manifest.version.trim_start_matches('v').to_owned(),
+            notes: manifest.notes,
+            isPortable: true,
+        });
+    }
+    let updater = app.updater().map_err(StorageError::io)?;
+    match updater.check().await.map_err(StorageError::io)? {
+        Some(update) => Ok(UpdateInfo {
+            available: true,
+            currentVersion: current,
+            latestVersion: update.version,
+            notes: update.body.unwrap_or_default(),
+            isPortable: false,
+        }),
+        None => Ok(UpdateInfo {
+            available: false,
+            currentVersion: current.clone(),
+            latestVersion: current,
+            notes: String::new(),
+            isPortable: false,
+        }),
+    }
+}
+
+#[tauri::command]
+async fn install_update(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), StorageError> {
+    if !state.isPortable {
+        let updater = app.updater().map_err(StorageError::io)?;
+        let Some(update) = updater.check().await.map_err(StorageError::io)? else {
+            return Err(StorageError::io("Already up to date."));
+        };
+        update
+            .download_and_install(|_, _| {}, || {})
+            .await
+            .map_err(StorageError::io)?;
+        app.restart();
+    }
+
+    let manifest = fetchPortableManifest().await?;
+    if !isNewerVersion(env!("CARGO_PKG_VERSION"), &manifest.version)? {
+        return Err(StorageError::io("Already up to date."));
+    }
+    let validatedUrl = validateExternalUrl(&manifest.url)?.to_owned();
+    if !validatedUrl
+        .to_ascii_lowercase()
+        .starts_with("https://github.com/fuzen777/markdown-bbcode/releases/")
+    {
+        return Err(StorageError::io(
+            "Portable update URL must point to official GitHub Releases.",
+        ));
+    }
+    let client = reqwest::Client::builder()
+        .user_agent("Markdown-BBCode-Updater")
+        .build()
+        .map_err(StorageError::io)?;
+    let payload = client
+        .get(&validatedUrl)
+        .send()
+        .await
+        .map_err(StorageError::io)?
+        .error_for_status()
+        .map_err(StorageError::io)?
+        .bytes()
+        .await
+        .map_err(StorageError::io)?;
+    verifyPortablePayload(
+        &payload,
+        &manifest.sha256,
+        &manifest.signature,
+        UPDATER_PUBKEY,
+    )?;
+
+    let installDir = state
+        .executablePath
+        .parent()
+        .ok_or_else(|| StorageError::io("Cannot locate install folder."))?
+        .to_path_buf();
+    let workDir =
+        std::env::temp_dir().join(format!("markdown-bbcode-update-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&workDir);
+    let stagingDir = workDir.join("staging");
+    extractZipSafely(&payload, &stagingDir)?;
+
+    #[cfg(target_os = "windows")]
+    {
+        let scriptPath = workDir.join("apply-update.ps1");
+        let psSingle = |p: &Path| normalizeDisplayPath(p).replace('\'', "''");
+        let scriptContent = format!(
+            "$pidToWait = {pid}\r\n\
+            while (Get-Process -Id $pidToWait -ErrorAction SilentlyContinue) {{ Start-Sleep -Milliseconds 200 }}\r\n\
+            Start-Sleep -Milliseconds 300\r\n\
+            $src = '{src}'\r\n\
+            $dst = '{dst}'\r\n\
+            Get-ChildItem -LiteralPath $src -Force | ForEach-Object {{\r\n\
+              if ($_.Name -ieq 'portable-data') {{ return }}\r\n\
+              Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $dst $_.Name) -Recurse -Force\r\n\
+            }}\r\n\
+            $exe = Join-Path $dst 'Markdown BBCode.exe'\r\n\
+            if (Test-Path -LiteralPath $exe) {{ Start-Process -FilePath $exe }}\r\n\
+            Remove-Item -LiteralPath '{work}' -Recurse -Force -ErrorAction SilentlyContinue\r\n",
+            pid = std::process::id(),
+            src = psSingle(&stagingDir),
+            dst = psSingle(&installDir),
+            work = psSingle(&workDir),
+        );
+        fs::write(&scriptPath, scriptContent).map_err(StorageError::io)?;
+        std::process::Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-WindowStyle",
+                "Hidden",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
+            .arg(&scriptPath)
+            .spawn()
+            .map_err(StorageError::io)?;
+        app.exit(0);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (&installDir, &app);
+    }
+    Ok(())
+}
+
 // ==> Section 3 - Portable Window Lifecycle <==
 fn argumentPaths(arguments: impl Iterator<Item = String>, workingDirectory: &Path) -> Vec<String> {
     arguments
@@ -666,18 +954,20 @@ fn argumentPaths(arguments: impl Iterator<Item = String>, workingDirectory: &Pat
 }
 
 fn main() {
-    let executablePath = std::env::current_exe().expect("Cannot locate the portable application");
-    let dataDirectory = executablePath
+    let executablePath = std::env::current_exe().expect("Cannot locate Markdown BBCode");
+    let executableDir = executablePath
         .parent()
         .expect("Executable has no directory")
-        .join("portable-data");
-    fs::create_dir_all(&dataDirectory)
-        .expect("The portable folder must be writable. Move the app to a writable folder.");
+        .to_path_buf();
+    let isPortable = detectPortableMode(&executableDir);
     let workingDirectory = std::env::current_dir().unwrap_or_default();
     let pendingPaths = argumentPaths(std::env::args().skip(1), &workingDirectory);
     tauri::Builder::default()
+        .manage(PendingState {
+            pendingPaths: Mutex::new(pendingPaths),
+        })
         .plugin(tauri_plugin_single_instance::init(|app, arguments, workingDirectory| {
-            let state = app.state::<AppState>();
+            let state = app.state::<PendingState>();
             if let Ok(mut pendingPaths) = state.pendingPaths.lock() {
                 pendingPaths.extend(argumentPaths(arguments.into_iter().skip(1), Path::new(&workingDirectory)));
             }
@@ -688,10 +978,23 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .manage(AppState { dataDirectory: dataDirectory.clone(), pendingPaths: Mutex::new(pendingPaths), writeLock: Mutex::new(()) })
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
+            let dataDirectory = if isPortable {
+                executableDir.join("portable-data")
+            } else {
+                app.path().app_data_dir()?
+            };
+            fs::create_dir_all(&dataDirectory)
+                .expect("Application data folder must be writable. Move the app to a writable folder.");
+            app.manage(AppState {
+                dataDirectory: dataDirectory.clone(),
+                writeLock: Mutex::new(()),
+                isPortable,
+                executablePath: executablePath.clone(),
+            });
             tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-                .title("BBCode Editor")
+                .title("Markdown BBCode")
                 .inner_size(1120.0, 800.0)
                 .min_inner_size(720.0, 480.0)
                 .data_directory(dataDirectory.join("webview"))
@@ -712,7 +1015,7 @@ fn main() {
                     }
                     tauri::DragDropEvent::Drop { paths, .. } => {
                         let _ = window.emit("file-drag", false);
-                        let state = window.state::<AppState>();
+                        let state = window.state::<PendingState>();
                         if let Ok(mut pendingPaths) = state.pendingPaths.lock() {
                             pendingPaths.extend(
                                 paths.iter().map(|path| path.to_string_lossy().into_owned()),
@@ -726,9 +1029,26 @@ fn main() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![read_file, save_file, load_session, save_session, take_pending_paths, finish_close, open_external_url, path_info, list_directory, search_directory, create_file, rename_path, reveal_in_explorer])
+        .invoke_handler(tauri::generate_handler![
+            read_file,
+            save_file,
+            load_session,
+            save_session,
+            take_pending_paths,
+            finish_close,
+            open_external_url,
+            path_info,
+            list_directory,
+            search_directory,
+            create_file,
+            rename_path,
+            reveal_in_explorer,
+            app_runtime_info,
+            check_for_update,
+            install_update
+        ])
         .run(tauri::generate_context!())
-        .expect("Could not start BBCode Editor. Ensure Microsoft Edge WebView2 is installed and the portable folder is writable.");
+        .expect("Could not start Markdown BBCode. Ensure Microsoft Edge WebView2 is installed and the application folder is writable.");
 }
 
 // ==> Section 4 - Persistence Regression Tests <==
@@ -882,5 +1202,63 @@ mod tests {
         let third = root.path().join("gamma.md");
         createFileImpl(&third, "# Gamma").unwrap();
         assert_eq!(renamePathImpl(&second, &third).unwrap_err().kind, "exists");
+    }
+
+    #[test]
+    fn compares_semver_and_detects_portable_mode() {
+        assert!(isNewerVersion("0.2.8", "0.2.9").unwrap());
+        assert!(isNewerVersion("0.2.9", "v0.3.0").unwrap());
+        assert!(!isNewerVersion("0.2.9", "0.2.9").unwrap());
+        assert!(!isNewerVersion("0.3.0", "0.2.9").unwrap());
+
+        let dir = tempfile::tempdir().unwrap();
+        assert!(detectPortableMode(dir.path()));
+    }
+
+    #[test]
+    fn verifies_signed_portable_payloads_and_extracts_zip_safely() {
+        const TEST_PUB: &str = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3";
+        const TEST_SIG: &str = "untrusted comment: signature from minisign secret key\nRUQf6LRCGA9i559r3g7V1qNyJDApGip8MfqcadIgT9CuhV3EMhHoN1mGTkUidF/z7SrlQgXdy8ofjb7bNJJylDOocrCo8KLzZwo=\ntrusted comment: timestamp:1633700835\tfile:test\tprehashed\nwLMDjy9FLAuxZ3q4NlEvkgtyhrr0gtTu6KC4KBJdITbbOeAi1zBIYo0v4iTgt8jJpIidRJnp94ABQkJAgAooBQ==";
+        let encodedPub = base64::engine::general_purpose::STANDARD.encode(format!(
+            "untrusted comment: minisign public key\n{TEST_PUB}\n"
+        ));
+        let encodedSig = base64::engine::general_purpose::STANDARD.encode(TEST_SIG);
+        let payload = b"test";
+        let hash = revision(payload);
+
+        assert!(verifyPortablePayload(payload, &hash, &encodedSig, &encodedPub).is_ok());
+        assert!(verifyPortablePayload(b"tampered", &hash, &encodedSig, &encodedPub).is_err());
+        assert!(verifyPortablePayload(payload, &"0".repeat(64), &encodedSig, &encodedPub).is_err());
+
+        let mut zipBuf = Vec::new();
+        {
+            let mut writer = zip::ZipWriter::new(Cursor::new(&mut zipBuf));
+            let opts = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
+            writer.start_file("Markdown BBCode.exe", opts).unwrap();
+            writer.write_all(b"exe-bytes").unwrap();
+            writer
+                .start_file("portable-data/session.json", opts)
+                .unwrap();
+            writer.write_all(b"should-not-overwrite").unwrap();
+            writer.finish().unwrap();
+        }
+        let extractDir = tempfile::tempdir().unwrap();
+        extractZipSafely(&zipBuf, extractDir.path()).unwrap();
+        assert_eq!(
+            fs::read(extractDir.path().join("Markdown BBCode.exe")).unwrap(),
+            b"exe-bytes"
+        );
+        assert!(!extractDir.path().join("portable-data").exists());
+
+        let mut evilZip = Vec::new();
+        {
+            let mut writer = zip::ZipWriter::new(Cursor::new(&mut evilZip));
+            let opts = zip::write::SimpleFileOptions::default();
+            writer.start_file("../evil.txt", opts).unwrap();
+            writer.write_all(b"bad").unwrap();
+            writer.finish().unwrap();
+        }
+        assert!(extractZipSafely(&evilZip, extractDir.path()).is_err());
     }
 }

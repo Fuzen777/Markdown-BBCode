@@ -12,7 +12,7 @@ rules:
   quick_wins_precedence: Quick Wins takes precedence over Features, Fixes and Testing, grouped only by Features/Fixes sub-categories when helpful and contiguous component context.
 ---
 
-# BBCode Editor TODO
+# Markdown BBCode TODO
 
 ## Quick Wins
 

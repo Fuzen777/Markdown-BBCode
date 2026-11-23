@@ -30,6 +30,9 @@ const backend = {
   createFile: (path, content = '') => invoke('create_file', { path, content }),
   renamePath: (oldPath, newPath) => invoke('rename_path', { oldPath, newPath }),
   revealInExplorer: path => invoke('reveal_in_explorer', { path }),
+  runtimeInfo: () => invoke('app_runtime_info'),
+  checkForUpdate: () => invoke('check_for_update'),
+  installUpdate: () => invoke('install_update'),
 };
 const store = new DocumentStore(backend, render);
 let editor;
@@ -50,6 +53,11 @@ let safetyNotice = '';
 let closingWindow = false;
 let actionQueue = Promise.resolve();
 let startupComplete = false;
+let runtimeInfo = { version: '0.2.9', isPortable: true, executablePath: '' };
+let availableUpdate = null;
+let checkingUpdate = false;
+let installingUpdate = false;
+let updateCheckedUpToDate = false;
 
 function errorMessage(error) { return error?.message || String(error); }
 
@@ -214,6 +222,39 @@ function renderFormatting() {
   elements['apply-color'].dataset.color = store.preferences.lastColor;
 }
 
+function renderUpdater() {
+  const versionButton = elements['app-version'];
+  if (versionButton) {
+    const version = runtimeInfo?.version || '0.2.9';
+    if (checkingUpdate) versionButton.textContent = 'Checking For Updates…';
+    else if (installingUpdate) versionButton.textContent = 'Updating…';
+    else if (availableUpdate?.available) versionButton.textContent = `v${version} · Update v${availableUpdate.latestVersion}`;
+    else if (updateCheckedUpToDate) versionButton.textContent = `v${version} · Up To Date`;
+    else versionButton.textContent = `v${version}`;
+    versionButton.disabled = checkingUpdate || installingUpdate;
+    versionButton.classList.toggle('has-update', Boolean(availableUpdate?.available));
+    versionButton.title = availableUpdate?.available
+      ? `Update v${availableUpdate.latestVersion} Ready`
+      : 'Check For Updates';
+  }
+  const updateButton = elements['update-app'];
+  if (updateButton) {
+    const hasUpdate = Boolean(availableUpdate?.available);
+    updateButton.hidden = !hasUpdate;
+    updateButton.disabled = installingUpdate;
+    updateButton.textContent = installingUpdate
+      ? 'Updating…'
+      : hasUpdate
+        ? `Update v${availableUpdate.latestVersion}`
+        : 'Update Available';
+    updateButton.title = availableUpdate?.notes || (
+      availableUpdate?.isPortable
+        ? 'Download And Install Portable Update'
+        : 'Download And Install App Update'
+    );
+  }
+}
+
 function render() {
   if (!editor) return;
   const activeDocument = store.active;
@@ -272,6 +313,7 @@ function render() {
   updateBBCodePreview();
   documentOutline?.refresh();
   folderBrowser?.syncOpenDocuments();
+  renderUpdater();
 }
 
 function capture() {
@@ -483,23 +525,68 @@ async function closeTab(documentRecord) {
   render();
 }
 
+async function flushDocumentsForShutdown() {
+  capture();
+  clearTimeout(recoveryTimer);
+  clearTimeout(autosaveTimer);
+  await persist();
+  for (const documentRecord of store.documents) {
+    if (documentRecord.error) { store.activeId = documentRecord.id; documentRecord.open = true; showDocument(); throw documentRecord.error; }
+    await store.flush(documentRecord);
+  }
+  await persist();
+}
+
 async function closeWindow() {
   if (!startupComplete) { await invoke('finish_close'); return; }
   if (closingWindow) return;
   closingWindow = true;
-  capture();
   editor.readOnly(true);
-  clearTimeout(recoveryTimer);
-  clearTimeout(autosaveTimer);
   try {
-    await persist();
-    for (const documentRecord of store.documents) {
-      if (documentRecord.error) { store.activeId = documentRecord.id; documentRecord.open = true; showDocument(); throw documentRecord.error; }
-      await store.flush(documentRecord);
-    }
-    await persist();
+    await flushDocumentsForShutdown();
     await invoke('finish_close');
   } finally { closingWindow = false; editor.readOnly(false); }
+}
+
+async function checkForUpdates(silent = false) {
+  if (checkingUpdate || installingUpdate) return;
+  checkingUpdate = true;
+  updateCheckedUpToDate = false;
+  renderUpdater();
+  try {
+    const info = await backend.checkForUpdate();
+    if (!silent && globalError) { globalError = ''; render(); }
+    if (info?.available) {
+      availableUpdate = info;
+      updateCheckedUpToDate = false;
+    } else {
+      availableUpdate = null;
+      if (!silent) updateCheckedUpToDate = true;
+    }
+  } catch (error) {
+    if (!silent) throw error;
+  } finally {
+    checkingUpdate = false;
+    renderUpdater();
+  }
+}
+
+async function applyAppUpdate() {
+  if (installingUpdate || closingWindow) return;
+  installingUpdate = true;
+  globalError = '';
+  renderUpdater();
+  editor.readOnly(true);
+  try {
+    await flushDocumentsForShutdown();
+    await backend.installUpdate();
+    availableUpdate = null;
+    updateCheckedUpToDate = true;
+  } finally {
+    installingUpdate = false;
+    editor.readOnly(false);
+    renderUpdater();
+  }
 }
 
 // ==> Section 4 - Keyboard And Window Events <==
@@ -873,9 +960,12 @@ async function initialize() {
     for (const draft of drafts) draft.open = true;
     if (drafts.length) await activate(drafts[0].id);
   });
+  if (elements['app-version']) elements['app-version'].onclick = () => runAction(() => checkForUpdates(false));
+  if (elements['update-app']) elements['update-app'].onclick = () => runAction(() => applyAppUpdate());
   await listen('request-close', () => runAction(closeWindow));
   await listen('file-drag', event => { elements['editor-host'].classList.toggle('file-drop-active', Boolean(event.payload)); });
   await listen('open-files', () => { if (startupComplete) void runAction(async () => openPaths(await invoke('take_pending_paths'))); });
+  runtimeInfo = await backend.runtimeInfo().catch(() => runtimeInfo);
   await store.restore();
   if (!store.active) store.add();
   showDocument();
@@ -887,6 +977,7 @@ async function initialize() {
   window.addEventListener('focus', () => { void store.checkExternal(store.active); });
   setInterval(() => { if (!closingWindow && !elements['choice-dialog'].open) void store.checkExternal(store.active); }, 3000);
   document.documentElement.dataset.ready = 'true';
+  setTimeout(() => { if (!closingWindow && !installingUpdate) void checkForUpdates(true); }, 3000);
 }
 
 initialize().catch(error => {

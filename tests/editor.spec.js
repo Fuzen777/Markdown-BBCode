@@ -8,6 +8,10 @@ test.beforeEach(async ({ page }) => {
     const callbacks = {};
     const eventHandlers = {};
     window.testDesktop = { files: {}, pendingPaths: [], openedUrls: [], session: JSON.parse(localStorage.getItem('seedSession') || 'null'), openPaths: null, savePath: null, closed: false, failSave: false, failOutput: false,
+      runtimeInfo: { version: '0.2.9', isPortable: true, executablePath: '' },
+      updateCheckResult: { available: false, currentVersion: '0.2.9', latestVersion: '0.2.9', notes: '', isPortable: true },
+      failUpdateCheck: false,
+      updateInstalls: 0,
       emit(name, payload = null) { callbacks[eventHandlers[name]]?.({ event: name, payload }); },
     };
     const desktop = window.testDesktop;
@@ -24,6 +28,12 @@ test.beforeEach(async ({ page }) => {
         if (command === 'take_pending_paths') return desktop.pendingPaths.splice(0);
         if (command === 'open_external_url') { desktop.openedUrls.push(argumentsObject.url); return; }
         if (command === 'finish_close') { desktop.closed = true; return; }
+        if (command === 'app_runtime_info') return structuredClone(desktop.runtimeInfo);
+        if (command === 'check_for_update') {
+          if (desktop.failUpdateCheck) throw { kind: 'io', message: 'Offline.' };
+          return structuredClone(desktop.updateCheckResult);
+        }
+        if (command === 'install_update') { desktop.updateInstalls += 1; return; }
         if (command === 'path_info') {
           const clean = String(argumentsObject.path || '').replace(/^\\\\\?\\/, '').replace(/[\\/]+$/, '');
           const existsFile = Object.keys(desktop.files).some(p => p.toLowerCase() === clean.toLowerCase());
@@ -853,4 +863,55 @@ test('Windows virtual-key shortcuts respect split Ctrl layouts like BEPO azerty-
   await expect(page.locator('#choice-dialog')).toHaveAttribute('open', '');
   await expect(page.locator('#choice-dialog')).toContainText('Insert Link');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+});
+
+test('updater checks for updates, blocks install on conflict errors, and flushes clean documents before updating', async ({ page }) => {
+  const versionButton = page.locator('#app-version');
+  const updateButton = page.locator('#update-app');
+  await expect(versionButton).toHaveText('v0.2.9');
+  await expect(updateButton).toBeHidden();
+
+  await versionButton.click();
+  await expect(versionButton).toHaveText('v0.2.9 · Up To Date');
+  await expect(updateButton).toBeHidden();
+
+  await page.evaluate(() => {
+    window.testDesktop.updateCheckResult = {
+      available: true,
+      currentVersion: '0.2.9',
+      latestVersion: '0.3.0',
+      notes: 'Release notes',
+      isPortable: true,
+    };
+  });
+  await versionButton.click();
+  await expect(updateButton).toBeVisible();
+  await expect(updateButton).toHaveText('Update v0.3.0');
+  await expect(versionButton).toHaveText('v0.2.9 · Update v0.3.0');
+
+  await setSource(page, 'Initial content');
+  await saveDraft(page, 'C:\\Mod.md');
+  await expect(page.locator('#save-status')).toHaveText('Markdown Saved');
+
+  await page.locator('#markdown-source').fill('Local edit');
+  await page.evaluate(() => {
+    window.testDesktop.files['C:\\Mod.md'] = { path: 'C:\\Mod.md', content: 'Disk edit', revision: 'external-rev' };
+    window.dispatchEvent(new Event('focus'));
+  });
+  const resolveButton = page.getByRole('button', { name: 'Resolve Conflict', exact: true });
+  await expect(resolveButton).toBeVisible();
+
+  await updateButton.click();
+  await expect(resolveButton).toBeVisible();
+  expect(await page.evaluate(() => window.testDesktop.updateInstalls)).toBe(0);
+
+  await resolveButton.click();
+  await page.getByRole('button', { name: 'Keep My Edits', exact: true }).click();
+  await expect(resolveButton).toBeHidden();
+
+  await page.locator('#markdown-source').fill('Flushed before update');
+  await updateButton.click();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.updateInstalls)).toBe(1);
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Mod.md'].content)).toBe('Flushed before update');
+  await expect(updateButton).toBeHidden();
 });

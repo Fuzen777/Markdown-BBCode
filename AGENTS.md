@@ -1,16 +1,16 @@
-# BBCode Editor
+# Markdown BBCode
 
 ## Scope
 
-Portable Windows Markdown editor built with Tauri 2, Rust, vanilla JavaScript, Tiptap 3 and CodeMirror 6. Read DESIGN.md before changing behaviour. Ordinary .md is the default. Nexus BBCode is optional on-demand output; Steam is deferred. Retain the existing portable identity.
+Windows Markdown editor built with Tauri 2, Rust, vanilla JavaScript, Tiptap 3 and CodeMirror 6. Read DESIGN.md before changing behaviour. Ordinary .md is the default. Nexus BBCode is optional on-demand output; Steam is deferred. Supports both Portable mode (beside executable via `Portable.txt` or `portable-data`) and Installed NSIS mode (`AppData`).
 
 ## Development
 
-Run npm ci, then npm run tauri dev. npm run portable creates a versioned folder. Keep dependencies locked. WebView2 is required. This project shares its parent Git repository: stage and commit only this project's files. Never commit builds, dependencies or recovery data.
+Run `npm ci`, then `npm run tauri dev`. `npm run portable` compiles the binary and deploys directly to `D:\Apps\Markdown BBCode\Markdown BBCode.exe`, gracefully closing and relaunching any running instance in that folder while preserving `portable-data`. `npm run build:installer` builds a per-user signed NSIS installer. Keep dependencies locked. WebView2 is required. This project lives in its own standalone Git repository (`Fuzen777/Markdown-BBCode`); never commit builds, dependencies, signing private keys or recovery data. GitHub Releases run only on explicit `workflow_dispatch` or `release/v*` tags.
 
 ## Persistence
 
-src/documents.js saves authoritative Markdown only. Never create, check or delete automatic BBCode companions. Export is explicit and uses revision-checked replacement confirmation. Protect open source paths and original import paths. Preserve unknown YAML, invalid source and untouched raw text. Portable settings/recovery belong beside the executable; legacy session migration retains pending imports and backs up version-1 sessions.
+src/documents.js saves authoritative Markdown only. Never create, check or delete automatic BBCode companions. Export is explicit and uses revision-checked replacement confirmation. Protect open source paths and original import paths. Preserve unknown YAML, invalid source and untouched raw text. Settings and recovery stay in `portable-data` beside the executable when running portable, or under `%APPDATA%\Markdown BBCode` when installed (migrating existing `%APPDATA%\BBCode Editor` data only on first launch if needed); legacy session migration retains pending imports and backs up version-1 sessions. Non-blocking update checks (`check_for_update`), pre-update conflict/flush guards (`install_update`), and portable SHA-256 + Ed25519 minisign zip verification protect upgrades across both distribution modes.
 
 ## Editing And Conversion
 

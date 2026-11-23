@@ -1,6 +1,6 @@
 {
-  "name": "bbcode-editor",
-  "version": "0.2.8",
+  "name": "markdown-bbcode",
+  "version": "0.2.9",
   "private": true,
   "type": "module",
   "scripts": {
@@ -13,7 +13,8 @@
     "test:ui": "node scripts/run-with-timeout.mjs 120 node node_modules/@playwright/test/cli.js test",
     "test:native": "node scripts/run-with-timeout.mjs 60 node scripts/native-smoke.mjs",
     "lint": "eslint .",
-    "portable": "tauri build --no-bundle && node scripts/package.mjs"
+    "portable": "tauri build --no-bundle && node scripts/package.mjs",
+    "build:installer": "tauri build --bundles nsis"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.1",

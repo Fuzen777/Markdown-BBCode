@@ -1,8 +1,8 @@
-# Markdown-First Editor Design
+# Markdown BBCode Design
 
 ## Purpose
 
-A fast portable Windows Markdown editor with optional Nexus BBCode export. Ordinary .md files are the default; .markdown and existing .mdbbcode documents remain supported. Steam export is deferred. Keep the current application name and portable directory identity for compatibility.
+A fast Windows Markdown editor with optional Nexus BBCode export, built with Tauri 2 and Tiptap 3 in both Portable (`portable-data` beside `Markdown BBCode.exe`) and Installed (`%APPDATA%\Markdown BBCode`) modes. Ordinary .md files are the default; .markdown and existing .mdbbcode documents remain supported. Steam export is deferred.
 
 ## Documents And Saving
 
@@ -26,7 +26,7 @@ Offer Visual, Hybrid and Source. Visual remains the default. In Hybrid, only the
 
 ## Interface And Preferences
 
-Keep light/dark appearance, standard file shortcuts, source-conflict handling and selection-aware formatting controls. Retain the split Color button, last-applied color and Hex/RGB/HSL preferences across launches. Property settings are optional and shown only for explicit legacy document metadata. No automatic system file associations or app renaming.
+Keep light/dark appearance, standard file shortcuts, source-conflict handling and selection-aware formatting controls. Retain the split Color button, last-applied color and Hex/RGB/HSL preferences across launches. Property settings are optional and shown only for explicit legacy document metadata. No automatic system file associations.
 
 ## Validation
 
@@ -51,3 +51,7 @@ Provide a resizable, collapsible left-side `Files` sidebar (`Ctrl+Shift+E`, open
 ## Notion-Style Interactions, Tables And Resizable Synced Preview
 
 The BBCode preview pane supports a draggable resize splitter (vertical on desktop, horizontal when stacked) and bidirectional block-anchored scroll sync. The toolbar Table button opens an `8 × 8` size grid with header-row selection; the contextual table bar reflects `Header Row` state, and Visual tables expose right/bottom `+` hover rails, row/column drag handles (click for menu, drag to reorder while keeping row `0` headers normalized) and edge-only right-click menus while keeping cell interiors native. Visual and Hybrid block handles use pointer-event drag-and-drop with vertical hit-testing locked onto hovered controls; Visual lists and containers support per-item handles following nesting, drag-to-nest list items and Callouts/containers, and Shift/Ctrl+Click plus left-gutter marquee multi-block selection with a floating batch bar. Visual editing adds an active-line `/` placeholder, expanded slash/Turn Into entries and aliases (including Divider, Toggle, Spoiler, Center and Image), smart URL paste on selection across all modes, a link hover/caret popover (with validated native external URL opening), an expanded selection bubble bar (`Turn Into`, swatches, `Choose Color…`, `Clear Color`), a code block language/copy bar, an image hover pill with a two-field URL/alt dialog, cross-mode shortcuts (`Ctrl+K`, `Ctrl+Shift+X`, `Ctrl+E`, `Ctrl+Alt+0`–`6`, `Alt+Up`/`Down`), and a right-side three-state Document Outline (`Off` / `Float` / `Dock`) with scroll-tracked headings across Visual, Hybrid and Source.
+
+## Packaging And Updates
+
+`npm run portable` compiles `markdown-bbcode.exe` and deploys directly to `D:\Apps\Markdown BBCode\Markdown BBCode.exe`, keeping `portable-data` intact and sending a graceful `WM_CLOSE` (with up to `10s` exit wait and safe abort if blocked by a save/conflict dialog) before swapping and relaunching an already-open instance in that folder. `npm run build:installer` produces a per-user signed NSIS installer (`currentUser`, storing data under `%APPDATA%\Markdown BBCode` with one-time legacy migration from `%APPDATA%\BBCode Editor`). Both modes check GitHub Releases asynchronously after startup or on demand from the footer version button (`vX.Y.Z`) and provide a one-click header `Update` pill that flushes open documents (blocking if any unresolved conflict/save error exists) before delegating to `tauri-plugin-updater` (installed) or verifying SHA-256 + Ed25519 minisign signatures and extracting non-user files safely (portable). Official GitHub Releases run only via `.github/workflows/release.yml` on manual dispatch or `release/v*` tag push.
