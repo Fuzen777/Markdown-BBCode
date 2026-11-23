@@ -17,6 +17,7 @@
         <button id="drafts" hidden>Drafts</button>
         <button id="recovered" hidden>Recovered BBCode</button>
       </nav>
+      <button id="files-toggle" title="Folder Browser (Ctrl+Shift+E)" aria-pressed="true">Folder Browser</button>
       <button id="find-toggle" title="Find And Replace (Ctrl+F)">Find</button>
       <button id="preview-bbcode" title="Toggle BBCode Preview (Ctrl+Shift+P)" aria-pressed="false">Preview BBCode</button>
       <button id="export">Export BBCode…</button>
@@ -71,6 +72,38 @@
           <button type="button" data-table-action="deleteTable" title="Delete Table">Delete Table</button>
         </div>
         <div id="editor-panes">
+          <aside id="folder-sidebar" aria-label="Folder Browser">
+            <div class="folder-sidebar-header">
+              <strong>Files</strong>
+              <div class="folder-sidebar-actions">
+                <button id="folder-new-file" type="button" aria-label="New File" title="New File In Folder"></button>
+                <button id="folder-open-btn" type="button" aria-label="Open Folder" title="Open Folder…"></button>
+                <button id="folder-pin-btn" type="button" aria-label="Pin Folder" title="Pin Or Unpin Current Folder" aria-pressed="false"></button>
+                <button id="folder-reveal-btn" type="button" aria-label="Reveal Active File" title="Reveal Active File In Folder Browser"></button>
+                <button id="folder-refresh-btn" type="button" aria-label="Refresh Folder" title="Refresh Folder"></button>
+                <button id="folder-close-btn" type="button" aria-label="Hide Folder Browser" title="Hide Folder Browser (Ctrl+Shift+E)"></button>
+              </div>
+            </div>
+            <div class="folder-root-row">
+              <button id="folder-root-switcher" type="button" aria-haspopup="menu" aria-expanded="false" title="Switch Or Open Folder">
+                <span id="folder-root-name">No Folder Open</span>
+                <span class="folder-switcher-caret" aria-hidden="true">▾</span>
+              </button>
+              <div id="folder-switcher-menu" class="block-dropdown-menu folder-switcher-menu" role="menu" hidden></div>
+            </div>
+            <div id="folder-breadcrumbs-row" class="folder-breadcrumbs-row" hidden>
+              <button id="folder-up-btn" type="button" aria-label="Parent Folder" title="Parent Folder"></button>
+              <nav id="folder-breadcrumbs" class="folder-breadcrumbs" aria-label="Folder Path"></nav>
+            </div>
+            <div class="folder-filter-row">
+              <input id="folder-filter" type="text" placeholder="Filter Files…" aria-label="Filter Folder Files" spellcheck="false">
+              <button id="folder-filter-clear" type="button" aria-label="Clear File Filter" title="Clear Filter" hidden></button>
+              <button id="folder-show-all" type="button" aria-label="Show All Folders" title="Show Empty And Asset Folders" aria-pressed="false">All</button>
+            </div>
+            <div id="folder-notice" class="folder-notice" role="status" hidden></div>
+            <div id="folder-tree" class="folder-tree" role="tree" tabindex="0" aria-label="Workspace Files"></div>
+          </aside>
+          <div id="folder-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Folder Browser" tabindex="0"></div>
           <div id="editor-primary">
             <div id="find-bar" role="search" aria-label="Find And Replace" hidden>
               <div class="find-row">

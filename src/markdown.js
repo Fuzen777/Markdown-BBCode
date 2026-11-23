@@ -331,7 +331,7 @@ function bbcodeNode(node) {
     return content;
   }
   const inline = () => (node.content || []).map(bbcodeNode).join('');
-  const blocks = () => (node.content || []).map(bbcodeNode).join('\n\n');
+  const blocks = () => (node.content || []).map(bbcodeNode).join('\n');
   switch (node.type) {
     case 'doc': return blocks();
     case 'paragraph': return inline();
@@ -359,7 +359,8 @@ function bbcodeNode(node) {
     case 'tableHeader': return `[b]${blocks()}[/b]`;
     case 'tableCell': return blocks();
     case 'callout': {
-      const content = `[b]${calloutTitle(node.attrs)}[/b]${blocks() ? '\n\n' + blocks() : ''}`;
+      const body = blocks();
+      const content = `[b]${calloutTitle(node.attrs)}[/b]${body ? '\n' + body : ''}`;
       return `[quote]${node.attrs.fold ? '[spoiler]' + content + '[/spoiler]' : content}[/quote]`;
     }
     default: throw new Error(`Unsupported document element: ${node.type}`);
@@ -367,7 +368,7 @@ function bbcodeNode(node) {
 }
 
 export function markdownToBBCode(source) {
-  return bbcodeNode(parseMarkdown(source));
+  return markdownToBBCodeWithWarnings(source).bbcode;
 }
 
 
@@ -430,6 +431,44 @@ export function segmentMarkdown(source) {
   });
 }
 
+function extractTopLevelExtraBlanks(source, content) {
+  const gapCount = Math.max(0, content.length - 1);
+  const defaultExtras = Array(gapCount).fill(0);
+  if (!gapCount) return defaultExtras;
+
+  const isEmptyParagraph = node => node.type === 'paragraph' && (!node.content || !node.content.length);
+  const nonEmptyIndices = [];
+  for (let index = 0; index < content.length; index++) {
+    if (!isEmptyParagraph(content[index])) nonEmptyIndices.push(index);
+  }
+  if (nonEmptyIndices.length < 2) return defaultExtras;
+
+  const segments = segmentMarkdown(source);
+  const spaceCounts = [];
+  let seenContent = false;
+  let spaces = 0;
+  for (const segment of segments) {
+    if (segment.type === 'space') {
+      if (seenContent) spaces++;
+      continue;
+    }
+    if (seenContent) spaceCounts.push(spaces);
+    seenContent = true;
+    spaces = 0;
+  }
+  if (spaceCounts.length !== nonEmptyIndices.length - 1) return defaultExtras;
+
+  const extras = Array(gapCount).fill(0);
+  for (let index = 0; index < spaceCounts.length; index++) {
+    const startIdx = nonEmptyIndices[index];
+    const endIdx = nonEmptyIndices[index + 1];
+    const baseNewlines = endIdx - startIdx;
+    const wantedNewlines = Math.max(baseNewlines, spaceCounts[index]);
+    extras[startIdx] += wantedNewlines - baseNewlines;
+  }
+  return extras;
+}
+
 export function markdownToBBCodeWithWarnings(source) {
   const documentModel = parseMarkdown(source);
   const warnings = new Set();
@@ -440,17 +479,23 @@ export function markdownToBBCodeWithWarnings(source) {
     node.content?.forEach(inspect);
   };
   inspect(documentModel);
+  const content = documentModel.content || [];
+  const extraBlanks = extractTopLevelExtraBlanks(source, content);
   const chunks = [];
   const blockOffsets = [];
   let currentLine = 0;
-  for (const child of documentModel.content || []) {
-    const text = bbcodeNode(child);
+  for (let index = 0; index < content.length; index++) {
+    const text = bbcodeNode(content[index]);
     const lineCount = text ? text.split('\n').length : 1;
     blockOffsets.push({ startLine: currentLine, endLine: currentLine + lineCount });
     chunks.push(text);
-    currentLine += lineCount + 1;
+    currentLine += lineCount + (index < content.length - 1 ? extraBlanks[index] : 0);
   }
-  const bbcode = chunks.join('\n\n');
+  let bbcode = '';
+  for (let index = 0; index < chunks.length; index++) {
+    if (index > 0) bbcode += '\n'.repeat(1 + extraBlanks[index - 1]);
+    bbcode += chunks[index];
+  }
   const totalLines = bbcode ? bbcode.split('\n').length : 1;
   return { bbcode, warnings: [...warnings], blockOffsets, totalLines };
 }

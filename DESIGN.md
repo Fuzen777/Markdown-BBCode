@@ -12,7 +12,7 @@ New documents and one-time imports default to .md without mandatory metadata. Pr
 
 ## BBCode Export
 
-Copy BBCode converts the current document on demand. Export BBCode chooses a destination and writes once, with explicit revision-checked replacement for an existing file. Never replace the editable source or an original BBCode import. Show conversion problems only when exporting. Ask before applying lossy fallbacks: callouts become titled quotes/spoilers; tasks become checklist text; tables become readable text. Do not silently omit content.
+Copy BBCode converts the current document on demand. Export BBCode chooses a destination and writes once, with explicit revision-checked replacement for an existing file. Never replace the editable source or an original BBCode import. Collapse standard Markdown block separators (`\n\n`) and container/callout breaks to single newlines (`\n`) so Nexus Mods does not render double blank lines between paragraphs and headers, while preserving any extra intentional blank lines (`\n\n\n` -> `\n\n`) and keeping scroll-sync offsets aligned. Show conversion problems only when exporting. Ask before applying lossy fallbacks: callouts become titled quotes/spoilers; tasks become checklist text; tables become readable text. Do not silently omit content.
 
 ## Visual Blocks
 
@@ -42,7 +42,11 @@ Block-type and block-action entries in Turn Into, Block Actions, Insert and slas
 
 ## Editing Ergonomics, Preview And Search
 
-Visual block gutter controls sit outside text padding without overlapping content, and Turn Into separates block conversions from block actions. Visual mode exposes contextual row/column table controls inside tables and inline callout type/folding selectors. Hybrid and Source support active formatting state, toggleable inline markers, formatting clear and formatting shortcuts. A toggleable live BBCode split preview pane, cross-mode Find and Replace, word/character counts and window file drag-and-drop complete the desktop workflow.
+Visual block gutter controls sit outside text padding without overlapping content, and Turn Into separates block conversions from block actions. Visual mode exposes contextual row/column table controls inside tables and inline callout type/folding selectors. Hybrid and Source support active formatting state, toggleable inline markers, formatting clear and formatting shortcuts. A toggleable live BBCode split preview pane, cross-mode Find and Replace, word/character counts, smart `.txt` format detection (opening Markdown/plain `.txt` directly in-place while routing BBCode-tagged `.txt` and `.bbcode` files through one-time Import), a resizable left Folder Browser sidebar, and window file/folder drag-and-drop complete the desktop workflow.
+
+## Folder Browser
+
+Provide a resizable, collapsible left-side `Files` sidebar (`Ctrl+Shift+E`, open by default on launch, with header toggle, close button and width/state persistence across launches). Zero-setup navigation auto-follows the active document's folder unless a workspace root was explicitly opened, climbed to via clickable breadcrumbs/parent navigation, or chosen from Persistent Pinned/Recent folders (keeping locked monorepo roots fixed on outside tab switches while offering one-click `Reveal Active File`). Filter listings to readable formats (`.md`, `.markdown`, `.mdbbcode`, `.txt`, plus `.bbcode` with an `Import` badge) and hide hidden/asset/empty directories by default with a `All` toggle (`Show All Folders`) plus recursive substring search. Include Light Explorer actions: inline `+ New File` (defaulting `.md`, refusing overwrites), inline `Rename` (`F2`/context menu, synchronizing open tabs), context menu (`Open`, `Import As BBCode` for `.txt`, `New File`, `Open As Root`, `Pin`/`Unpin`, `Rename`, `Reveal In Explorer`, `Copy Path`), and folder drag-and-drop.
 
 ## Notion-Style Interactions, Tables And Resizable Synced Preview
 

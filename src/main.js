@@ -10,6 +10,8 @@ import { ColorPicker } from './color-picker.js';
 import { FindReplaceController } from './find-replace.js';
 import { TableGridPicker } from './table-controls.js';
 import { DocumentOutline } from './outline.js';
+import { FolderBrowser } from './folder-browser.js';
+import { detectTextFormat, parentDirectory, addRecentFolder } from './folder-browser-model.js';
 import { shortcutKey } from './shortcuts.js';
 import './style.css';
 import { initializeIcons, setButtonIcon } from './icons.js';
@@ -22,12 +24,19 @@ const backend = {
   saveFile: (path, content, expectedRevision) => invoke('save_file', { path, content, expectedRevision }),
   loadSession: () => invoke('load_session'),
   saveSession: session => invoke('save_session', { session }),
+  pathInfo: path => invoke('path_info', { path }),
+  listDirectory: (path, showAll = false) => invoke('list_directory', { path, showAll }),
+  searchDirectory: (root, query, maxResults = 100) => invoke('search_directory', { root, query, maxResults }),
+  createFile: (path, content = '') => invoke('create_file', { path, content }),
+  renamePath: (oldPath, newPath) => invoke('rename_path', { oldPath, newPath }),
+  revealInExplorer: path => invoke('reveal_in_explorer', { path }),
 };
 const store = new DocumentStore(backend, render);
 let editor;
 let colorPicker;
 let findReplace;
 let documentOutline;
+let folderBrowser;
 let previewOpen = false;
 let previewMeta = { blockOffsets: [], totalLines: 1 };
 let scrollSyncSource = null;
@@ -262,6 +271,7 @@ function render() {
   elements['document-stats'].textContent = activeDocument ? `${words.toLocaleString()} ${words === 1 ? 'Word' : 'Words'} · ${activeDocument.content.length.toLocaleString()} Characters` : '';
   updateBBCodePreview();
   documentOutline?.refresh();
+  folderBrowser?.syncOpenDocuments();
 }
 
 function capture() {
@@ -295,6 +305,7 @@ function showDocument() {
   } finally { loadingDocument = false; }
   render();
   findReplace?.refresh(true);
+  if (startupComplete) void folderBrowser?.onActiveFileChanged(store.active?.path || null);
 }
 
 async function activate(documentId) {
@@ -347,9 +358,9 @@ async function choose(title, message, choices, inputValue) {
 async function saveDocument(documentRecord = store.active, saveAs = false) {
   capture();
   if (!documentRecord.path || saveAs) {
-    const selectedPath = await save({ defaultPath: (documentRecord.path || documentRecord.suggestedPath)?.replace(/^\\\\\?\\/, '') || `${documentName(documentRecord)}.md`, filters: [{ name: 'Markdown Documents', extensions: ['md'] }, { name: 'Legacy MDBBCode Documents', extensions: ['mdbbcode'] }] });
+    const selectedPath = await save({ defaultPath: (documentRecord.path || documentRecord.suggestedPath)?.replace(/^\\\\\?\\/, '') || `${documentName(documentRecord)}.md`, filters: [{ name: 'Markdown Documents', extensions: ['md'] }, { name: 'Legacy MDBBCode Documents', extensions: ['mdbbcode'] }, { name: 'Text Documents', extensions: ['txt'] }] });
     if (!selectedPath) return false;
-    const targetPath = /\.(mdbbcode|md|markdown)$/i.test(selectedPath) ? selectedPath : `${selectedPath}.md`;
+    const targetPath = /\.(mdbbcode|md|markdown|txt)$/i.test(selectedPath) ? selectedPath : `${selectedPath}.md`;
     if (pathKey(documentRecord.path) === pathKey(targetPath)) return saveDocument(documentRecord, false);
     const previousContent = documentRecord.content;
     try { await store.saveAs(documentRecord, targetPath); }
@@ -361,6 +372,13 @@ async function saveDocument(documentRecord = store.active, saveAs = false) {
       await store.saveAs(documentRecord, targetPath, snapshot.revision);
     }
     if (store.activeId === documentRecord.id && documentRecord.content !== previousContent) showDocument();
+    if (folderBrowser) {
+      const parent = parentDirectory(documentRecord.path);
+      if (parent && store.folderBrowser.rootPath && parent.toLowerCase() === store.folderBrowser.rootPath.toLowerCase()) {
+        await folderBrowser.refresh();
+      }
+      await folderBrowser.onActiveFileChanged(documentRecord.path);
+    }
   } else {
     if (documentRecord.error?.kind === 'conflict') return resolveConflict(documentRecord);
     documentRecord.error = null;
@@ -400,19 +418,47 @@ async function resolveConflict(documentRecord = store.active) {
   return true;
 }
 
-async function openPaths(paths) {
+async function openPaths(paths, { forceImport = false } = {}) {
   capture();
   const failures = [];
+  let openedDir = null;
   for (const path of paths) {
     try {
-      if (/\.(bbcode|txt)$/i.test(path)) {
-        const snapshot = await backend.readFile(path);
+      const info = await backend.pathInfo(path).catch(() => null);
+      if (info?.exists && info.isDir) {
+        openedDir = info.path;
+        await folderBrowser?.openFolder(info.path, { lock: true, openSidebar: true });
+        continue;
+      }
+      const resolvedPath = info?.exists && info.path ? info.path : path;
+      if (forceImport || /\.bbcode$/i.test(resolvedPath)) {
+        const snapshot = await backend.readFile(resolvedPath);
         await importDocument(snapshot);
-      } else await store.open(path);
+        const parent = parentDirectory(snapshot.path || resolvedPath);
+        if (parent) {
+          store.folderBrowser.recentFolders = addRecentFolder(store.folderBrowser.recentFolders, parent);
+          if (!store.folderBrowser.rootPath && folderBrowser) await folderBrowser.openFolder(parent, { lock: false, openSidebar: false });
+        }
+      } else if (/\.txt$/i.test(resolvedPath)) {
+        const snapshot = await backend.readFile(resolvedPath);
+        if (detectTextFormat(snapshot.content) === 'bbcode') {
+          await importDocument(snapshot);
+          const parent = parentDirectory(snapshot.path || resolvedPath);
+          if (parent) {
+            store.folderBrowser.recentFolders = addRecentFolder(store.folderBrowser.recentFolders, parent);
+            if (!store.folderBrowser.rootPath && folderBrowser) await folderBrowser.openFolder(parent, { lock: false, openSidebar: false });
+          }
+        } else {
+          await store.open(resolvedPath);
+        }
+      } else {
+        await store.open(resolvedPath);
+      }
     }
     catch (error) { failures.push(`${path}: ${errorMessage(error)}`); }
   }
   if (store.active) showDocument();
+  else if (openedDir) render();
   await persist();
   scheduleSave();
   if (failures.length) throw new Error(failures.join('\n'));
@@ -505,6 +551,7 @@ function keyboardShortcut(event) {
     }
   }
   if (key === 'p' && event.shiftKey) { event.preventDefault(); event.stopPropagation(); toggleBBCodePreview(); return; }
+  if (key === 'e' && event.shiftKey) { event.preventDefault(); event.stopPropagation(); folderBrowser?.toggle(); return; }
   const action = key === 'n' ? () => { capture(); store.add(); showDocument(); return persist(); }
     : key === 'o' ? () => elements.open.click()
     : key === 's' ? () => saveDocument(store.active, event.shiftKey)
@@ -680,6 +727,21 @@ async function initialize() {
   );
   findReplace = new FindReplaceController(elements, () => editor, () => { capture(); render(); });
   documentOutline = new DocumentOutline(elements, () => editor);
+  folderBrowser = new FolderBrowser(elements, backend, {
+    getState: () => store.folderBrowser,
+    persistState: () => persist(),
+    getOpenDocuments: () => ({
+      activePath: store.active?.path || null,
+      openPaths: store.documents.filter(documentRecord => documentRecord.open && documentRecord.path).map(documentRecord => documentRecord.path),
+    }),
+    onOpenFile: (path, options) => runAction(() => openPaths([path], options).then(() => { editor.focus(); })),
+    onBrowseFolder: () => open({ directory: true, multiple: false }),
+    onRenamed: (oldPath, newPath, isDir) => {
+      store.renameDocumentPath(oldPath, newPath, isDir);
+      render();
+      void persist();
+    },
+  });
   document.addEventListener('keydown', keyboardShortcut, true);
   elements['find-toggle'].onclick = () => findReplace.isOpen() ? findReplace.close() : findReplace.open(false, selectedSearchText());
   elements['preview-bbcode'].onclick = () => toggleBBCodePreview();
@@ -738,6 +800,7 @@ async function initialize() {
     elements['preview-resizer'].setAttribute('aria-orientation', stacked ? 'horizontal' : 'vertical');
     if (stacked) elements['bbcode-preview-pane'].style.width = '';
     else elements['bbcode-preview-pane'].style.height = '';
+    folderBrowser?.applyVisibility();
   });
   for (const scroller of [elements['visual-editor'], elements['hybrid-editor'], elements['markdown-source']]) {
     scroller.addEventListener('scroll', syncScrollFromEditor);
@@ -745,7 +808,7 @@ async function initialize() {
   elements['bbcode-preview-output'].addEventListener('scroll', syncScrollFromPreview);
   elements.new.onclick = () => runAction(async () => { capture(); store.add(); showDocument(); await persist(); editor.focus(); });
   elements.open.onclick = () => runAction(async () => {
-    const paths = await open({ multiple: true, filters: [{ name: 'Editor Documents', extensions: ['mdbbcode', 'md', 'markdown'] }] });
+    const paths = await open({ multiple: true, filters: [{ name: 'Editor Documents', extensions: ['mdbbcode', 'md', 'markdown', 'txt'] }] });
     if (paths) await openPaths(Array.isArray(paths) ? paths : [paths]);
   });
   elements.save.onclick = () => runAction(() => saveDocument());
@@ -753,7 +816,7 @@ async function initialize() {
   elements.copy.onclick = () => runAction(copySource);
   elements.import.onclick = () => runAction(async () => {
     const paths = await open({ multiple: true, filters: [{ name: 'BBCode Documents', extensions: ['bbcode', 'txt'] }] });
-    if (paths) await openPaths(Array.isArray(paths) ? paths : [paths]);
+    if (paths) await openPaths(Array.isArray(paths) ? paths : [paths], { forceImport: true });
   });
   elements.recovered.onclick = () => runAction(async () => {
     for (const pending of [...store.pendingImports]) {
@@ -816,6 +879,7 @@ async function initialize() {
   await store.restore();
   if (!store.active) store.add();
   showDocument();
+  await folderBrowser.initialize(store.active?.path || null);
   startupComplete = true;
   try { await openPaths(await invoke('take_pending_paths')); }
   catch (error) { globalError = errorMessage(error); render(); }

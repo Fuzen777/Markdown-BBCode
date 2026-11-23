@@ -8,10 +8,10 @@ Extract the portable folder into a writable location and run **BBCode Editor.exe
 
 ## Documents And Saving
 
-1. Create ordinary `.md` files, or open `.md`, `.markdown` and existing `.mdbbcode` documents in tabs.
+1. Create ordinary `.md` files, or open `.md`, `.markdown`, `.mdbbcode` and Markdown/plain `.txt` documents in tabs.
 2. **Save** names a draft. Named files autosave after a 750 ms typing pause. Only Markdown is saved; existing `.bbcode` files are untouched.
-3. **Copy BBCode** converts the current document for Nexus. **Export BBCode…** writes to a chosen file and asks before replacing an existing file. Callouts, tables and tasks show conversion-loss warnings before export.
-4. **Import BBCode** creates a one-time Markdown draft with formatting-loss review. The original BBCode is protected.
+3. **Copy BBCode** converts the current document for Nexus using single newlines (`\n`) between adjacent blocks while preserving extra intentional blank lines (`\n\n\n` -> `\n\n`). **Export BBCode…** writes to a chosen file and asks before replacing an existing file. Callouts, tables and tasks show conversion-loss warnings before export.
+4. **Import BBCode** (and auto-detected BBCode-formatted `.txt` or `.bbcode` files) creates a one-time Markdown draft with formatting-loss review. The original file is protected.
 
 Source conflicts offer **Load Disk Version**, **Keep My Edits**, or **Save As**. Save failures prevent closing until resolved. Unnamed drafts and open tabs recover after restart; snapshots are written after a 250 ms pause. Changes since the latest successful write can be lost on abrupt power loss.
 
@@ -73,6 +73,7 @@ BBCode is generated only on request. Tables become readable text, tasks become l
 | Alt+Up / Alt+Down | Move Active Block Or Line Up / Down |
 | Ctrl+D | Duplicate Active Block Or List Item |
 | Ctrl+Shift+P | Toggle BBCode Preview Pane |
+| Ctrl+Shift+E | Toggle Left Folder Browser |
 | Ctrl+F / Ctrl+H | Find / Find And Replace |
 
 Cross-mode `Ctrl` shortcuts prioritize Windows virtual keys (`VK_A`–`VK_Z`) so split `Ctrl` layouts such as `BÉPO azerty-ctrl` trigger the expected shortcuts without affecting normal BÉPO typing, `AltGr` characters or native clipboard actions.
@@ -108,4 +109,4 @@ Block-type and block-action entries in Turn Into, Block Actions, Insert and slas
 
 ## Shortcuts, Preview, Outline And Search
 
-Use `Ctrl+F` to search and `Ctrl+H` to replace across Visual, Hybrid and Source, paste an HTTP(S) URL onto selected text to wrap a link directly, toggle the right-side Document Outline (`Off`, `Float` edge ticks or `Dock` sidebar) to jump between headings, `Tab`/`Shift+Tab` to indent list items, or toggle the resizable, scroll-synced Nexus BBCode preview pane with `Ctrl+Shift+P`. Drop `.md`, `.markdown`, `.mdbbcode`, `.bbcode` or `.txt` files directly onto the window to open or import them. Use the Table toolbar grid, hover `+` rails, row/column drag handles or border right-click menus for table edits, hover links, code blocks or images in Visual mode (or hover/`Ctrl+Click` links and toggle task checkboxes directly in Hybrid) for quick inline controls, Shift/Ctrl+Click or gutter-marquee handles for multi-block operations (`Move`, `Duplicate`, `Wrap In`, `Delete`), click anywhere inside a Hybrid block to land the cursor near that word, and select text in Visual or Hybrid mode for the expanded formatting bubble bar.
+Use `Ctrl+Shift+E` (or the header toggle and close button) for the resizable left Folder Browser to open mod workspaces cleanly: it auto-follows active files, climbs breadcrumbs up to a monorepo root, remembers Pinned and Recent folders, hides non-text asset folders unless `All` is enabled, shows `.bbcode` files with an `Import` badge, auto-detects BBCode vs Markdown/plain `.txt` files on open, filters recursively, and supports `+ New File`, inline `Rename` (`F2`/context menu), `Reveal In Explorer`, `Copy Path`, and dropping folders onto the window. Use `Ctrl+F` to search and `Ctrl+H` to replace across Visual, Hybrid and Source, paste an HTTP(S) URL onto selected text to wrap a link directly, toggle the right-side Document Outline (`Off`, `Float` edge ticks or `Dock` sidebar) to jump between headings, `Tab`/`Shift+Tab` to indent list items, or toggle the resizable, scroll-synced Nexus BBCode preview pane with `Ctrl+Shift+P`. Drop `.md`, `.markdown`, `.mdbbcode`, `.bbcode`, `.txt` files or folders directly onto the window to open or import them. Use the Table toolbar grid, hover `+` rails, row/column drag handles or border right-click menus for table edits, hover links, code blocks or images in Visual mode (or hover/`Ctrl+Click` links and toggle task checkboxes directly in Hybrid) for quick inline controls, Shift/Ctrl+Click or gutter-marquee handles for multi-block operations (`Move`, `Duplicate`, `Wrap In`, `Delete`), click anywhere inside a Hybrid block to land the cursor near that word, and select text in Visual or Hybrid mode for the expanded formatting bubble bar.

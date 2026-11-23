@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    collections::VecDeque,
     fs,
     io::Write,
     path::{Path, PathBuf},
@@ -38,6 +39,20 @@ impl StorageError {
             message: "The file changed outside the editor. Choose which version to keep.".into(),
         }
     }
+
+    fn missing(message: impl Into<String>) -> Self {
+        Self {
+            kind: "missing".into(),
+            message: message.into(),
+        }
+    }
+
+    fn exists(message: impl Into<String>) -> Self {
+        Self {
+            kind: "exists".into(),
+            message: message.into(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,6 +60,30 @@ struct FileSnapshot {
     path: String,
     content: String,
     revision: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DirectoryEntry {
+    name: String,
+    path: String,
+    isDir: bool,
+    kind: Option<String>,
+    hasReadable: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct DirectoryListing {
+    root: String,
+    parent: Option<String>,
+    entries: Vec<DirectoryEntry>,
+    truncated: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct PathKind {
+    path: String,
+    exists: bool,
+    isDir: bool,
 }
 
 // ==> Section 2 - Atomic File Operations <==
@@ -212,6 +251,407 @@ fn open_external_url(url: String) -> Result<(), StorageError> {
     Ok(())
 }
 
+// ==> Section 2B - Folder Browser Operations <==
+fn normalizeDisplayPath(path: &Path) -> String {
+    let raw = path.to_string_lossy();
+    if let Some(unc) = raw.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{unc}");
+    }
+    if let Some(stripped) = raw.strip_prefix(r"\\?\") {
+        return stripped.to_owned();
+    }
+    raw.into_owned()
+}
+
+fn ignoredDirName(name: &str) -> bool {
+    if name.starts_with('.') {
+        return true;
+    }
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        ".git"
+            | ".hg"
+            | ".svn"
+            | "node_modules"
+            | "target"
+            | "dist"
+            | "build"
+            | ".vs"
+            | ".vscode"
+            | "__pycache__"
+            | "portable-data"
+    )
+}
+
+fn fileKind(path: &Path) -> Option<&'static str> {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())?;
+    match extension.as_str() {
+        "md" | "markdown" | "mdbbcode" => Some("markdown"),
+        "txt" => Some("txt"),
+        "bbcode" => Some("bbcode"),
+        _ => None,
+    }
+}
+
+fn validateFileNamePart(name: &str) -> Result<(), StorageError> {
+    let trimmed = name.trim();
+    if trimmed.is_empty()
+        || trimmed == "."
+        || trimmed == ".."
+        || name.ends_with([' ', '.'])
+        || trimmed.chars().any(|ch| {
+            ch.is_control() || matches!(ch, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
+        })
+    {
+        return Err(StorageError::io(
+            "Enter a valid filename without invalid characters.",
+        ));
+    }
+    Ok(())
+}
+
+fn dirContainsReadable(dir: &Path, depth: usize, budget: &mut usize) -> bool {
+    if *budget == 0 {
+        return true;
+    }
+    if depth == 0 {
+        return false;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return false;
+    };
+    let mut subdirs = Vec::new();
+    for entry in entries.flatten() {
+        if *budget == 0 {
+            return true;
+        }
+        *budget -= 1;
+        let entryPath = entry.path();
+        let Ok(fileType) = entry.file_type() else {
+            continue;
+        };
+        if fileType.is_dir() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !ignoredDirName(&name) {
+                subdirs.push(entryPath);
+            }
+        } else if (fileType.is_file() || (fileType.is_symlink() && entryPath.is_file()))
+            && fileKind(&entryPath).is_some()
+        {
+            return true;
+        }
+    }
+    for subdir in subdirs {
+        if dirContainsReadable(&subdir, depth - 1, budget) {
+            return true;
+        }
+    }
+    false
+}
+
+fn pathInfoImpl(path: &Path) -> Result<PathKind, StorageError> {
+    match fs::metadata(path) {
+        Ok(meta) => {
+            let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            Ok(PathKind {
+                path: normalizeDisplayPath(&resolved),
+                exists: true,
+                isDir: meta.is_dir(),
+            })
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(PathKind {
+            path: normalizeDisplayPath(path),
+            exists: false,
+            isDir: false,
+        }),
+        Err(error) => Err(StorageError::io(error)),
+    }
+}
+
+fn listDirectoryImpl(path: &Path, showAll: bool) -> Result<DirectoryListing, StorageError> {
+    let resolved = path.canonicalize().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            StorageError::missing("Folder no longer exists.")
+        } else {
+            StorageError::io(error)
+        }
+    })?;
+    if !resolved.is_dir() {
+        return Err(StorageError::io("Selected path is not a folder."));
+    }
+    let readDir = fs::read_dir(&resolved).map_err(StorageError::io)?;
+    let mut entries = Vec::new();
+    let mut truncated = false;
+    for (inspected, item) in readDir.enumerate() {
+        if inspected >= 2000 {
+            truncated = true;
+            break;
+        }
+        let Ok(entry) = item else {
+            continue;
+        };
+        let entryPath = entry.path();
+        let Ok(fileType) = entry.file_type() else {
+            continue;
+        };
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if fileType.is_dir() || (fileType.is_symlink() && entryPath.is_dir()) {
+            let ignored = ignoredDirName(&name);
+            if ignored && !showAll {
+                continue;
+            }
+            let hasReadable = if ignored {
+                false
+            } else {
+                let mut budget = 2000usize;
+                dirContainsReadable(&entryPath, 4, &mut budget)
+            };
+            if !showAll && !hasReadable {
+                continue;
+            }
+            entries.push(DirectoryEntry {
+                name,
+                path: normalizeDisplayPath(&entryPath),
+                isDir: true,
+                kind: None,
+                hasReadable,
+            });
+        } else if fileType.is_file() || (fileType.is_symlink() && entryPath.is_file()) {
+            let Some(kind) = fileKind(&entryPath) else {
+                continue;
+            };
+            entries.push(DirectoryEntry {
+                name,
+                path: normalizeDisplayPath(&entryPath),
+                isDir: false,
+                kind: Some(kind.into()),
+                hasReadable: true,
+            });
+        }
+    }
+    entries.sort_by(|left, right| {
+        right
+            .isDir
+            .cmp(&left.isDir)
+            .then_with(|| {
+                left.name
+                    .to_ascii_lowercase()
+                    .cmp(&right.name.to_ascii_lowercase())
+            })
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    Ok(DirectoryListing {
+        root: normalizeDisplayPath(&resolved),
+        parent: resolved.parent().map(normalizeDisplayPath),
+        entries,
+        truncated,
+    })
+}
+
+fn searchDirectoryImpl(
+    root: &Path,
+    query: &str,
+    maxResults: usize,
+) -> Result<Vec<DirectoryEntry>, StorageError> {
+    let resolved = root.canonicalize().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            StorageError::missing("Folder no longer exists.")
+        } else {
+            StorageError::io(error)
+        }
+    })?;
+    let trimmedQuery = query.trim().to_ascii_lowercase();
+    if trimmedQuery.is_empty() {
+        return Ok(Vec::new());
+    }
+    let limit = maxResults.min(500);
+    let mut results = Vec::new();
+    let mut budget = 6000usize;
+    let mut queue = VecDeque::from([(resolved.clone(), 0usize)]);
+
+    while let Some((dir, depth)) = queue.pop_front() {
+        if budget == 0 || results.len() >= limit {
+            break;
+        }
+        let Ok(readDir) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for item in readDir.flatten() {
+            if budget == 0 || results.len() >= limit {
+                break;
+            }
+            budget -= 1;
+            let entryPath = item.path();
+            let Ok(fileType) = item.file_type() else {
+                continue;
+            };
+            let name = item.file_name().to_string_lossy().into_owned();
+            if fileType.is_dir() {
+                if depth < 6 && !ignoredDirName(&name) {
+                    queue.push_back((entryPath, depth + 1));
+                }
+            } else if fileType.is_file() || (fileType.is_symlink() && entryPath.is_file()) {
+                let Some(kind) = fileKind(&entryPath) else {
+                    continue;
+                };
+                let relative = entryPath
+                    .strip_prefix(&resolved)
+                    .map(|rel| {
+                        rel.to_string_lossy()
+                            .replace('\\', "/")
+                            .to_ascii_lowercase()
+                    })
+                    .unwrap_or_else(|_| name.to_ascii_lowercase());
+                if name.to_ascii_lowercase().contains(&trimmedQuery)
+                    || relative.contains(&trimmedQuery)
+                {
+                    results.push(DirectoryEntry {
+                        name,
+                        path: normalizeDisplayPath(&entryPath),
+                        isDir: false,
+                        kind: Some(kind.into()),
+                        hasReadable: true,
+                    });
+                }
+            }
+        }
+    }
+    results.sort_by(|left, right| {
+        left.path
+            .to_ascii_lowercase()
+            .cmp(&right.path.to_ascii_lowercase())
+    });
+    Ok(results)
+}
+
+fn createFileImpl(target: &Path, content: &str) -> Result<FileSnapshot, StorageError> {
+    let fileName = target
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| StorageError::io("Invalid file path."))?;
+    validateFileNamePart(fileName)?;
+    let parent = target
+        .parent()
+        .ok_or_else(|| StorageError::io("Invalid parent folder."))?;
+    if !parent.is_dir() {
+        return Err(StorageError::missing("Parent folder does not exist."));
+    }
+    let mut handle = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target)
+        .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::AlreadyExists {
+                StorageError::exists("A file with that name already exists.")
+            } else {
+                StorageError::io(error)
+            }
+        })?;
+    handle
+        .write_all(content.as_bytes())
+        .map_err(StorageError::io)?;
+    handle.sync_all().map_err(StorageError::io)?;
+    readSnapshot(target)
+}
+
+fn renamePathImpl(oldPath: &Path, newPath: &Path) -> Result<String, StorageError> {
+    if !oldPath.exists() {
+        return Err(StorageError::missing(
+            "The item to rename no longer exists.",
+        ));
+    }
+    let newName = newPath
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| StorageError::io("Invalid target name."))?;
+    validateFileNamePart(newName)?;
+    if newPath.exists() {
+        let sameTarget = oldPath.canonicalize().ok() == newPath.canonicalize().ok();
+        if !sameTarget {
+            return Err(StorageError::exists(
+                "An item with that name already exists.",
+            ));
+        }
+    }
+    fs::rename(oldPath, newPath).map_err(StorageError::io)?;
+    let resolved = newPath
+        .canonicalize()
+        .unwrap_or_else(|_| newPath.to_path_buf());
+    Ok(normalizeDisplayPath(&resolved))
+}
+
+#[tauri::command]
+fn path_info(path: String) -> Result<PathKind, StorageError> {
+    pathInfoImpl(Path::new(&path))
+}
+
+#[tauri::command]
+fn list_directory(path: String, showAll: Option<bool>) -> Result<DirectoryListing, StorageError> {
+    listDirectoryImpl(Path::new(&path), showAll.unwrap_or(false))
+}
+
+#[tauri::command]
+fn search_directory(
+    root: String,
+    query: String,
+    maxResults: Option<usize>,
+) -> Result<Vec<DirectoryEntry>, StorageError> {
+    searchDirectoryImpl(Path::new(&root), &query, maxResults.unwrap_or(100))
+}
+
+#[tauri::command]
+fn create_file(
+    state: tauri::State<AppState>,
+    path: String,
+    content: Option<String>,
+) -> Result<FileSnapshot, StorageError> {
+    let _writeGuard = state.writeLock.lock().map_err(StorageError::io)?;
+    createFileImpl(Path::new(&path), content.as_deref().unwrap_or(""))
+}
+
+#[tauri::command]
+fn rename_path(
+    state: tauri::State<AppState>,
+    oldPath: String,
+    newPath: String,
+) -> Result<String, StorageError> {
+    let _writeGuard = state.writeLock.lock().map_err(StorageError::io)?;
+    renamePathImpl(Path::new(&oldPath), Path::new(&newPath))
+}
+
+#[tauri::command]
+fn reveal_in_explorer(path: String) -> Result<(), StorageError> {
+    let candidate = Path::new(&path);
+    let resolved = candidate.canonicalize().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            StorageError::missing("Item no longer exists.")
+        } else {
+            StorageError::io(error)
+        }
+    })?;
+    let clean = normalizeDisplayPath(&resolved);
+    #[cfg(target_os = "windows")]
+    {
+        if resolved.is_dir() {
+            std::process::Command::new("explorer.exe")
+                .arg(&clean)
+                .spawn()
+                .map_err(StorageError::io)?;
+        } else {
+            std::process::Command::new("explorer.exe")
+                .arg(format!("/select,{clean}"))
+                .spawn()
+                .map_err(StorageError::io)?;
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    let _ = (&clean, resolved.is_dir());
+    Ok(())
+}
+
 // ==> Section 3 - Portable Window Lifecycle <==
 fn argumentPaths(arguments: impl Iterator<Item = String>, workingDirectory: &Path) -> Vec<String> {
     arguments
@@ -286,7 +726,7 @@ fn main() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![read_file, save_file, load_session, save_session, take_pending_paths, finish_close, open_external_url])
+        .invoke_handler(tauri::generate_handler![read_file, save_file, load_session, save_session, take_pending_paths, finish_close, open_external_url, path_info, list_directory, search_directory, create_file, rename_path, reveal_in_explorer])
         .run(tauri::generate_context!())
         .expect("Could not start BBCode Editor. Ensure Microsoft Edge WebView2 is installed and the portable folder is writable.");
 }
@@ -358,5 +798,89 @@ mod tests {
         fs::write(&filePath, [0xff, 0xfe]).unwrap();
         assert!(readSnapshot(&filePath).is_err());
         assert_eq!(fs::read(&filePath).unwrap(), [0xff, 0xfe]);
+    }
+
+    #[test]
+    fn lists_directories_filters_extensions_and_toggles_show_all() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir(root.path().join("mod-with-doc")).unwrap();
+        fs::write(root.path().join("mod-with-doc").join("readme.md"), "# Mod").unwrap();
+        fs::create_dir(root.path().join("textures")).unwrap();
+        fs::write(root.path().join("textures").join("diffuse.dds"), "dds").unwrap();
+        fs::create_dir(root.path().join("empty-dir")).unwrap();
+        fs::create_dir(root.path().join(".git")).unwrap();
+        fs::write(root.path().join(".git").join("HEAD"), "ref").unwrap();
+        fs::write(root.path().join("notes.txt"), "notes").unwrap();
+        fs::write(root.path().join("nexus.bbcode"), "[b]Hi[/b]").unwrap();
+        fs::write(root.path().join("page.mdbbcode"), "page").unwrap();
+        fs::write(root.path().join("mesh.nif"), "nif").unwrap();
+
+        let filtered = listDirectoryImpl(root.path(), false).unwrap();
+        let filteredNames: Vec<&str> = filtered
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        assert_eq!(
+            filteredNames,
+            vec!["mod-with-doc", "nexus.bbcode", "notes.txt", "page.mdbbcode"]
+        );
+        assert_eq!(filtered.entries[1].kind.as_deref(), Some("bbcode"));
+        assert_eq!(filtered.entries[2].kind.as_deref(), Some("txt"));
+        assert_eq!(filtered.entries[3].kind.as_deref(), Some("markdown"));
+
+        let all = listDirectoryImpl(root.path(), true).unwrap();
+        let allNames: Vec<&str> = all
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        assert!(allNames.contains(&"textures"));
+        assert!(allNames.contains(&"empty-dir"));
+        assert!(allNames.contains(&".git"));
+        assert!(!allNames.contains(&"mesh.nif"));
+    }
+
+    #[test]
+    fn searches_directories_recursively_skipping_git() {
+        let root = tempfile::tempdir().unwrap();
+        fs::create_dir_all(root.path().join("mods").join("skyrim")).unwrap();
+        fs::create_dir_all(root.path().join(".git")).unwrap();
+        fs::write(
+            root.path()
+                .join("mods")
+                .join("skyrim")
+                .join("load-order.md"),
+            "# Order",
+        )
+        .unwrap();
+        fs::write(root.path().join("mods").join("changelog.txt"), "changes").unwrap();
+        fs::write(root.path().join(".git").join("ignored.md"), "hidden").unwrap();
+
+        let hits = searchDirectoryImpl(root.path(), "load", 50).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].name, "load-order.md");
+
+        let ignored = searchDirectoryImpl(root.path(), "ignored", 50).unwrap();
+        assert!(ignored.is_empty());
+    }
+
+    #[test]
+    fn creates_files_without_overwriting_and_renames_safely() {
+        let root = tempfile::tempdir().unwrap();
+        let first = root.path().join("alpha.md");
+        let snapshot = createFileImpl(&first, "# Alpha").unwrap();
+        assert_eq!(snapshot.content, "# Alpha");
+        assert_eq!(createFileImpl(&first, "dup").unwrap_err().kind, "exists");
+
+        let second = root.path().join("beta.md");
+        let renamed = renamePathImpl(&first, &second).unwrap();
+        assert!(renamed.ends_with("beta.md"));
+        assert!(!first.exists());
+        assert_eq!(fs::read_to_string(&second).unwrap(), "# Alpha");
+
+        let third = root.path().join("gamma.md");
+        createFileImpl(&third, "# Gamma").unwrap();
+        assert_eq!(renamePathImpl(&second, &third).unwrap_err().kind, "exists");
     }
 }

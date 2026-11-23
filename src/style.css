@@ -316,7 +316,7 @@ button.icon-button { display: inline-flex; align-items: center; justify-content:
 #bbcode-preview-notes { padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--accent-bg); font-size: 12px; white-space: pre-wrap; max-height: 110px; overflow: auto; }
 #bbcode-preview-notes.error { background: var(--error-bg); }
 #bbcode-preview-output { flex: 1; width: 100%; min-height: 0; border: 0; outline: none; padding: 14px; background: var(--panel); color: var(--text); font: 13px/1.6 Consolas, monospace; resize: none; }
-#preview-bbcode[aria-pressed=true], #find-toggle[aria-pressed=true], #find-case[aria-pressed=true], #find-replace-toggle[aria-pressed=true] { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+#files-toggle[aria-pressed=true], #preview-bbcode[aria-pressed=true], #find-toggle[aria-pressed=true], #find-case[aria-pressed=true], #find-replace-toggle[aria-pressed=true] { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
 #find-bar { flex: 0 0 auto; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--page); }
 .find-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 #find-input, #find-replace-input { flex: 1; min-width: 140px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--text); font: inherit; font-size: 13px; }
@@ -326,4 +326,58 @@ button.icon-button { display: inline-flex; align-items: center; justify-content:
 .search-match-active { background: #f59e0b; color: #111; outline: 1px solid var(--accent); }
 @media (prefers-color-scheme: dark) { .search-match { background: #5a4318; color: #f8fafc; } .search-match-active { background: #b45309; color: #fff; } }
 #editor-host.file-drop-active { outline: 2px dashed var(--accent); outline-offset: -3px; background: var(--accent-bg); }
-@media (max-width: 840px) { #editor-panes { flex-direction: column; overflow-y: auto; } #editor-primary { min-height: 82px; } #outline-docked-pane { flex: 0 0 auto; width: 100%; max-height: 76px; border-left: 0; border-top: 1px solid var(--line); } #preview-resizer { width: 100%; height: 6px; cursor: row-resize; } #preview-resizer::after { inset: 2px 0; } #bbcode-preview-pane { width: 100%; min-width: 0; min-height: 92px; height: 34%; max-height: 36%; } }
+
+/* ==> Section 9 - Left Folder Browser <== */
+#folder-sidebar { flex: 0 0 auto; width: 236px; min-width: 170px; max-width: 420px; background: var(--page); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; font-size: 12px; }
+.folder-sidebar-header { flex: 0 0 auto; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.folder-sidebar-actions { display: flex; align-items: center; gap: 2px; }
+.folder-sidebar-actions button.icon-button, #folder-up-btn.icon-button, #folder-filter-clear.icon-button { width: 24px; height: 24px; padding: 3px; border-color: transparent; background: transparent; color: var(--muted); }
+.folder-sidebar-actions button.icon-button:hover, #folder-up-btn.icon-button:hover, #folder-filter-clear.icon-button:hover { color: var(--text); background: var(--accent-bg); }
+.folder-sidebar-actions .material-icon, #folder-up-btn .material-icon, #folder-filter-clear .material-icon { width: 16px; height: 16px; }
+#folder-pin-btn[aria-pressed=true], #folder-show-all[aria-pressed=true] { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+.folder-root-row { position: relative; padding: 6px 8px 4px; flex: 0 0 auto; }
+#folder-root-switcher { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 8px; font-size: 12px; font-weight: 600; text-align: left; background: var(--panel); }
+#folder-root-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-switcher-menu { position: absolute; left: 8px; right: 8px; top: calc(100% + 2px); width: auto; max-height: 260px; z-index: 36; }
+.folder-switcher-item-row { display: flex; align-items: center; gap: 2px; }
+.folder-switcher-item-row .block-menu-item { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.folder-unpin-mini { border: 0; background: transparent; color: var(--muted); padding: 4px 7px; font-size: 14px; line-height: 1; }
+.folder-unpin-mini:hover { color: var(--text); background: var(--accent-bg); }
+.folder-breadcrumbs-row { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 2px 8px 4px; border-bottom: 1px solid var(--line); }
+.folder-breadcrumbs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; overflow-x: auto; scrollbar-width: thin; }
+.folder-crumb { padding: 1px 4px; font-size: 11px; border: 0; background: transparent; color: var(--muted); border-radius: 4px; }
+.folder-crumb:hover:not(:disabled) { color: var(--text); background: var(--accent-bg); }
+.folder-crumb:disabled { opacity: 1; color: var(--text); font-weight: 600; }
+.folder-crumb-sep { color: var(--muted); font-size: 11px; }
+.folder-filter-row { flex: 0 0 auto; display: flex; align-items: center; gap: 4px; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+#folder-filter { flex: 1; min-width: 0; padding: 4px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--panel); color: var(--text); font: inherit; font-size: 12px; }
+#folder-show-all { padding: 3px 7px; font-size: 11px; }
+.folder-notice { padding: 5px 8px; background: var(--error-bg); border-bottom: 1px solid var(--line); color: var(--text); font-size: 11px; }
+.folder-tree { flex: 1; min-height: 0; overflow: auto; padding: 4px 0; outline: none; }
+.folder-tree-row { display: flex; align-items: center; gap: 5px; min-height: 26px; padding: 2px 8px; cursor: pointer; user-select: none; color: var(--text); }
+.folder-tree-row:hover { background: var(--accent-bg); }
+.folder-tree-row.selected { outline: 1px solid var(--line); outline-offset: -1px; }
+.folder-tree-row.active { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+.folder-tree-row .material-icon { width: 16px; height: 16px; color: var(--muted); }
+.folder-tree-row.active .material-icon { color: var(--accent); }
+.folder-chevron { width: 11px; flex: 0 0 11px; text-align: center; font-size: 11px; color: var(--muted); }
+.folder-entry-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-open-dot { width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--accent); }
+.folder-badge-import { flex: 0 0 auto; padding: 0 5px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 10px; font-weight: 600; }
+.folder-search-row { padding-left: 10px; }
+.folder-search-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.folder-search-rel { font-size: 10px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.folder-inline-input { flex: 1; min-width: 0; padding: 2px 6px; border: 1px solid var(--accent); border-radius: 4px; background: var(--panel); color: var(--text); font: inherit; font-size: 12px; }
+.folder-empty-launch { padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+.folder-empty-hint { margin: 4px 8px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.folder-launch-primary { width: 100%; padding: 6px 10px; font-size: 12px; font-weight: 600; background: var(--panel); }
+.folder-launch-heading { margin-top: 6px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.folder-launch-item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 7px; text-align: left; border: 0; background: transparent; font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.folder-launch-item .material-icon { width: 16px; height: 16px; color: var(--muted); }
+.folder-context-menu { position: fixed; z-index: 50; width: 196px; }
+#folder-resizer { flex: 0 0 6px; width: 6px; cursor: col-resize; background: transparent; position: relative; touch-action: none; }
+#folder-resizer::after { content: ''; position: absolute; inset: 0 2px; border-radius: 2px; background: var(--line); transition: background .15s; }
+#folder-resizer:hover::after, #folder-resizer:focus-visible::after, #folder-resizer.dragging::after { background: var(--accent); }
+#folder-resizer:focus-visible { outline: none; }
+
+@media (max-width: 840px) { #editor-panes { flex-direction: column; overflow-y: auto; } #folder-sidebar { flex: 0 0 auto; width: 100% !important; min-width: 0; max-width: none; max-height: 112px; overflow-y: auto; border-right: 0; border-bottom: 1px solid var(--line); } #folder-sidebar .folder-tree { flex: 0 0 auto; overflow: visible; } #folder-resizer { display: none; } #editor-primary { min-height: 82px; } #outline-docked-pane { flex: 0 0 auto; width: 100%; max-height: 76px; border-left: 0; border-top: 1px solid var(--line); } #preview-resizer { width: 100%; height: 6px; cursor: row-resize; } #preview-resizer::after { inset: 2px 0; } #bbcode-preview-pane { width: 100%; min-width: 0; min-height: 92px; height: 34%; max-height: 36%; } }

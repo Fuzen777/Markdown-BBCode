@@ -4,11 +4,11 @@
 
 | Feature | Behaviour |
 | --- | --- |
-| Local Markdown | Default .md; .markdown and legacy .mdbbcode supported in tabs. |
+| Local Markdown | Default .md; .markdown, .mdbbcode and auto-detected non-BBCode .txt files supported directly in tabs. |
 | Autosave | Saves only Markdown; existing BBCode companions are untouched. |
 | Optional YAML | Arbitrary frontmatter retained; legacy export target dropdown remains available. |
-| On-Demand BBCode | Copy or explicit Export with loss review, replacement confirmation and revision checks. |
-| One-Time Import | Reviews unsupported formatting and protects original BBCode. |
+| On-Demand BBCode | Copy or explicit Export with single-newline Nexus block spacing (preserving extra intentional blank lines), loss review, replacement confirmation and revision checks. |
+| One-Time Import | Auto-detects BBCode tags in opened `.txt` files (alongside `.bbcode` files), reviews unsupported formatting and protects originals. |
 | Recovery | Open tabs, unnamed drafts, preferences and legacy imports persist beside the executable. |
 | Conflict Protection | External source changes require review; failed saves prevent closing. |
 
@@ -21,7 +21,7 @@
 | Source | Complete file, including YAML, remains editable with active formatting indicators, toggling, Clear, smart URL paste, line reordering (`Alt+Up`/`Down`) and cross-mode formatting shortcuts (`Ctrl+B`, `Ctrl+I`, `Ctrl+K`, `Ctrl+Shift+X`, `Ctrl+E`, `Ctrl+Alt+0`–`6`). |
 | Shortcuts | Cross-mode `Ctrl` shortcuts prioritize Windows virtual keys (`VK_A`–`VK_Z`) so split `Ctrl` layouts such as `BÉPO azerty-ctrl` follow shortcut keys while keeping normal typing, `AltGr` and native clipboard actions untouched. |
 | Blocks | Vertically centered gutter drag handles and `+` controls on horizontal rules (`---`) across Visual and Hybrid, per-list-item and container-child handles following nesting, drag-to-nest list items and containers, Shift/Ctrl+Click and gutter marquee multi-block selection (`Move`, `Duplicate`, `Wrap`, `Delete`), hover-only gutter controls with active tint, pointer-event drag reordering, `Tab`/`Shift+Tab` list indent, `Ctrl+D` duplication, `Alt+Up`/`Down` block/line reordering, live-filtered slash insertion anywhere with short aliases (Divider, Toggle, Spoiler, Center, Image) and click-below-last-block; Hybrid `Turn Into` submenu, outside-click dismissal and boundary-aware block actions. |
-| Preview, Outline & Search | Resizable toggleable live Nexus BBCode split preview pane with bidirectional scroll sync, right-side three-state Document Outline (`Off` / `Float` / `Dock`), cross-mode Find & Replace (`Ctrl+F` / `Ctrl+H`), file drag-and-drop and live word/character counts. |
+| Preview, Outline & Search | Resizable toggleable live Nexus BBCode split preview pane with bidirectional scroll sync, right-side three-state Document Outline (`Off` / `Float` / `Dock`), resizable collapsible left-side Folder Browser (`Ctrl+Shift+E`, open by default with auto-follow, breadcrumbs, expandable monorepo tree, recursive filter, Pinned/Recent folders, `.md`/`.markdown`/`.mdbbcode`/`.txt`/`.bbcode` (`Import`) filtering, hidden asset folder `All` toggle, `+ New File`, inline `Rename`, `Reveal In Explorer`, `Copy Path` and folder drag-and-drop), cross-mode Find & Replace (`Ctrl+F` / `Ctrl+H`), file/folder drag-and-drop and live word/character counts. |
 | Markdown Elements | Headings, inline styles, links, web images, lists, tasks, tables, quotes and code. |
 | Callouts | Obsidian types, custom editable titles, nesting and optional folding. |
 | Extra Formatting | Discord-style spoilers, HTML center and color wrappers. |

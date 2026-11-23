@@ -24,7 +24,7 @@ for (const fixture of fixtures) {
   });
 }
 test('multi-paragraph spoilers keep paragraph boundaries', () => {
-  assert.equal(markdownToBBCode(fixtures[2]), '[spoiler]First paragraph\n\nSecond paragraph[/spoiler]');
+  assert.equal(markdownToBBCode(fixtures[2]), '[spoiler]First paragraph\nSecond paragraph[/spoiler]');
 });
 test('unrecognized HTML fails instead of silently dropping content', () => {
   assert.throws(() => parseMarkdown('<script>alert(1)</script>'), /Unsupported/);
@@ -51,7 +51,7 @@ test('import preserves literal Markdown, code, nested lists, and standalone imag
 test('import distributes colours over paragraphs without losing them', () => {
   const imported = importBBCode('[color=#abcdef]One\n\nTwo[/color]');
   assert.deepEqual(imported.warnings, []);
-  assert.equal(markdownToBBCode(imported.markdown), '[color=#abcdef]One[/color]\n\n[color=#abcdef]Two[/color]');
+  assert.equal(markdownToBBCode(imported.markdown), '[color=#abcdef]One[/color]\n[color=#abcdef]Two[/color]');
 });
 
 test('inline spoiler endings do not prematurely close a multiline spoiler', () => {
@@ -151,4 +151,27 @@ test('isHttpUrl validates safe external URLs and divider, image alt, code langua
   assert.match(roundTripped, /^```lua/m);
   assert.match(roundTripped, /^---$/m);
   assert.match(roundTripped, /!\[Banner Alt\]\(https:\/\/example\.com\/banner\.png\)/);
+});
+
+test('Nexus BBCode collapses standard Markdown separators to single newlines while preserving extra blank lines', () => {
+  const standard = markdownToBBCodeWithWarnings('# Heading\n\nPara 1\n\nPara 2');
+  assert.equal(standard.bbcode, '[size=6][b]Heading[/b][/size]\nPara 1\nPara 2');
+  assert.deepEqual(standard.blockOffsets, [
+    { startLine: 0, endLine: 1 },
+    { startLine: 1, endLine: 2 },
+    { startLine: 2, endLine: 3 },
+  ]);
+  assert.equal(standard.totalLines, 3);
+
+  const spaced = markdownToBBCodeWithWarnings('# Heading\n\n\nPara 1\n\n\n\nPara 2');
+  assert.equal(spaced.bbcode, '[size=6][b]Heading[/b][/size]\n\nPara 1\n\n\nPara 2');
+  assert.deepEqual(spaced.blockOffsets[0], { startLine: 0, endLine: 1 });
+  assert.deepEqual(spaced.blockOffsets[1], { startLine: 2, endLine: 3 });
+  assert.deepEqual(spaced.blockOffsets.at(-1), { startLine: 5, endLine: 6 });
+  assert.equal(spaced.totalLines, 6);
+
+  assert.equal(
+    markdownToBBCode('> [!note] Info\n> Line one\n>\n> Line two'),
+    '[quote][b]Info[/b]\nLine one\nLine two[/quote]',
+  );
 });

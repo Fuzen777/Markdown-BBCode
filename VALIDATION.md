@@ -2,34 +2,34 @@
 
 ## Automated Checks
 
-Version 0.2.7, Windows x64, 2026-11-23.
+Version 0.2.8, Windows x64, 2026-11-23.
 
 | Check | Result And Coverage |
 | --- | --- |
-| JavaScript | 69 passed: Obsidian-style Hybrid Live Preview offset mapping, task checkbox toggling, smart list/quote Enter continuation, list indentation, block-type conversion and color stripping, process-tree timeout watchdog exit/hang enforcement, Windows `VK_A`–`VK_Z` virtual-key shortcut resolution and mismatch detection, source-only persistence, legacy migration, YAML, export validation/warnings, BBCode block-offset mapping, sized GFM table generation, Markdown round trips (including fenced code language, dividers and image alt text), tasks/tables/callouts, segmentation, individual blank-line spans, colors, conflicts, source formatting toggling/inline code/link stripping, line movement, HTTP URL detection, active formatting inspection and search matching. |
-| Browser Integration | 61 checks passed in the full suite: vertically centered horizontal-rule (`---`) drag handles and `+` controls with approach hover locking in both Visual and Hybrid, Hybrid Obsidian-style line/item Live Preview (cursor-line raw markers vs rendered sibling bullets, checkboxes, callout badges/borders, dividers and inline styles), click-to-cursor placement, cross-block and wrapped vertical navigation, boundary blank-line Backspace/Delete, direct preview/Live Preview task toggling, link hover/`Ctrl+Click` popovers, smart list/callout Enter continuation and `Tab`/`Shift+Tab` indenting, live-filtering slash menu with aliases and Image, `Turn Into` submenu, multi-block `Wrap In` and `Delete` removal, shared Hybrid/Visual floating selection bubble bar, incremental sibling DOM preservation, Windows virtual-key shortcuts across Visual, Hybrid and Source (simulating split `Ctrl` layouts such as `BÉPO azerty-ctrl`, including dead-key `Ctrl+Y` Redo and mismatched native clipboard safety), Visual blocks, gutter non-overlap, Turn Into actions and aliases, slash menu with viewport flip, active-line placeholder, Smart URL Paste, code block language/copy bar, image pill/dialog, pointer-event dragging and drag-to-nest list/callout drops, Shift/Ctrl/marquee multi-block selection, per-list-item handles following nesting, click-below-trailing-block insertion, Ctrl+D duplication, undo, menu outside-click dismissal, boundary disabled states, table size grid picker, active Header Row state, hover row/column drag-and-menu handles, `+` rails, edge-only right-click table menus, inline callout type/fold selectors, right-side Off/Float/Dock Document Outline, live BBCode preview pane with splitter resize and scroll sync, cross-mode Find & Replace, raw HTML safety, source fidelity, source-only autosave, export replacement/warnings, metadata, recovery, word counts, dropped files and responsive layouts. |
-| Rust | 4 passed: atomic writes, revision conflicts, missing files, Unicode, Save As, invalid UTF-8 and external URL scheme validation. |
+| JavaScript | 74 passed: Folder Browser path normalization, breadcrumbs, containment, filename validation, pinned/recent persistence, `renameDocumentPath`, smart `.txt` format detection (BBCode vs Markdown vs plain text), Nexus BBCode single-newline block spacing preserving extra intentional blank lines (`\n\n\n` -> `\n\n`) and scroll-sync offsets, Obsidian-style Hybrid Live Preview helpers, process-tree timeout watchdog, Windows `VK_A`–`VK_Z` shortcuts, source-only persistence, legacy migration, YAML, export validation/warnings, sized GFM tables, Markdown round trips, tasks/tables/callouts, segmentation, colors, conflicts, source formatting and search matching. |
+| Browser Integration | 64 checks passed in the full suite: left Folder Browser default-open visibility, header/close/shortcut (`Ctrl+Shift+E`) toggling, pointer resize and reload persistence, active-file auto-follow, clickable breadcrumb climb, expandable monorepo tree, recursive search filter, Pinned/Recent switcher, locked-root preservation with `Reveal Active File`, `.md`/`.markdown`/`.mdbbcode`/`.txt`/`.bbcode` (`Import`) filtering, hidden asset/empty directories behind `All` toggle, smart `.txt` BBCode vs Markdown auto-detection, `+ New File`, inline `Rename` tab syncing, context menu (`Reveal In Explorer`, `Copy Path`, `Import As BBCode`), folder drag-and-drop, light/dark/narrow (`720x480`) responsive checks, plus all 61 Visual/Hybrid/Source/Table/Outline/BÉPO checks with the left Folder Browser open. |
+| Rust | 7 passed: `listDirectoryImpl` extension and hidden-folder filtering plus `Show All`, `searchDirectoryImpl` recursive matching skipping `.git`, `createFileImpl` creation and overwrite refusal, `renamePathImpl` rename and collision refusal, plus atomic writes, revision conflicts, missing files, Unicode, Save As, invalid UTF-8 and external URL scheme validation. |
 | Lint | ESLint, Rust formatting check and Clippy passed. |
-| Frontend | Production build passed; non-blocking JavaScript chunk-size warning. |
+| Frontend & Portable Package | Production Vite build passed (non-blocking chunk-size warning); `npm run portable` succeeded building `release/BBCode Editor 0.2.8/BBCode Editor.exe` (`9,608,704` bytes). |
 
-Browser tests use an in-memory desktop bridge. Visual, Hybrid divider handle centering, light/dark Obsidian Live Preview, filtered slash menu, floating bubble bar plus multi-block Wrap In bar, narrow (`720x480`) responsive screenshots, and native 0.2.7 Hybrid/Visual screenshots were inspected via `read_file` with clean alignment, contrast and zero clipping. Native smoke uses an isolated copy and a test-only WebView2 debugging connection supplied through its environment; the distributed app does not enable it.
+Browser tests use an in-memory desktop bridge. Five `0.2.8` screenshots (empty quick-launch with Pinned/Recent folders, populated light monorepo tree + single-`\n` BBCode preview, `.txt` context menu, dark Hybrid + tree + preview, and narrow `720x480` responsive layout) were inspected via `read_file`, verifying and fixing parent breadcrumb expansion and narrow drawer scrolling with zero clipping or overflow. Native smoke uses an isolated copy and a test-only WebView2 debugging connection supplied through its environment; the distributed app does not enable it.
 
 ## Native Validation
 
-Portable Windows build and native smoke passed with zero page errors (`pageErrors: []`): real Rust autosave, no automatic companion, Hybrid Live Preview editing, clipboard, single-instance file dispatch, tab close, recovery, legacy session backup and color preferences across a full restart. Bundled SVG icons rendered cleanly and gutter controls cleared text without overlap.
+Portable Windows build and native smoke passed on `0.2.8` with zero page errors (`pageErrors: []`): real Rust autosave, no automatic companion, real `list_directory` exclusion of `portable-data` alongside live Folder Browser breadcrumbs/file highlights, Hybrid Live Preview editing, clipboard, single-instance file dispatch, tab close, recovery, legacy session backup and color preferences across a full restart. Native Hybrid and Visual screenshots were inspected via `read_file`; bundled icons and the left Folder Browser rendered cleanly with zero overlap.
 
 | Operation | Observed Time |
 | --- | --- |
-| Startup With Document | 929 ms |
-| Second File Launch Into Existing Window | 58 ms |
-| Tab Close | 23 ms |
+| Startup With Document | 908 ms |
+| Second File Launch Into Existing Window | 62 ms |
+| Tab Close | 28 ms |
 
 Single samples on the development machine including automation overhead; not performance guarantees.
 
 ## Remaining Manual Checks
 
-1. Interactive feel check of Hybrid Live Preview, divider handle alignment, and live Windows shortcuts under `BÉPO azerty-ctrl` with the 0.2.7 portable executable.
-2. Native Open/Save dialog interaction. Automated tests cover the dialog result handling and actual native file writes separately.
-3. Final rendering of a representative exported description on Nexus Mods; nothing was published.
+1. Interactive feel check of the left Folder Browser, smart `.txt` auto-detect, Hybrid Live Preview and live Windows shortcuts under `BÉPO azerty-ctrl` with the `0.2.8` portable executable before committing/tagging `v0.2.8`.
+2. Native Open/Save/Folder picker dialog interaction. Automated tests cover the dialog result handling and native filesystem operations separately.
+3. Final rendering of a representative single-newline exported description on Nexus Mods; nothing was published.
 4. Windows Open With association at the chosen permanent executable path; no association was changed.
-5. Large-document performance beyond the small native timing sample.
+5. Large-document and large-monorepo performance beyond the automated budget limits and small native timing sample.

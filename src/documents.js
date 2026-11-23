@@ -1,7 +1,8 @@
 // ==> Section 1 - Document Identity <==
 import { colorPreferences } from './colors.js';
+import { folderBrowserState } from './folder-browser-model.js';
 export function pathKey(path) { return path?.replace(/^\\\\\?\\/, '').replaceAll('/', '\\').toLowerCase(); }
-export function outputPath(path) { return path.replace(/\.(mdbbcode|md|markdown)$/i, '.bbcode'); }
+export function outputPath(path) { return path.replace(/\.(mdbbcode|md|markdown|txt)$/i, '.bbcode'); }
 export function documentName(documentRecord) { return documentRecord.path?.split(/[\\/]/).at(-1) || documentRecord.name || 'Untitled'; }
 export function createDocument(content = '') {
   return { id: crypto.randomUUID(), name: 'Untitled', path: null, content, savedContent: '', revision: null, mode: 'visual', open: true, error: null, importedFrom: null };
@@ -15,6 +16,7 @@ export class DocumentStore {
     this.documents = [];
     this.pendingImports = [];
     this.preferences = colorPreferences();
+    this.folderBrowser = folderBrowserState();
     this.activeId = null;
     this.sessionQueue = Promise.resolve();
     this.saveQueues = new Map();
@@ -29,6 +31,7 @@ export class DocumentStore {
       return;
     }
     this.preferences = colorPreferences(session.preferences);
+    this.folderBrowser = folderBrowserState(session.folderBrowser);
     this.pendingImports = session.pendingImports || [];
     this.documents = session.documents.map(documentRecord => {
       const restored = { ...createDocument(), ...documentRecord, error: null };
@@ -47,7 +50,7 @@ export class DocumentStore {
     this.activeId = this.documents.find(documentRecord => documentRecord.id === session.activeId && documentRecord.open)?.id || this.documents.find(documentRecord => documentRecord.open)?.id || null;
   }
   snapshot() {
-    return { version: 2, preferences: { ...this.preferences }, activeId: this.activeId, pendingImports: structuredClone(this.pendingImports), documents: this.documents.map(documentRecord => ({ ...documentRecord, error: null })) };
+    return { version: 2, preferences: { ...this.preferences }, folderBrowser: structuredClone(this.folderBrowser), activeId: this.activeId, pendingImports: structuredClone(this.pendingImports), documents: this.documents.map(documentRecord => ({ ...documentRecord, error: null })) };
   }
   persist() {
     const snapshot = this.snapshot();
@@ -62,7 +65,7 @@ export class DocumentStore {
     return documentRecord;
   }
   async open(path) {
-    if (!/\.(mdbbcode|md|markdown)$/i.test(path)) throw new Error('Open a Markdown document, or use Import BBCode for an existing BBCode file.');
+    if (!/\.(mdbbcode|md|markdown|txt)$/i.test(path)) throw new Error('Open a Markdown or text document, or use Import BBCode for an existing BBCode file.');
     const snapshot = await this.backend.readFile(path);
     const existing = this.documents.find(documentRecord => pathKey(documentRecord.path) === pathKey(snapshot.path));
     if (existing) { existing.open = true; this.activeId = existing.id; return existing; }
@@ -70,6 +73,31 @@ export class DocumentStore {
     this.documents.push(documentRecord);
     this.activeId = documentRecord.id;
     return documentRecord;
+  }
+  renameDocumentPath(oldPath, newPath, isDir = false) {
+    const oldKey = pathKey(oldPath);
+    if (!oldKey) return false;
+    let changed = false;
+    const prefix = oldKey.endsWith('\\') ? oldKey : `${oldKey}\\`;
+    for (const documentRecord of this.documents) {
+      const currentKey = pathKey(documentRecord.path);
+      if (!currentKey) continue;
+      if (!isDir && currentKey === oldKey) {
+        documentRecord.path = newPath;
+        changed = true;
+      } else if (isDir && currentKey.startsWith(prefix)) {
+        const cleanCurrent = documentRecord.path.replace(/^\\\\\?\\/, '');
+        const cleanOld = oldPath.replace(/^\\\\\?\\/, '').replace(/[\\/]+$/, '');
+        const cleanNew = newPath.replace(/^\\\\\?\\/, '').replace(/[\\/]+$/, '');
+        documentRecord.path = cleanNew + cleanCurrent.slice(cleanOld.length);
+        changed = true;
+      }
+      if (documentRecord.importedFrom && pathKey(documentRecord.importedFrom) === oldKey) {
+        documentRecord.importedFrom = newPath;
+      }
+    }
+    if (changed) this.onChange();
+    return changed;
   }
 
   // ==> Section 3 - Ordered Markdown Writes <==
@@ -95,7 +123,7 @@ export class DocumentStore {
     });
   }
   async saveAs(documentRecord, path, expectedRevision = null) {
-    if (!/\.(mdbbcode|md|markdown)$/i.test(path)) throw new Error('The editable original must be a Markdown file.');
+    if (!/\.(mdbbcode|md|markdown|txt)$/i.test(path)) throw new Error('The editable original must be a Markdown or text file.');
     if (this.documents.some(otherDocument => otherDocument.id !== documentRecord.id && pathKey(otherDocument.path) === pathKey(path))) throw new Error('That Markdown file is already open in another tab.');
     if (pathKey(documentRecord.path) === pathKey(path)) return this.flush(documentRecord);
     return this.enqueue(documentRecord, async () => {

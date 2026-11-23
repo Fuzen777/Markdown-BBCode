@@ -1,6 +1,6 @@
 [package]
 name = "bbcode-editor"
-version = "0.2.7"
+version = "0.2.8"
 description = "Portable Nexus BBCode editor"
 edition = "2021"
 

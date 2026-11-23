@@ -19,6 +19,35 @@ async function openDocument(page, source, mode = 'hybrid') {
         if (command === 'save_session') { session = structuredClone(options.session); return; }
         if (command === 'take_pending_paths') return [];
         if (command === 'open_external_url') { window.hybridDesktop.openedUrls.push(options.url); return; }
+        if (command === 'path_info') {
+          const clean = String(options.path || '').replace(/^\\\\\?\\/, '').replace(/[\\/]+$/, '');
+          const existsFile = Object.keys(files).some(p => p.toLowerCase() === clean.toLowerCase());
+          const prefix = clean.toLowerCase() + '\\';
+          const existsDir = /^[A-Za-z]:\\?$/.test(clean) || Object.keys(files).some(p => p.toLowerCase().startsWith(prefix));
+          return { path: clean, exists: existsFile || existsDir, isDir: !existsFile && existsDir };
+        }
+        if (command === 'list_directory') {
+          const cleanRoot = String(options.path || '').replace(/^\\\\\?\\/, '').replace(/[\\/]+$/, '') || 'C:\\';
+          const rootLower = (cleanRoot.endsWith('\\') ? cleanRoot : `${cleanRoot}\\`).toLowerCase();
+          const entries = Object.keys(files)
+            .filter(filePath => {
+              const lower = filePath.toLowerCase();
+              const idx = lower.lastIndexOf('\\');
+              const parentLower = idx === 2 ? lower.slice(0, 3) : idx > 2 ? lower.slice(0, idx + 1) : '';
+              return parentLower === rootLower;
+            })
+            .filter(filePath => /\.(md|markdown|mdbbcode|txt|bbcode)$/i.test(filePath))
+            .map(filePath => ({
+              name: filePath.split('\\').at(-1),
+              path: filePath,
+              isDir: false,
+              kind: /\.bbcode$/i.test(filePath) ? 'bbcode' : /\.txt$/i.test(filePath) ? 'txt' : 'markdown',
+              hasReadable: true,
+            }));
+          return { root: /^[A-Za-z]:$/.test(cleanRoot) ? `${cleanRoot}\\` : cleanRoot, parent: null, entries, truncated: false };
+        }
+        if (command === 'search_directory') return [];
+        if (command === 'reveal_in_explorer') return;
         if (command === 'read_file') {
           if (!files[options.path]) throw { kind: 'missing', message: 'Missing file' };
           return structuredClone(files[options.path]);

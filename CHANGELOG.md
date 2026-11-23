@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.8 — 2026-11-23
+
+1. Added a resizable, collapsible left-side Folder Browser (`Ctrl+Shift+E`, open by default with a close button and persisted state/width) for quick navigation across standalone files and multi-mod monorepos without mandatory setup.
+2. Added zero-setup navigation and workspace filtering in the Folder Browser: auto-follows the active file, supports clickable path breadcrumbs and parent climbing, remembers Pinned and Recent folders, locks pinned/chosen roots across outside tabs with one-click `Reveal Active File`, expands nested folders lazily, searches recursively, filters for `.md`, `.markdown`, `.mdbbcode`, `.txt`, and `.bbcode` (`Import` badge), and hides empty/asset-only directories by default behind an `All` toggle.
+3. Added Light Explorer file actions (inline `+ New File` defaulting `.md` with overwrite protection, inline `Rename` syncing open tabs, context-menu `Reveal In Explorer`, `Copy Path`, `Open As Root`, `Pin`/`Unpin`, and folder drag-and-drop) plus smart `.txt` format auto-detection (opening Markdown/plain `.txt` directly for in-place editing while routing BBCode-tagged `.txt` and `.bbcode` through one-time Import).
+4. Updated Nexus BBCode serialization to collapse standard Markdown block separators (`\n\n`) and container/callout breaks to single newlines (`\n`) so paragraphs and headings match Nexus Mods line rendering while preserving intentional extra blank lines (`\n\n\n` -> `\n\n`) and scroll-sync offsets.
+
 ## 0.2.7 — 2026-11-23
 
 1. Centered gutter drag handles and `+` controls vertically on horizontal rules (`---` / `<hr>`) across both Visual and Hybrid modes, keeping hover locked across the approach band.

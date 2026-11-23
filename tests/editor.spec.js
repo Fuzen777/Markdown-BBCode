@@ -24,6 +24,35 @@ test.beforeEach(async ({ page }) => {
         if (command === 'take_pending_paths') return desktop.pendingPaths.splice(0);
         if (command === 'open_external_url') { desktop.openedUrls.push(argumentsObject.url); return; }
         if (command === 'finish_close') { desktop.closed = true; return; }
+        if (command === 'path_info') {
+          const clean = String(argumentsObject.path || '').replace(/^\\\\\?\\/, '').replace(/[\\/]+$/, '');
+          const existsFile = Object.keys(desktop.files).some(p => p.toLowerCase() === clean.toLowerCase());
+          const prefix = clean.toLowerCase() + '\\';
+          const existsDir = /^[A-Za-z]:\\?$/.test(clean) || Object.keys(desktop.files).some(p => p.toLowerCase().startsWith(prefix));
+          return { path: clean, exists: existsFile || existsDir, isDir: !existsFile && existsDir };
+        }
+        if (command === 'list_directory') {
+          const cleanRoot = String(argumentsObject.path || '').replace(/^\\\\\?\\/, '').replace(/[\\/]+$/, '') || 'C:\\';
+          const rootLower = (/^[A-Za-z]:$/.test(cleanRoot) ? `${cleanRoot}\\` : `${cleanRoot}\\`).toLowerCase();
+          const entries = Object.keys(desktop.files)
+            .filter(filePath => {
+              const lower = filePath.toLowerCase();
+              const idx = lower.lastIndexOf('\\');
+              const parentLower = idx === 2 ? lower.slice(0, 3) : idx > 2 ? lower.slice(0, idx + 1) : '';
+              return parentLower === (cleanRoot.endsWith('\\') ? cleanRoot.toLowerCase() : rootLower);
+            })
+            .filter(filePath => /\.(md|markdown|mdbbcode|txt|bbcode)$/i.test(filePath))
+            .map(filePath => ({
+              name: filePath.split('\\').at(-1),
+              path: filePath,
+              isDir: false,
+              kind: /\.bbcode$/i.test(filePath) ? 'bbcode' : /\.txt$/i.test(filePath) ? 'txt' : 'markdown',
+              hasReadable: true,
+            }));
+          return { root: /^[A-Za-z]:$/.test(cleanRoot) ? `${cleanRoot}\\` : cleanRoot, parent: null, entries, truncated: false };
+        }
+        if (command === 'search_directory') return [];
+        if (command === 'reveal_in_explorer') return;
         if (command === 'read_file') {
           if (!desktop.files[argumentsObject.path]) throw { kind: 'missing', message: 'Missing file' };
           return structuredClone(desktop.files[argumentsObject.path]);
