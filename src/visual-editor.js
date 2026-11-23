@@ -8,6 +8,7 @@ import { InlineOverlays } from './inline-overlays.js';
 import { Editor } from '@tiptap/core';
 import { editorExtensions, parseMarkdown, serializeMarkdown, isHttpUrl } from './markdown.js';
 import { formatMarkdownSelection, inspectMarkdownFormatting, moveSourceLines } from './source-formatting.js';
+import { shortcutKey, isMismatchedCtrlLetter } from './shortcuts.js';
 
 export class MarkdownEditor {
   constructor(visualElement, sourceElement, onChange, onSelectionChange = () => {}, onBubbleCommand = () => {}, overlayCallbacks = {}) {
@@ -35,7 +36,7 @@ export class MarkdownEditor {
         return;
       }
       if (!event.ctrlKey || event.altKey || event.shiftKey) return;
-      const key = event.key.toLowerCase();
+      const key = shortcutKey(event);
       if (key === 'b' || key === 'i') { event.preventDefault(); this.format(key === 'b' ? 'bold' : 'italic'); }
     });
     sourceElement.addEventListener('paste', event => {
@@ -78,7 +79,11 @@ export class MarkdownEditor {
         this.editor = new Editor({
           element: this.visualElement, extensions: editorExtensions, content,
           editable: !this.readonly,
-          editorProps: { attributes: { 'aria-label': 'Visual Markdown Editor', role: 'textbox', spellcheck: 'true' }, handleClick: (view, position, event) => Boolean(event.target.closest('a')) },
+          editorProps: {
+            attributes: { 'aria-label': 'Visual Markdown Editor', role: 'textbox', spellcheck: 'true' },
+            handleClick: (view, position, event) => Boolean(event.target.closest('a')),
+            handleDOMEvents: { keydown: (view, event) => isMismatchedCtrlLetter(event) },
+          },
           onUpdate: () => { this.visualChanged = true; this.onChange(); },
           onSelectionUpdate: () => this.onSelectionChange(),
           onTransaction: () => this.onSelectionChange(),
@@ -157,6 +162,17 @@ export class MarkdownEditor {
       this.sourceElement.focus();
       return true;
     }
+    return false;
+  }
+  undo(redo = false) {
+    if (this.readonly) return false;
+    if (this.mode === 'hybrid') return Boolean(this.hybridView?.undo(redo));
+    if (this.mode === 'visual' && this.editor) return Boolean(redo ? this.editor.commands.redo() : this.editor.commands.undo());
+    return false;
+  }
+  selectAll() {
+    if (this.mode === 'hybrid') return Boolean(this.hybridView?.selectAll());
+    if (this.mode === 'visual' && this.editor) return Boolean(this.editor.commands.selectAll());
     return false;
   }
   focus() { if (this.mode === 'hybrid') { this.hybridView.focus(); return; } if (this.sourceMode()) this.sourceElement.focus(); else this.editor.commands.focus(); }

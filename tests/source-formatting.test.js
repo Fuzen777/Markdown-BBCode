@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { formatMarkdownSelection, inspectMarkdownFormatting, moveSourceLines } from '../src/source-formatting.js';
 import { findTextMatches } from '../src/find-replace.js';
+import { shortcutKey, isMismatchedCtrlLetter } from '../src/shortcuts.js';
 
 test('inline wrappers toggle on, off, and place empty-selection caret inside delimiters', () => {
   const wrapped = formatMarkdownSelection('Hello world', 6, 11, 'bold');
@@ -117,4 +118,21 @@ test('moveSourceLines reorders lines cleanly with CRLF and preserves boundaries'
 
   assert.equal(moveSourceLines('Only\nLine', 1, 1, -1), null);
   assert.equal(moveSourceLines('Only\nLine', 6, 6, 1), null);
+});
+
+test('shortcutKey prioritizes VK_A-VK_Z and flags mismatched Ctrl letter events', () => {
+  assert.equal(shortcutKey({ key: 'd', keyCode: 73 }), 'i');
+  assert.equal(shortcutKey({ key: 'i', keyCode: 68 }), 'd');
+  assert.equal(shortcutKey({ key: 'Dead', keyCode: 89 }), 'y');
+  assert.equal(shortcutKey({ key: 'é', keyCode: 90 }), 'z');
+  assert.equal(shortcutKey({ key: 'K', keyCode: 66 }), 'b');
+  assert.equal(shortcutKey({ key: 'P', keyCode: 0 }), 'p');
+  assert.equal(shortcutKey({ key: '?', keyCode: 191 }), '?');
+
+  assert.equal(isMismatchedCtrlLetter({ ctrlKey: true, metaKey: false, altKey: false, key: 'y', keyCode: 67 }), true);
+  assert.equal(isMismatchedCtrlLetter({ ctrlKey: false, metaKey: true, altKey: false, key: 'b', keyCode: 65 }), true);
+  assert.equal(isMismatchedCtrlLetter({ ctrlKey: true, metaKey: false, altKey: false, key: 'C', keyCode: 67 }), false);
+  assert.equal(isMismatchedCtrlLetter({ ctrlKey: false, metaKey: false, altKey: false, key: 'd', keyCode: 73 }), false);
+  assert.equal(isMismatchedCtrlLetter({ ctrlKey: true, metaKey: false, altKey: true, key: 'é', keyCode: 50 }), false);
+  assert.equal(isMismatchedCtrlLetter({ ctrlKey: true, metaKey: false, altKey: false, key: '!', keyCode: 223 }), false);
 });

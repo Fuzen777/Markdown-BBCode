@@ -63,14 +63,19 @@ BBCode is generated only on request. Tables become readable text, tasks become l
 | Ctrl+Shift+S | Save As |
 | Ctrl+W | Close Tab |
 | Ctrl+Shift+C | Copy BBCode |
+| Ctrl+B / Ctrl+I | Toggle Bold / Italic (Visual, Hybrid, Source) |
 | Ctrl+K | Insert Or Edit Link (Visual, Hybrid, Source) |
 | Ctrl+Shift+X | Toggle Strikethrough (Visual, Hybrid, Source) |
 | Ctrl+E | Toggle Inline Code (Visual, Hybrid, Source) |
+| Ctrl+Z / Ctrl+Y | Undo / Redo (Ctrl+Shift+Z Also Redoes In Visual & Hybrid) |
+| Ctrl+A | Select Document (Visual) Or Active Block (Hybrid) |
 | Ctrl+Alt+0–6 | Paragraph, Headings 1–3, Task, Bullet, Numbered List |
 | Alt+Up / Alt+Down | Move Active Block Or Line Up / Down |
 | Ctrl+D | Duplicate Active Block Or List Item |
 | Ctrl+Shift+P | Toggle BBCode Preview Pane |
 | Ctrl+F / Ctrl+H | Find / Find And Replace |
+
+Cross-mode `Ctrl` shortcuts prioritize Windows virtual keys (`VK_A`–`VK_Z`) so split `Ctrl` layouts such as `BÉPO azerty-ctrl` trigger the expected shortcuts without affecting normal BÉPO typing, `AltGr` characters or native clipboard actions.
 
 Use Windows **Open With** to associate files with the executable at its permanent location. Subsequent launches open tabs in the existing window. No association changes automatically. Older BBCode recovery is offered for explicit import and backed up as `session-v1-backup.json`.
 
@@ -88,10 +93,10 @@ npm run build
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 npm run portable
-node scripts/native-smoke.mjs
+npm run test:native
 ```
 
-Browser tests use installed Microsoft Edge. Portable builds appear under `release/BBCode Editor <version>`. Build the frontend before Rust checks on a clean checkout. Close other instances before running the isolated native smoke test.
+Browser tests use installed Microsoft Edge. Automated test runners enforce process-tree timeout guards (`30s` unit tests, `120s` Playwright UI with a `20s` server startup limit, and `60s` native smoke). Portable builds appear under `release/BBCode Editor <version>`. Build the frontend before Rust checks on a clean checkout. Close other instances before running the isolated native smoke test.
 
 ## Hybrid Blank Lines And Icons
 

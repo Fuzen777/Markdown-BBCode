@@ -28,7 +28,7 @@ src/colors.js owns conversion/validation; src/color-picker.js owns the picker. S
 
 ## Validation And Documentation
 
-Run npm test, npm run test:ui, npm run lint, npm run build, Rust tests, formatting checks and Clippy. After packaging, scripts/native-smoke.mjs exercises the actual desktop bridge in an isolated folder; close other app instances first. Keep DESIGN.md, FEATURES.md, README.md, CHANGELOG.md and VALIDATION.md aligned. Development file watching excludes runtime caches and builds.
+Run npm test, npm run test:ui, npm run lint, npm run build, Rust tests, formatting checks and Clippy. After packaging, npm run test:native (scripts/native-smoke.mjs) exercises the actual desktop bridge in an isolated folder; close other app instances first. Test runners enforce hard process-tree timeout limits via scripts/run-with-timeout.mjs (30s unit tests, 120s Playwright UI with a 20s webServer startup limit and maxFailures: 5, and 60s native smoke, terminating hung process trees with exit code 124). Because Playwright and native smoke rely on local loopback connections and Edge or WebView2, run npm run test:ui and npm run test:native outside restrictive network/process sandboxes. Keep DESIGN.md, FEATURES.md, README.md, CHANGELOG.md and VALIDATION.md aligned. Development file watching excludes runtime caches and builds.
 
 ## Hybrid Rows And Icons
 

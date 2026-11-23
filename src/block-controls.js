@@ -3,6 +3,7 @@ import { setButtonIcon, setMenuItemLabel } from './icons.js';
 import { blockHighlightPluginKey } from './markdown.js';
 import { TextSelection } from '@tiptap/pm/state';
 import { closeHistory } from '@tiptap/pm/history';
+import { shortcutKey } from './shortcuts.js';
 
 const listTypes = new Set(['bulletList', 'orderedList', 'taskList']);
 const containerTypes = new Set(['callout', 'blockquote', 'spoilerBlock', 'centerBlock']);
@@ -686,7 +687,7 @@ export class BlockControls {
       this.deleteSelected();
       return;
     }
-    if (this.selectedIndices.size && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'd') {
+    if (this.selectedIndices.size && (event.ctrlKey || event.metaKey) && shortcutKey(event) === 'd') {
       event.preventDefault();
       event.stopPropagation();
       this.duplicateSelected();

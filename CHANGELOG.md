@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.6 — 2026-11-23
+
+1. Prioritized Windows virtual keys (`VK_A`–`VK_Z`) over layout-shifted `event.key` characters for `Ctrl` shortcuts across Visual, Hybrid, and Source modes so split `Ctrl` drivers such as `BÉPO azerty-ctrl` match `Ctrl` shortcut keys reliably (including dead-key `Ctrl+Y` Redo).
+2. Guarded Visual (TipTap/ProseMirror) and Hybrid (CodeMirror) keymaps against mismatched `Ctrl` letter misfires while leaving normal BÉPO typing, `AltGr` characters, and native clipboard shortcuts untouched.
+3. Added process-tree timeout guards across automated test suites (`30s` unit tests, `120s` Playwright UI suite with a `20s` webServer startup limit and `maxFailures: 5`, and `60s` native smoke) so hung test runs terminate promptly.
+
 ## 0.2.5 — 2026-11-23
 
 1. Expanded `/` slash and Turn Into options with Divider, Toggle (collapsed callout), Spoiler Block, Centered Block and Image plus short keyword aliases (`/h1`–`/h3`, `/todo`, `/ul`, `/ol`, `/hr`, `/div`, `/img`, `/toggle`, `/warn`, `/tip`), alongside an active-line `Type '/' for commands…` Visual placeholder.

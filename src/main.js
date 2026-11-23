@@ -10,6 +10,7 @@ import { ColorPicker } from './color-picker.js';
 import { FindReplaceController } from './find-replace.js';
 import { TableGridPicker } from './table-controls.js';
 import { DocumentOutline } from './outline.js';
+import { shortcutKey } from './shortcuts.js';
 import './style.css';
 import { initializeIcons, setButtonIcon } from './icons.js';
 
@@ -459,9 +460,16 @@ async function closeWindow() {
 function keyboardShortcut(event) {
   if (elements['choice-dialog'].open || elements['color-dialog'].open || elements['image-dialog']?.open) return;
   if (!(event.ctrlKey || event.metaKey)) return;
+  const target = event.target instanceof Element ? event.target : null;
+  const inPlainInput = Boolean(target && (
+    elements['find-bar'].contains(target)
+    || target.matches('input, select')
+    || (target.matches('textarea') && target !== elements['markdown-source'])
+  ));
+  const inPreview = Boolean(target && elements['bbcode-preview-pane'].contains(target));
   if (event.altKey && !event.shiftKey) {
     const digit = event.code?.match(/^Digit([0-6])$/)?.[1] || (/^[0-6]$/.test(event.key) ? event.key : null);
-    if (!digit || elements['find-bar'].contains(event.target)) return;
+    if (!digit || inPlainInput) return;
     const command = digit === '4' ? ['task'] : digit === '5' ? ['bullet'] : digit === '6' ? ['numbered'] : ['heading', digit];
     event.preventDefault();
     event.stopPropagation();
@@ -469,14 +477,32 @@ function keyboardShortcut(event) {
     return;
   }
   if (event.altKey) return;
-  const key = event.key.toLowerCase();
+  const key = shortcutKey(event);
   if (key === 'f' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); findReplace.open(false, selectedSearchText()); return; }
   if (key === 'h' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); findReplace.open(true, selectedSearchText()); return; }
-  if (!elements['find-bar'].contains(event.target)) {
+  if (!inPlainInput) {
+    if (key === 'b' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); void runAction(() => formatDocument('bold')); return; }
+    if (key === 'i' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); void runAction(() => formatDocument('italic')); return; }
     if (key === 'k' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); void runAction(() => formatDocument('link')); return; }
     if (key === 'x' && event.shiftKey) { event.preventDefault(); event.stopPropagation(); void runAction(() => formatDocument('strike')); return; }
     if (key === 'e' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); void runAction(() => formatDocument('inlineCode')); return; }
     if (key === 'd' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); if (editor.duplicateCurrent()) capture(); return; }
+    if (!editor.sourceMode() && !inPreview) {
+      if (key === 'z' || (key === 'y' && !event.shiftKey)) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (editor.undo(key === 'y' || event.shiftKey)) capture();
+        return;
+      }
+      if (key === 'a' && !event.shiftKey) {
+        const inEditableView = Boolean(target && (elements['visual-editor'].contains(target) || elements['hybrid-editor'].contains(target)));
+        if (inEditableView && editor.selectAll()) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+      }
+    }
   }
   if (key === 'p' && event.shiftKey) { event.preventDefault(); event.stopPropagation(); toggleBBCodePreview(); return; }
   const action = key === 'n' ? () => { capture(); store.add(); showDocument(); return persist(); }

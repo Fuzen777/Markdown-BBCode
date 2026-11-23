@@ -1,7 +1,7 @@
 // ==> Section 1 - Isolated Native Test Environment <==
 import { chromium, expect } from '@playwright/test';
 import { mkdir, copyFile, writeFile, readFile, access } from 'node:fs/promises';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
@@ -26,8 +26,30 @@ const startedAt = performance.now();
 const application = spawn(executablePath, [firstPath], { windowsHide: true, env: { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${debugPort}` } });
 const applicationExit = once(application, 'exit');
 let browser;
+let secondLaunch;
 let restartedApplication;
 let restartedBrowser;
+
+function killProcessTree(child) {
+  if (!child?.pid || child.exitCode !== null) return;
+  if (process.platform === 'win32') {
+    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+  }
+  try {
+    child.kill('SIGKILL');
+  } catch {
+    // Ignore when the child process has already exited.
+  }
+}
+
+const smokeTimeoutMs = Number(process.env.NATIVE_SMOKE_TIMEOUT_MS) || 60_000;
+const watchdog = setTimeout(() => {
+  process.stderr.write(`\n[timeout] Native smoke exceeded ${smokeTimeoutMs / 1000}s limit and was terminated.\n`);
+  killProcessTree(secondLaunch);
+  killProcessTree(restartedApplication);
+  killProcessTree(application);
+  process.exit(124);
+}, smokeTimeoutMs);
 
 // ==> Section 2 - Native UI And File Persistence <==
 try {
@@ -52,7 +74,7 @@ try {
   await page.getByRole('button', { name: 'Copy BBCode', exact: true }).click();
   await expect(page.locator('#save-status')).toHaveText('BBCode Copied');
   const openStartedAt = performance.now();
-  const secondLaunch = spawn(executablePath, [secondPath], { windowsHide: true });
+  secondLaunch = spawn(executablePath, [secondPath], { windowsHide: true });
   await once(secondLaunch, 'exit');
   await expect(page.getByRole('tab', { name: 'Second Document.md', exact: true })).toBeVisible();
   const openMilliseconds = Math.round(performance.now() - openStartedAt);
@@ -117,8 +139,10 @@ try {
   await writeFile('test-results/native-results.json', JSON.stringify(results, null, 2));
   console.log(JSON.stringify(results, null, 2));
 } finally {
+  clearTimeout(watchdog);
   await browser?.close().catch(() => {});
   await restartedBrowser?.close().catch(() => {});
-  if (restartedApplication?.exitCode === null) restartedApplication.kill();
-  if (application.exitCode === null) application.kill();
+  killProcessTree(secondLaunch);
+  killProcessTree(restartedApplication);
+  killProcessTree(application);
 }

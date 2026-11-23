@@ -732,3 +732,96 @@ test('right-side Document Outline toggles Off/Float/Dock, jumps across modes and
   await page.setViewportSize({ width: 720, height: 480 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
+
+test('Windows virtual-key shortcuts respect split Ctrl layouts like BEPO azerty-ctrl across modes', async ({ page }) => {
+  const dispatchCtrl = (selector, key, keyCode, shiftKey = false) => page.evaluate(
+    ({ sel, k, code, shift }) => {
+      const target = document.querySelector(sel);
+      const event = new KeyboardEvent('keydown', { key: k, ctrlKey: true, shiftKey: shift, bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'keyCode', { get: () => code });
+      target.dispatchEvent(event);
+      return event.defaultPrevented;
+    },
+    { sel: selector, k: key, code: keyCode, shift: shiftKey },
+  );
+
+  // Visual mode: VK_I ('d'), VK_D ('i'), VK_Z ('é'), VK_C ('y'), VK_Y ('Dead'), VK_A ('b'), VK_B ('k')
+  await setSource(page, 'Alpha text');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.locator('.tiptap p').first().click();
+
+  await dispatchCtrl('.tiptap', 'b', 65);
+  expect(await page.evaluate(() => window.getSelection()?.toString() || '')).toContain('Alpha text');
+  await expect(page.locator('.tiptap strong')).toHaveCount(0);
+
+  await dispatchCtrl('.tiptap', 'd', 73);
+  await expect(page.locator('.tiptap em')).toHaveText('Alpha text');
+  await expect(page.locator('.tiptap p')).toHaveCount(1);
+
+  await dispatchCtrl('.tiptap', 'i', 68);
+  await expect(page.locator('.tiptap p')).toHaveCount(2);
+  await expect(page.locator('.tiptap em')).toHaveCount(2);
+
+  await dispatchCtrl('.tiptap', 'é', 90);
+  await expect(page.locator('.tiptap p')).toHaveCount(1);
+
+  const copyPrevented = await dispatchCtrl('.tiptap', 'y', 67);
+  expect(copyPrevented).toBe(false);
+  await expect(page.locator('.tiptap p')).toHaveCount(1);
+
+  await dispatchCtrl('.tiptap', 'Dead', 89);
+  await expect(page.locator('.tiptap p')).toHaveCount(2);
+
+  await dispatchCtrl('.tiptap', 'b', 65);
+  await dispatchCtrl('.tiptap', 'k', 66);
+  await expect(page.locator('.tiptap strong').first()).toContainText('Alpha text');
+  await expect(page.locator('#choice-dialog')).not.toHaveAttribute('open', '');
+
+  // Hybrid mode: VK_A ('b'), VK_I ('d'), Shift+VK_B ('K'), VK_D ('i'), VK_Z ('é'), VK_Y ('Dead')
+  await setSource(page, 'First block');
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  await expect(page.locator('.hybrid-source .cm-content')).toBeVisible();
+  await page.locator('.hybrid-source .cm-content').click();
+
+  await dispatchCtrl('.hybrid-source .cm-content', 'b', 65);
+  await expect(page.locator('.hybrid-source .cm-content')).toHaveText('First block');
+
+  await dispatchCtrl('.hybrid-source .cm-content', 'd', 73);
+  await expect(page.locator('.hybrid-source .cm-content')).toHaveText('*First block*');
+  await expect(page.locator('.hybrid-block:not(.blank-block)')).toHaveCount(1);
+
+  await dispatchCtrl('.hybrid-source .cm-content', 'K', 66, true);
+  await expect(page.locator('.hybrid-source .cm-content')).toHaveText('*First block*');
+
+  await dispatchCtrl('.hybrid-source .cm-content', 'i', 68);
+  await expect(page.locator('.hybrid-block:not(.blank-block)')).toHaveCount(2);
+
+  await dispatchCtrl('#hybrid-editor', 'é', 90);
+  await expect(page.locator('.hybrid-block:not(.blank-block)')).toHaveCount(1);
+
+  await dispatchCtrl('#hybrid-editor', 'Dead', 89);
+  await expect(page.locator('.hybrid-block:not(.blank-block)')).toHaveCount(2);
+
+  // Source mode: VK_I ('d'), VK_B ('k'), VK_K ('s')
+  await setSource(page, 'Hello world');
+  await page.evaluate(() => {
+    const area = document.querySelector('#markdown-source');
+    area.focus();
+    area.setSelectionRange(0, 5);
+  });
+  await dispatchCtrl('#markdown-source', 'd', 73);
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('*Hello* world');
+
+  await page.evaluate(() => {
+    const area = document.querySelector('#markdown-source');
+    area.focus();
+    area.setSelectionRange(8, 13);
+  });
+  await dispatchCtrl('#markdown-source', 'k', 66);
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('*Hello* **world**');
+
+  await dispatchCtrl('#markdown-source', 's', 75);
+  await expect(page.locator('#choice-dialog')).toHaveAttribute('open', '');
+  await expect(page.locator('#choice-dialog')).toContainText('Insert Link');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+});

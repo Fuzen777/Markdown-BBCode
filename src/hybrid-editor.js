@@ -1,7 +1,7 @@
 // ==> Section 1 - Hybrid Markdown Editing <==
 import { EditorState, Compartment } from '@codemirror/state';
 import { EditorView, keymap, Decoration, ViewPlugin, drawSelection } from '@codemirror/view';
-import { defaultKeymap } from '@codemirror/commands';
+import { defaultKeymap, selectAll } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { syntaxTree, syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
@@ -26,6 +26,7 @@ const textHighlight = HighlightStyle.define([
   { tag: tags.emphasis, fontStyle: 'italic' }, { tag: tags.link, textDecoration: 'underline' },
   { tag: tags.monospace, fontFamily: 'Consolas, monospace' },
 ]);
+const hybridBaseKeymap = defaultKeymap.filter(binding => !/^(?:Shift-)?(?:Mod|Ctrl)-[a-z]$/i.test(binding.key || ''));
 export const blockTemplates = {
   paragraph: 'Text', heading1: '# Heading', heading2: '## Heading', heading3: '### Heading',
   bullet: '- Item', numbered: '1. Item', task: '- [ ] Task', quote: '> Quote',
@@ -143,6 +144,10 @@ export class HybridEditor {
     this.onChange();
     return true;
   }
+  selectAll() {
+    if (!this.code) return false;
+    return selectAll(this.code);
+  }
   render(activeOffset = null, focus = true) {
     this.closeMenus();
     this.code?.destroy();
@@ -202,11 +207,14 @@ export class HybridEditor {
         markdown(), syntaxHighlighting(textHighlight), markerHighlight, drawSelection(), EditorView.lineWrapping,
         this.editable.of(EditorView.editable.of(!this.readonly)),
         EditorView.contentAttributes.of({ 'aria-label': 'Active Block Markdown' }),
-        keymap.of([{ key: 'Mod-z', run: () => this.undo() }, { key: 'Mod-Shift-z', run: () => this.undo(true) },
-          { key: 'Mod-b', run: () => this.format('bold') }, { key: 'Mod-i', run: () => this.format('italic') },
-          { key: 'Alt-ArrowUp', run: () => this.moveActiveBlock(-1) }, { key: 'Alt-ArrowDown', run: () => this.moveActiveBlock(1) },
+        keymap.of([
+          { key: 'Alt-ArrowUp', run: () => this.moveActiveBlock(-1) },
+          { key: 'Alt-ArrowDown', run: () => this.moveActiveBlock(1) },
           { key: 'Escape', run: () => { this.render(); return true; } },
-          { key: 'ArrowUp', run: view => this.navigate(view, -1) }, { key: 'ArrowDown', run: view => this.navigate(view, 1) }, ...defaultKeymap]),
+          { key: 'ArrowUp', run: view => this.navigate(view, -1) },
+          { key: 'ArrowDown', run: view => this.navigate(view, 1) },
+          ...hybridBaseKeymap,
+        ]),
         EditorView.domEventHandlers({
           paste: (event, view) => {
             if (this.readonly) return false;

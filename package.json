@@ -1,6 +1,6 @@
 {
   "name": "bbcode-editor",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,8 +9,9 @@
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
     "build": "vite build",
     "tauri": "tauri",
-    "test": "node --test tests/*.test.js",
-    "test:ui": "playwright test",
+    "test": "node scripts/run-with-timeout.mjs 30 node --test tests/*.test.js",
+    "test:ui": "node scripts/run-with-timeout.mjs 120 node node_modules/@playwright/test/cli.js test",
+    "test:native": "node scripts/run-with-timeout.mjs 60 node scripts/native-smoke.mjs",
     "lint": "eslint .",
     "portable": "tauri build --no-bundle && node scripts/package.mjs"
   },
