@@ -29,3 +29,9 @@
 ## Limits
 
 Steam conversion, publishing, image uploads and managed local attachments are deferred. BBCode export warns when reducing tasks, tables or callouts. Unsupported syntax remains editable in Source/Hybrid and may block conversion. Visual edits normalize Markdown; mode/tab changes reset undo. Adjacent compatible lists follow Markdown merging rules. Final Nexus rendering needs a site check.
+
+## Hybrid Spacing And Icon Controls
+
+Real top-level blank lines are individual editable blocks; content blocks have no extra trailing editor rows. Gutter actions do not add vertical space. Blank rows can be edited, duplicated, deleted or moved, with undo. Internal container spacing is preserved.
+
+File and formatting actions use locally bundled Material Symbols Rounded icons with hover and keyboard-focus tooltips. Icons work offline, preserve active styles and retain accessible names. Modes, dropdowns and confirmation actions remain text-labelled.

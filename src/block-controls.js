@@ -1,4 +1,5 @@
 // ==> Section 1 - Block Types And Selection <==
+import { setButtonIcon } from './icons.js';
 import { TextSelection } from '@tiptap/pm/state';
 import { closeHistory } from '@tiptap/pm/history';
 
@@ -126,7 +127,8 @@ export class BlockControls {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = className;
-    button.textContent = text;
+    if (className === 'block-handle' || className === 'block-add') setButtonIcon(button, className === 'block-handle' ? 'drag_indicator' : 'add', label);
+    else button.textContent = text;
     button.title = label;
     button.setAttribute('aria-label', label);
     button.onmousedown = event => event.preventDefault();

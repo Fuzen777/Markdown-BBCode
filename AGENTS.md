@@ -29,3 +29,7 @@ src/colors.js owns conversion/validation; src/color-picker.js owns the picker. S
 ## Validation And Documentation
 
 Run npm test, npm run test:ui, npm run lint, npm run build, Rust tests, formatting checks and Clippy. After packaging, scripts/native-smoke.mjs exercises the actual desktop bridge in an isolated folder; close other app instances first. Keep DESIGN.md, FEATURES.md, README.md, CHANGELOG.md and VALIDATION.md aligned. Development file watching excludes runtime caches and builds.
+
+## Hybrid Rows And Icons
+
+segmentMarkdown preserves exact spans and emits individual top-level space blocks. Hybrid hides each block's final line terminator in CodeMirror and restores it on edits; do not append separator rows inside content blocks. Blank-line actions operate on real source spans. Controls belong in an absolute gutter. src/icons.js centralizes local Material Symbols Rounded SVG rendering and accessible hover/focus tooltips. The upstream Apache 2.0 license is under licenses and copied by the packaging script.

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — 2026-11-23
+
+1. Removed phantom Hybrid rows by separating real top-level blank lines into editable blocks and moving controls into the gutter.
+2. Preserved source line endings and internal container spacing across editing and blank-line actions.
+3. Replaced file, formatting and block controls with locally bundled Material Symbols Rounded icons and accessible hover/focus tooltips.
+
+4. Corrected dependency lockfile version metadata to match the installed packages.
+
 ## 0.2.0 — 2026-11-23
 
 1. Made ordinary .md files the default, with optional YAML and source-only autosave. Existing .mdbbcode files remain supported.

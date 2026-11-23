@@ -5,6 +5,7 @@ const outputDirectory = `release/BBCode Editor ${version}`;
 await mkdir(`${outputDirectory}/licenses`, { recursive: true });
 await cp('src-tauri/target/release/bbcode-editor.exe', `${outputDirectory}/BBCode Editor.exe`);
 await cp('README.md', `${outputDirectory}/README.md`);
+await cp('licenses', `${outputDirectory}/licenses`, { recursive: true });
 const packages = JSON.parse(await readFile('package-lock.json', 'utf8')).packages;
 for (const packagePath of Object.keys(packages).filter(path => path && !packages[path].dev)) {
   const licenseNames = (await readdir(packagePath)).filter(name => /^licen[cs]e|^copying|^notice/i.test(name));

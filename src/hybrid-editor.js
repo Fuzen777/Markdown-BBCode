@@ -7,6 +7,7 @@ import { syntaxTree, syntaxHighlighting, HighlightStyle } from '@codemirror/lang
 import { tags } from '@lezer/highlight';
 import { generateHTML } from '@tiptap/core';
 import { editorExtensions, parseMarkdown, segmentMarkdown } from './markdown.js';
+import { setButtonIcon } from './icons.js';
 import { formatMarkdownSelection } from './source-formatting.js';
 
 const markerHighlight = ViewPlugin.fromClass(class {
@@ -73,6 +74,7 @@ export class HybridEditor {
     this.blocks.forEach((block, index) => {
       const shell = document.createElement('section');
       shell.className = 'hybrid-block';
+      shell.classList.toggle('blank-block', block.type === 'space');
       shell.dataset.block = index;
       const controls = this.controls(index);
       const preview = document.createElement('div');
@@ -82,7 +84,7 @@ export class HybridEditor {
       preview.setAttribute('aria-label', `Edit Block ${index + 1}`);
       try { preview.innerHTML = generateHTML(parseMarkdown(block.raw), editorExtensions); }
       catch { const raw = document.createElement('pre'); raw.className = 'raw-block'; raw.textContent = block.raw; preview.append(raw); }
-      if (!block.raw.trim()) preview.textContent = 'Click To Write';
+      if (!block.raw.trim()) { preview.replaceChildren(); preview.setAttribute('aria-label', `Edit Blank Line ${index + 1}`); }
       preview.onclick = event => { if (event.target.closest('summary')) return; event.preventDefault(); this.activate(index); };
       preview.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); this.activate(index); } };
       shell.ondragover = event => { if (this.dragIndex !== undefined) { event.preventDefault(); shell.classList.add('drop-target'); } };
@@ -117,9 +119,12 @@ export class HybridEditor {
     const parent = document.createElement('div');
     parent.className = 'hybrid-source';
     shell.append(parent);
+    const ending = this.blocks[index].raw.match(/\r?\n$/)?.[0] || '';
+    const editableText = ending ? this.blocks[index].raw.slice(0, -ending.length) : this.blocks[index].raw;
     this.code = new EditorView({
       parent,
-      state: EditorState.create({ doc: this.blocks[index].raw, extensions: [
+      state: EditorState.create({ doc: editableText, extensions: [
+        EditorState.lineSeparator.of(this.newline),
         markdown(), syntaxHighlighting(textHighlight), markerHighlight, EditorView.lineWrapping,
         this.editable.of(EditorView.editable.of(!this.readonly)),
         EditorView.contentAttributes.of({ 'aria-label': 'Active Block Markdown' }),
@@ -130,7 +135,7 @@ export class HybridEditor {
           if (update.docChanged) {
             this.remember();
             const block = this.blocks[this.activeIndex];
-            const raw = update.state.doc.toString();
+            const raw = update.state.doc.toString() + ending;
             const delta = raw.length - block.raw.length;
             this.body = this.body.slice(0, block.start) + raw + this.body.slice(block.end);
             block.raw = raw; block.end += delta;
@@ -157,22 +162,47 @@ export class HybridEditor {
   // ==> Section 2 - Block Operations <==
   controls(index) {
     const controls = document.createElement('div'); controls.className = 'hybrid-block-controls';
-    const drag = document.createElement('button'); drag.textContent = '⠿'; drag.title = 'Drag Block'; drag.setAttribute('aria-label', `Drag Block ${index + 1}`); drag.draggable = true;
+    const drag = document.createElement('button');
+    setButtonIcon(drag, 'drag_indicator', `Drag Block ${index + 1}`);
+    drag.draggable = true;
     drag.ondragstart = event => { if (this.readonly) { event.preventDefault(); return; } this.dragIndex = index; event.dataTransfer.setData('text/plain', 'Move Markdown Block'); event.dataTransfer.effectAllowed = 'move'; };
     drag.ondragend = () => { this.dragIndex = undefined; };
-    const add = document.createElement('button'); add.textContent = '+'; add.setAttribute('aria-label', `Insert After Block ${index + 1}`); add.onclick = () => this.showInsertMenu(controls.parentElement, index);
-    const menu = document.createElement('select'); menu.setAttribute('aria-label', `Block ${index + 1} Actions`);
-    for (const [value, label] of [['', 'Block…'], ['up', 'Move Up'], ['down', 'Move Down'], ['duplicate', 'Duplicate'], ['delete', 'Delete']]) menu.add(new Option(label, value));
-    menu.onchange = () => {
-      if (this.readonly) return;
-      const action = menu.value;
-      if (!action) return;
-      if (action === 'up' || action === 'down') this.move(index, index + (action === 'up' ? -1 : 1));
-      else { this.remember(true); const block = this.blocks[index]; this.body = this.body.slice(0, block.start) + (action === 'duplicate' ? this.joinBlocks([block.raw, block.raw]) : '') + this.body.slice(block.end); this.render(); this.onChange(); }
-      menu.value = '';
+    const add = document.createElement('button');
+    setButtonIcon(add, 'add', `Insert After Block ${index + 1}`);
+    add.onclick = () => this.showInsertMenu(controls.parentElement, index);
+    const actions = document.createElement('button');
+    setButtonIcon(actions, 'more_horiz', `Block ${index + 1} Actions`);
+    actions.setAttribute('aria-haspopup', 'menu');
+    actions.onclick = () => {
+      const existing = controls.querySelector('.hybrid-action-menu');
+      if (existing) { existing.remove(); return; }
+      const menu = document.createElement('div'); menu.className = 'hybrid-action-menu'; menu.role = 'menu';
+      for (const [action, label] of [['up', 'Move Up'], ['down', 'Move Down'], ['duplicate', 'Duplicate'], ['delete', 'Delete']]) {
+        const button = document.createElement('button'); button.textContent = label; button.role = 'menuitem';
+        button.onclick = () => this.blockAction(index, action);
+        menu.append(button);
+      }
+      menu.onkeydown = event => {
+        if (event.key === 'Escape') { event.stopPropagation(); menu.remove(); actions.focus(); }
+        if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
+          event.preventDefault(); const buttons = [...menu.children];
+          buttons[(buttons.indexOf(document.activeElement) + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length].focus();
+        }
+      };
+      menu.onfocusout = event => { if (!menu.contains(event.relatedTarget)) menu.remove(); };
+      controls.append(menu); menu.firstElementChild.focus();
     };
-    controls.append(drag, add, menu);
+    controls.append(drag, add, actions);
     return controls;
+  }
+  blockAction(index, action) {
+    if (this.readonly) return;
+    if (action === 'up' || action === 'down') { this.move(index, index + (action === 'up' ? -1 : 1)); return; }
+    this.remember(true);
+    const block = this.blocks[index];
+    const duplicate = block.type === 'space' ? block.raw + block.raw : this.joinBlocks([block.raw, block.raw]);
+    this.body = this.body.slice(0, block.start) + (action === 'duplicate' ? duplicate : '') + this.body.slice(block.end);
+    this.render(); this.onChange();
   }
   showInsertMenu(shell, index, replaceSlash = false) {
     if (this.readonly || shell.querySelector('.hybrid-insert-menu')) return;
@@ -183,7 +213,7 @@ export class HybridEditor {
         this.remember(true);
         const block = this.blocks[index];
         const before = this.body.slice(0, replaceSlash ? block.start : block.end);
-        const separator = before && !/\r?\n[ \t]*\r?\n$/.test(before) ? this.newline.repeat(2) : '';
+        const separator = before && !/\r?\n[ \t]*\r?\n$/.test(before) ? (before.endsWith('\n') ? this.newline : this.newline.repeat(2)) : '';
         const raw = blockTemplates[type].replaceAll('\n', this.newline);
         const offset = before.length + separator.length;
         this.body = before + separator + raw + this.newline.repeat(2) + this.body.slice(block.end);
@@ -201,14 +231,15 @@ export class HybridEditor {
     setTimeout(() => menu.querySelector('button')?.focus(), 0);
   }
   joinBlocks(blocks) {
-    return blocks.reduce((result, raw) => result + (result && !/\r?\n[ \t]*\r?\n$/.test(result) ? this.newline.repeat(2) : '') + raw, '');
+    return blocks.reduce((result, raw) => result + (result && !/\r?\n[ \t]*\r?\n$/.test(result) ? (result.endsWith('\n') ? this.newline : this.newline.repeat(2)) : '') + raw, '');
   }
   move(from, to) {
     if (this.readonly || from === to || to < 0 || to >= this.blocks.length) return;
     this.remember(true);
     const blocks = this.blocks.map(block => block.raw);
     const [moved] = blocks.splice(from, 1); blocks.splice(to, 0, moved);
-    this.body = this.joinBlocks(blocks); this.render(); this.onChange();
+    // Only terminate a moved final line when another line follows; do not invent blank separators.
+    this.body = blocks.map((raw, index) => index < blocks.length - 1 && !raw.endsWith('\n') ? raw + this.newline : raw).join(''); this.render(); this.onChange();
   }
   format(command, value) {
     if (this.readonly) return false;

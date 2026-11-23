@@ -260,7 +260,24 @@ export function segmentMarkdown(source) {
     blocks.at(-1).end = source.length;
     blocks.at(-1).raw = source.slice(blocks.at(-1).start);
   }
-  return blocks;
+  // Separators belong to their own blocks; internal container spacing stays intact.
+  return blocks.flatMap(block => {
+    const lines = block.raw.match(/[^\n]*\n|[^\n]+$/g) || [];
+    let first = 0;
+    let last = lines.length;
+    while (first < last && !lines[first].trim()) first++;
+    while (last > first && !lines[last - 1].trim()) last--;
+    const result = [];
+    let position = block.start;
+    const append = (raw, type) => {
+      result.push({ start: position, end: position + raw.length, raw, type });
+      position += raw.length;
+    };
+    for (const line of lines.slice(0, first)) append(line, 'space');
+    if (last > first) append(lines.slice(first, last).join(''), block.type);
+    for (const line of lines.slice(last)) append(line, 'space');
+    return result;
+  });
 }
 
 export function markdownToBBCodeWithWarnings(source) {

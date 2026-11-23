@@ -84,3 +84,9 @@ node scripts/native-smoke.mjs
 ```
 
 Browser tests use installed Microsoft Edge. Portable builds appear under `release/BBCode Editor <version>`. Build the frontend before Rust checks on a clean checkout. Close other instances before running the isolated native smoke test.
+
+## Hybrid Blank Lines And Icons
+
+Hybrid shows each real top-level blank line as its own editable row. Click it to type, or use its gutter menu to duplicate, delete or move it. Lists, callouts and code retain their internal blank lines. Controls sit in the gutter without adding empty rows. Moving or removing separators can change how Markdown groups paragraphs and lists.
+
+File and formatting buttons use Google Material Symbols Rounded icons bundled with the app. Hover or focus a button to see its action and shortcut. Icons work offline; their Apache 2.0 license is included in the licenses folder.

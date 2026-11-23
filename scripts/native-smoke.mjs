@@ -66,6 +66,8 @@ try {
   await expect(page.getByLabel('Target', { exact: true })).not.toBeVisible();
   await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
   await expect(page.getByRole('textbox', { name: 'Active Block Markdown' })).toContainText('Native Test');
+  await expect(page.locator('.cm-line')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Save', exact: true }).locator('svg')).toBeVisible();
   await page.screenshot({ path: 'test-results/native-hybrid.png' });
   await page.getByRole('button', { name: 'Visual', exact: true }).click();
   await page.locator('.tiptap strong').click();

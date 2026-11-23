@@ -31,3 +31,9 @@ Keep light/dark appearance, standard file shortcuts, source-conflict handling an
 ## Validation
 
 Check source-only saving and migration, explicit export replacement and warnings, table/task/callout round trips, block actions and undo, Hybrid source fidelity and navigation, malformed source preservation, color selection/persistence and native startup/restart. Leave live Nexus publishing and Windows association changes to the user.
+
+## Hybrid Spacing And Icons
+
+Each actual top-level blank line is an independent editable block. A content block retains its terminating newline on disk without exposing that terminator as an extra editable row. Internal list, callout and code spacing stays inside the enclosing block. Gutter controls occupy no document height. Moving or deleting separators can intentionally change Markdown grouping; do not invent blank lines during moves.
+
+Use locally bundled Google Material Symbols Rounded SVGs for file, formatting and block actions. Provide accessible names and hover/focus tooltips, including shortcuts where available. Retain text for modes, dropdowns, menus and confirmations. Include the Apache 2.0 license in portable releases.

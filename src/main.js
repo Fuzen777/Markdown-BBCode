@@ -8,6 +8,9 @@ import { documentToBBCodeWithWarnings, hasDocumentContent } from './document-for
 import { importBBCode } from './bbcode-import.js';
 import { ColorPicker } from './color-picker.js';
 import './style.css';
+import { initializeIcons, setButtonIcon } from './icons.js';
+
+initializeIcons();
 
 const elements = Object.fromEntries([...document.querySelectorAll('[id]')].map(element => [element.id, element]));
 const backend = {
@@ -73,7 +76,7 @@ function render() {
     tab.onclick = () => runAction(() => activate(documentRecord.id));
     const closeButton = document.createElement('button');
     closeButton.className = 'close-tab';
-    closeButton.textContent = '×';
+    setButtonIcon(closeButton, 'close', `Close ${documentName(documentRecord)}`);
     closeButton.setAttribute('aria-label', `Close ${documentName(documentRecord)}`);
     closeButton.onclick = () => runAction(() => closeTab(documentRecord));
     tabGroup.append(tab, closeButton);
@@ -81,9 +84,9 @@ function render() {
   }
   const draftCount = store.documents.filter(documentRecord => !documentRecord.open && !documentRecord.path).length;
   elements.drafts.hidden = draftCount === 0;
-  elements.drafts.textContent = `Drafts (${draftCount})`;
+  setButtonIcon(elements.drafts, 'inventory_2', `Drafts (${draftCount})`);
   elements.recovered.hidden = store.pendingImports.length === 0;
-  elements.recovered.textContent = `Recovered BBCode (${store.pendingImports.length})`;
+  setButtonIcon(elements.recovered, 'history', `Recovered BBCode (${store.pendingImports.length})`);
   elements['document-path'].textContent = activeDocument?.path?.replace(/^\\\\\?\\/, '') || 'Recoverable Markdown Draft — Save To Choose A File';
   elements['document-path'].title = elements['document-path'].textContent;
   const sourceMode = editor.sourceMode();

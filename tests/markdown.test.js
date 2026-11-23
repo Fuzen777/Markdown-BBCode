@@ -115,9 +115,24 @@ test('unsupported markup inside task items and table cells is never silently dro
 test('source blocks retain every byte, CRLF separators and whole enclosing containers', () => {
   const source = '\r\n# Heading\r\n\r\n- Parent\r\n  - Child\r\n- Other\r\n\r\n> [!note]- Title\r\n> Paragraph\r\n>\r\n> > [!tip]\r\n> > Nested\r\n\r\n```md\r\n## Literal\r\n```\r\n';
   const blocks = segmentMarkdown(source);
-  assert.equal(blocks.length, 4);
+  assert.equal(blocks.length, 8);
   assert.equal(blocks.map(block => block.raw).join(''), source);
-  assert.deepEqual(blocks.map(block => block.type), ['heading', 'list', 'callout', 'code']);
+  assert.deepEqual(blocks.map(block => block.type), ['space', 'heading', 'space', 'list', 'space', 'callout', 'space', 'code']);
   for (const block of blocks) assert.equal(source.slice(block.start, block.end), block.raw);
   assert.equal(segmentMarkdown('- [ ] First\n\n  Details\n\n- [x] Second').length, 1);
+});
+
+
+test('each top-level blank line has an exact independent source span', () => {
+  for (const source of ['First\n\nSecond', '\n\n# Heading\n\n\nTail\n', '  \r\nText\r\n \r\n\t\r\nEnd', '# One\n## Two\n', '\n\n']) {
+    const blocks = segmentMarkdown(source);
+    assert.equal(blocks.map(block => block.raw).join(''), source);
+    for (const block of blocks) {
+      assert.equal(source.slice(block.start, block.end), block.raw);
+      if (block.type === 'space') assert.match(block.raw, /^[ \t]*(?:\r?\n)?$/);
+      else assert.doesNotMatch(block.raw, /\n[ \t]*\r?\n$/);
+    }
+  }
+  assert.deepEqual(segmentMarkdown('A\n\nB').map(block => block.raw), ['A\n', '\n', 'B']);
+  assert.equal(segmentMarkdown('\x60\x60\x60\nA\n\nB\n\x60\x60\x60').length, 1);
 });

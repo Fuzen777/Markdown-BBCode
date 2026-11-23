@@ -39,9 +39,15 @@ async function openDocument(page, source, mode = 'hybrid') {
   await expect(page.getByRole('button', { name: 'Hybrid', exact: true })).toHaveAttribute('aria-pressed', String(mode === 'hybrid'));
 }
 
+async function blockAction(page, index, action) {
+  const block = page.locator('.hybrid-block:not(.blank-block)').nth(index - 1);
+  await block.hover();
+  await block.getByRole('button', { name: / Actions$/ }).click();
+  await block.getByRole('menuitem', { name: { up: 'Move Up', down: 'Move Down', duplicate: 'Duplicate', delete: 'Delete' }[action], exact: true }).click();
+}
 function activeBlock(page) { return page.getByRole('textbox', { name: 'Active Block Markdown', exact: true }); }
 async function activateBlock(page, index) {
-  await page.getByRole('button', { name: `Edit Block ${index}`, exact: true }).press('Enter');
+  await page.locator('.hybrid-block:not(.blank-block)').nth(index - 1).locator('.hybrid-preview').press('Enter');
   await expect(activeBlock(page)).toBeFocused();
 }
 async function replaceActiveBlock(page, source) {
@@ -111,10 +117,10 @@ test('unsupported HTML is displayed safely and preserved when another block chan
 test('splitting an active block keeps subsequent block activation correct', async ({ page }) => {
   await openDocument(page, 'First\n\nSecond\n\nThird');
   await activateBlock(page, 1);
-  await replaceActiveBlock(page, 'First\n\nNew middle\n\n');
+  await replaceActiveBlock(page, 'First\n\nNew middle');
   await activateBlock(page, 2);
   await expect(activeBlock(page)).toContainText('Second');
-  await expect(page.locator('.hybrid-block')).toHaveCount(4);
+  await expect(page.locator('.hybrid-block:not(.blank-block)')).toHaveCount(4);
   await activateBlock(page, 2);
   await expect(activeBlock(page)).toContainText('New middle');
   expect(await savedSource(page)).toBe('First\n\nNew middle\n\nSecond\n\nThird');
@@ -126,9 +132,13 @@ test('keyboard navigation crosses whole blocks and Escape restores the preview',
   await activateBlock(page, 1);
   await activeBlock(page).press('Control+End');
   await activeBlock(page).press('ArrowDown');
+  await expect(activeBlock(page)).toHaveText('');
+  await activeBlock(page).press('ArrowDown');
   await expect(activeBlock(page)).toContainText('- One');
   await expect(activeBlock(page)).toContainText('- Two');
   await activeBlock(page).press('Control+Home');
+  await activeBlock(page).press('ArrowUp');
+  await expect(activeBlock(page)).toHaveText('');
   await activeBlock(page).press('ArrowUp');
   await expect(activeBlock(page)).toContainText('# First');
   await activeBlock(page).press('Escape');
@@ -138,19 +148,19 @@ test('keyboard navigation crosses whole blocks and Escape restores the preview',
 
 test('duplicate, delete, move and undo operate on entire Markdown blocks', async ({ page }) => {
   await openDocument(page, 'First\n\n- One\n- Two\n\nLast');
-  await page.getByLabel('Block 2 Actions', { exact: true }).selectOption('duplicate');
+  await blockAction(page, 2, 'duplicate');
   expect(await savedSource(page)).toBe('First\n\n- One\n- Two\n\n- One\n- Two\n\nLast');
   await activateBlock(page, 1);
   await activeBlock(page).press('Control+z');
   expect(await savedSource(page)).toBe('First\n\n- One\n- Two\n\nLast');
-  await page.getByLabel('Block 3 Actions', { exact: true }).selectOption('duplicate');
-  await expect(page.locator('.hybrid-block')).toHaveCount(4);
-  await page.getByLabel('Block 4 Actions', { exact: true }).selectOption('delete');
-  await expect(page.locator('.hybrid-block')).toHaveCount(3);
+  await blockAction(page, 3, 'duplicate');
+  await expect(page.locator('.hybrid-block:not(.blank-block)')).toHaveCount(4);
+  await blockAction(page, 4, 'delete');
+  await expect(page.locator('.hybrid-block:not(.blank-block)')).toHaveCount(3);
   const beforeMove = await savedSource(page);
-  await page.getByLabel('Block 2 Actions', { exact: true }).selectOption('up');
+  await blockAction(page, 2, 'up');
   let source = await savedSource(page);
-  expect(source.startsWith('- One\n- Two')).toBe(true);
+  expect(source).toBe('First\n- One\n- Two\n\n\nLast\n\n');
   expect(source).toContain('First');
   expect(source.trimEnd().endsWith('Last')).toBe(true);
   await activateBlock(page, 1);
@@ -176,6 +186,49 @@ test('moving blocks preserves raw spacing and line endings', async ({ page }) =>
   const list = '- One\r\n- Two\r\n\r\n';
   const last = 'Last  \r\n';
   await openDocument(page, first + list + last);
-  await page.getByLabel('Block 2 Actions', { exact: true }).selectOption('up');
-  expect(await savedSource(page)).toBe(list + first + last);
+  await blockAction(page, 2, 'up');
+  expect(await savedSource(page)).toBe('First with  spacing  \r\n\r\n- One\r\n- Two\r\n\r\n\r\nLast  \r\n');
+});
+
+
+test('blank lines are independent editable rows and content has no phantom lines', async ({ page }) => {
+  const source = '# Heading\n\n\nParagraph\n\nTail';
+  await openDocument(page, source);
+  await expect(page.locator('.blank-block')).toHaveCount(3);
+  await activateBlock(page, 1);
+  await expect(activeBlock(page)).toHaveText('# Heading');
+  await expect(page.locator('.cm-line')).toHaveCount(1);
+  const blank = page.locator('.blank-block').first();
+  const height = (await blank.boundingBox()).height;
+  expect(height).toBeLessThan(28);
+  await blank.locator('.hybrid-preview').press('Enter');
+  await expect(page.locator('.cm-line')).toHaveCount(1);
+  await page.keyboard.insertText('New paragraph');
+  expect(await savedSource(page)).toBe('# Heading\nNew paragraph\n\nParagraph\n\nTail');
+  await page.getByRole('button', { name: 'New', exact: true }).focus();
+  await expect(page.getByRole('tooltip')).toContainText('New Document');
+  await expect(page.getByRole('button', { name: 'New', exact: true }).locator('svg')).toBeVisible();
+  await page.screenshot({ path: 'test-results/hybrid-spacing-icons.png' });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: 'test-results/hybrid-spacing-icons-dark.png' });
+  await page.setViewportSize({ width: 720, height: 480 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+
+test('blank line actions delete or duplicate only the actual separator and undo exactly', async ({ page }) => {
+  const source = 'Before\r\n \r\n\r\nAfter';
+  await openDocument(page, source);
+  const blank = page.locator('.blank-block').first();
+  await blank.hover();
+  await blank.getByRole('button', { name: / Actions$/ }).click();
+  await blank.getByRole('menuitem', { name: 'Duplicate', exact: true }).click();
+  expect(await savedSource(page)).toBe('Before\r\n \r\n \r\n\r\nAfter');
+  await blank.hover();
+  await blank.getByRole('button', { name: / Actions$/ }).click();
+  await blank.getByRole('menuitem', { name: 'Delete', exact: true }).click();
+  expect(await savedSource(page)).toBe(source);
+  await activateBlock(page, 1);
+  await activeBlock(page).press('Control+z');
+  expect(await savedSource(page)).toBe('Before\r\n \r\n \r\n\r\nAfter');
 });
