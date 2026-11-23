@@ -6,7 +6,7 @@ import { markdown } from '@codemirror/lang-markdown';
 import { syntaxTree, syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
 import { generateHTML } from '@tiptap/core';
-import { editorExtensions, parseMarkdown, segmentMarkdown } from './markdown.js';
+import { editorExtensions, parseMarkdown, segmentMarkdown, isHttpUrl } from './markdown.js';
 import { setButtonIcon, setMenuItemLabel } from './icons.js';
 import { formatMarkdownSelection, inspectMarkdownFormatting } from './source-formatting.js';
 
@@ -29,9 +29,15 @@ const textHighlight = HighlightStyle.define([
 export const blockTemplates = {
   paragraph: 'Text', heading1: '# Heading', heading2: '## Heading', heading3: '### Heading',
   bullet: '- Item', numbered: '1. Item', task: '- [ ] Task', quote: '> Quote',
-  code: '```\nCode\n```', callout: '> [!note] Note\n> Callout text', table: '| Column 1 | Column 2 |\n| --- | --- |\n| Text | Text |',
+  code: '```\nCode\n```', callout: '> [!note] Note\n> Callout text', toggle: '> [!note]- Toggle\n> Details',
+  spoiler: '||\n\nHidden text\n\n||', center: '<div style="text-align: center">\n\nCentered text\n\n</div>',
+  divider: '---', table: '| Column 1 | Column 2 |\n| --- | --- |\n| Text | Text |',
 };
-const blockLabels = { paragraph: 'Paragraph', heading1: 'Heading 1', heading2: 'Heading 2', heading3: 'Heading 3', bullet: 'Bullet List', numbered: 'Numbered List', task: 'Task List', quote: 'Quote', code: 'Code', callout: 'Callout', table: 'Table' };
+const blockLabels = {
+  paragraph: 'Paragraph', heading1: 'Heading 1', heading2: 'Heading 2', heading3: 'Heading 3',
+  bullet: 'Bullet List', numbered: 'Numbered List', task: 'Task List', quote: 'Quote',
+  code: 'Code', callout: 'Callout', toggle: 'Toggle', spoiler: 'Spoiler Block', center: 'Centered Block', divider: 'Divider', table: 'Table',
+};
 
 export class HybridEditor {
   constructor(host, body, onChange, onSelection) {
@@ -48,6 +54,10 @@ export class HybridEditor {
     this.editable = new Compartment();
     this.activeMenuCleanup = null;
     this.dragState = null;
+    this.selectedIndices = new Set();
+    this.selectionAnchor = null;
+    this.marqueeState = null;
+    this.suppressNextClick = false;
     this.indicator = document.createElement('div');
     this.indicator.className = 'block-drop-indicator';
     this.indicator.style.position = 'fixed';
@@ -55,16 +65,62 @@ export class HybridEditor {
     this.ghost = document.createElement('div');
     this.ghost.className = 'block-drag-ghost';
     this.ghost.hidden = true;
-    document.body.append(this.indicator, this.ghost);
+    this.marquee = document.createElement('div');
+    this.marquee.className = 'block-marquee';
+    this.marquee.hidden = true;
+    this.multiBar = this.createMultiBar();
+    document.body.append(this.indicator, this.ghost, this.marquee, this.multiBar);
     this.boundDragEscape = event => {
       if (this.dragState?.active && event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
         this.cancelDrag();
+        return;
+      }
+      if (event.key === 'Escape' && this.selectedIndices.size) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.clearMultiSelection();
       }
     };
+    this.boundScroll = () => this.positionMultiBar();
+    this.boundHostPointerDown = event => this.hostPointerDown(event);
+    this.boundWindowPointerMove = event => this.marqueeMove(event);
+    this.boundWindowPointerUp = event => this.marqueeEnd(event);
+    host.addEventListener('scroll', this.boundScroll);
+    window.addEventListener('resize', this.boundScroll);
+    host.addEventListener('pointerdown', this.boundHostPointerDown);
+    document.addEventListener('pointermove', this.boundWindowPointerMove);
+    document.addEventListener('pointerup', this.boundWindowPointerUp);
+    document.addEventListener('pointercancel', this.boundWindowPointerUp);
     document.addEventListener('keydown', this.boundDragEscape, true);
     this.render();
+  }
+  createMultiBar() {
+    const bar = document.createElement('div');
+    bar.className = 'multi-block-bar';
+    bar.setAttribute('role', 'toolbar');
+    bar.setAttribute('aria-label', 'Selected Blocks Actions');
+    bar.hidden = true;
+    bar.onmousedown = event => event.preventDefault();
+    this.multiCount = document.createElement('span');
+    this.multiCount.className = 'multi-block-count';
+    const makeBtn = (icon, label, action) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      setButtonIcon(btn, icon, label);
+      btn.onclick = action;
+      return btn;
+    };
+    bar.append(
+      this.multiCount,
+      makeBtn('arrow_upward', 'Move Selected Up', () => this.moveSelectedByStep(-1)),
+      makeBtn('arrow_downward', 'Move Selected Down', () => this.moveSelectedByStep(1)),
+      makeBtn('content_copy', 'Duplicate Selected', () => this.duplicateSelected()),
+      makeBtn('delete', 'Delete Selected', () => this.deleteSelected()),
+      makeBtn('close', 'Clear Block Selection', () => this.clearMultiSelection()),
+    );
+    return bar;
   }
   closeMenus() {
     this.activeMenuCleanup?.();
@@ -99,6 +155,7 @@ export class HybridEditor {
       const shell = document.createElement('section');
       shell.className = 'hybrid-block';
       shell.classList.toggle('blank-block', block.type === 'space');
+      shell.classList.toggle('multi-selected', this.selectedIndices.has(index));
       shell.dataset.block = index;
       const controls = this.controls(index);
       const preview = document.createElement('div');
@@ -109,8 +166,8 @@ export class HybridEditor {
       try { preview.innerHTML = generateHTML(parseMarkdown(block.raw), editorExtensions); }
       catch { const raw = document.createElement('pre'); raw.className = 'raw-block'; raw.textContent = block.raw; preview.append(raw); }
       if (!block.raw.trim()) { preview.replaceChildren(); preview.setAttribute('aria-label', `Edit Blank Line ${index + 1}`); }
-      preview.onclick = event => { if (event.target.closest('summary')) return; event.preventDefault(); this.activate(index); };
-      preview.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); this.activate(index); } };
+      preview.onclick = event => { if (event.target.closest('summary')) return; event.preventDefault(); this.clearMultiSelection(false); this.activate(index); };
+      preview.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); this.clearMultiSelection(false); this.activate(index); } };
       shell.append(controls, preview);
       this.host.append(shell);
     });
@@ -118,6 +175,7 @@ export class HybridEditor {
       const index = this.blocks.findIndex(block => activeOffset >= block.start && activeOffset < block.end);
       this.mount(index >= 0 ? index : this.blocks.length - 1, focus);
     }
+    this.syncSelectionUI();
     this.onSelection();
   }
   activate(index, focus = true) {
@@ -146,8 +204,21 @@ export class HybridEditor {
         EditorView.contentAttributes.of({ 'aria-label': 'Active Block Markdown' }),
         keymap.of([{ key: 'Mod-z', run: () => this.undo() }, { key: 'Mod-Shift-z', run: () => this.undo(true) },
           { key: 'Mod-b', run: () => this.format('bold') }, { key: 'Mod-i', run: () => this.format('italic') },
+          { key: 'Alt-ArrowUp', run: () => this.moveActiveBlock(-1) }, { key: 'Alt-ArrowDown', run: () => this.moveActiveBlock(1) },
           { key: 'Escape', run: () => { this.render(); return true; } },
           { key: 'ArrowUp', run: view => this.navigate(view, -1) }, { key: 'ArrowDown', run: view => this.navigate(view, 1) }, ...defaultKeymap]),
+        EditorView.domEventHandlers({
+          paste: (event, view) => {
+            if (this.readonly) return false;
+            const range = view.state.selection.main;
+            if (range.empty) return false;
+            const pasted = event.clipboardData?.getData('text/plain')?.trim();
+            if (!isHttpUrl(pasted)) return false;
+            event.preventDefault();
+            this.format('link', pasted);
+            return true;
+          },
+        }),
         EditorView.updateListener.of(update => {
           if (update.docChanged) {
             this.remember();
@@ -182,6 +253,18 @@ export class HybridEditor {
     const drag = document.createElement('button');
     setButtonIcon(drag, 'drag_indicator', `Drag Block ${index + 1}`);
     drag.classList.add('block-handle');
+    drag.onclick = event => {
+      if (this.suppressNextClick) { this.suppressNextClick = false; return; }
+      if (event.shiftKey) {
+        event.preventDefault();
+        this.extendSelection(index);
+        return;
+      }
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        this.toggleSelection(index);
+      }
+    };
     drag.addEventListener('pointerdown', event => this.dragStart(event, index, drag));
     drag.addEventListener('pointermove', event => this.dragMove(event));
     drag.addEventListener('pointerup', event => this.dragEnd(event, drag, true));
@@ -269,15 +352,263 @@ export class HybridEditor {
     // Only terminate a moved final line when another line follows; do not invent blank separators.
     this.body = blocks.map((raw, index) => index < blocks.length - 1 && !raw.endsWith('\n') ? raw + this.newline : raw).join(''); this.render(); this.onChange();
   }
+  extendSelection(targetIndex) {
+    if (targetIndex < 0 || targetIndex >= this.blocks.length) return;
+    const anchor = this.selectionAnchor ?? targetIndex;
+    this.selectionAnchor = anchor;
+    const [from, to] = [Math.min(anchor, targetIndex), Math.max(anchor, targetIndex)];
+    this.selectedIndices.clear();
+    let hasContent = false;
+    for (let i = from; i <= to; i++) {
+      if (this.blocks[i]?.type !== 'space') hasContent = true;
+    }
+    for (let i = from; i <= to; i++) {
+      if (!hasContent || this.blocks[i]?.type !== 'space') this.selectedIndices.add(i);
+    }
+    this.syncSelectionUI();
+  }
+  toggleSelection(targetIndex) {
+    if (targetIndex < 0 || targetIndex >= this.blocks.length) return;
+    this.selectionAnchor = targetIndex;
+    if (this.selectedIndices.has(targetIndex)) this.selectedIndices.delete(targetIndex);
+    else this.selectedIndices.add(targetIndex);
+    this.syncSelectionUI();
+  }
+  clearMultiSelection(sync = true) {
+    if (!this.selectedIndices.size && this.selectionAnchor === null) return;
+    this.selectedIndices.clear();
+    this.selectionAnchor = null;
+    if (sync) this.syncSelectionUI();
+  }
+  syncSelectionUI() {
+    [...this.host.children].forEach((shell, index) => {
+      shell.classList.toggle('multi-selected', this.selectedIndices.has(index));
+    });
+    const count = this.selectedIndices.size;
+    this.multiBar.hidden = count === 0 || this.readonly;
+    if (!this.multiBar.hidden) {
+      this.multiCount.textContent = `${count} ${count === 1 ? 'Block' : 'Blocks'}`;
+      this.positionMultiBar();
+    }
+  }
+  positionMultiBar() {
+    if (this.multiBar.hidden) return;
+    const hostRect = this.host.getBoundingClientRect();
+    const width = this.multiBar.offsetWidth || 240;
+    const left = Math.max(8, Math.min(hostRect.left + hostRect.width / 2 - width / 2, window.innerWidth - width - 8));
+    const top = Math.max(hostRect.top + 8, Math.min(hostRect.bottom - 48, window.innerHeight - 52));
+    this.multiBar.style.left = `${Math.round(left)}px`;
+    this.multiBar.style.top = `${Math.round(top)}px`;
+  }
+  hostPointerDown(event) {
+    if (this.readonly || event.button !== 0) return;
+    if (event.target.closest?.('.hybrid-block-controls, .hybrid-insert-menu, .hybrid-action-menu, .multi-block-bar, .cm-editor, summary, button, input, select, a')) return;
+    const hostRect = this.host.getBoundingClientRect();
+    const firstNonBlank = this.host.querySelector('.hybrid-block:not(.blank-block) .hybrid-preview');
+    const previewLeft = firstNonBlank ? firstNonBlank.getBoundingClientRect().left : hostRect.left + 108;
+    const shells = [...this.host.children];
+    const lastShell = shells.at(-1);
+    const lastBottom = lastShell ? lastShell.getBoundingClientRect().bottom : hostRect.top;
+    const inLeftGutter = event.clientX < previewLeft - 4 && event.clientX >= hostRect.left;
+    const belowLastBlock = event.clientY > lastBottom + 4;
+    if (!inLeftGutter && !belowLastBlock) {
+      if (!event.shiftKey && !event.ctrlKey && !event.metaKey) this.clearMultiSelection();
+      return;
+    }
+    this.marqueeState = {
+      startX: event.clientX,
+      startY: event.clientY,
+      active: false,
+      baseSelected: new Set((event.ctrlKey || event.metaKey) ? this.selectedIndices : []),
+    };
+  }
+  marqueeMove(event) {
+    if (!this.marqueeState) return;
+    if (!this.marqueeState.active) {
+      if (Math.hypot(event.clientX - this.marqueeState.startX, event.clientY - this.marqueeState.startY) < 6) return;
+      this.marqueeState.active = true;
+      this.closeMenus();
+    }
+    const left = Math.min(this.marqueeState.startX, event.clientX);
+    const top = Math.min(this.marqueeState.startY, event.clientY);
+    const right = Math.max(this.marqueeState.startX, event.clientX);
+    const bottom = Math.max(this.marqueeState.startY, event.clientY);
+    Object.assign(this.marquee.style, {
+      left: `${Math.round(left)}px`,
+      top: `${Math.round(top)}px`,
+      width: `${Math.round(right - left)}px`,
+      height: `${Math.round(bottom - top)}px`,
+    });
+    this.marquee.hidden = false;
+
+    const shells = [...this.host.children];
+    const rawHits = [];
+    shells.forEach((shell, index) => {
+      const rect = shell.getBoundingClientRect();
+      if (rect.bottom >= top && rect.top <= bottom) rawHits.push(index);
+    });
+    const hasContent = rawHits.some(index => this.blocks[index]?.type !== 'space');
+    const next = new Set(this.marqueeState.baseSelected);
+    for (const index of rawHits) {
+      if (!hasContent || this.blocks[index]?.type !== 'space') next.add(index);
+    }
+    this.selectedIndices = next;
+    this.syncSelectionUI();
+  }
+  marqueeEnd() {
+    if (!this.marqueeState) return;
+    const { active } = this.marqueeState;
+    this.marqueeState = null;
+    this.marquee.hidden = true;
+    if (active) this.suppressNextClick = true;
+  }
+  selectedBlockIndicesSorted() {
+    return [...this.selectedIndices].filter(i => i >= 0 && i < this.blocks.length).sort((a, b) => a - b);
+  }
+  extractWithSingleSeparators(indices) {
+    const removeSet = new Set(indices);
+    const movedRaws = indices.map(i => this.blocks[i].raw);
+    for (const index of indices) {
+      if (this.blocks[index].type !== 'space' && index + 1 < this.blocks.length && !removeSet.has(index + 1) && this.blocks[index + 1].type === 'space') {
+        removeSet.add(index + 1);
+      }
+    }
+    return { movedRaws, removeSet };
+  }
+  moveSelectedToSlot(dropSlot) {
+    const indices = this.selectedBlockIndicesSorted();
+    if (!indices.length || this.readonly) return false;
+    this.remember(true);
+    const hadTrailingEol = /\r?\n$/.test(this.body);
+    const { movedRaws, removeSet } = this.extractWithSingleSeparators(indices);
+    const remaining = [];
+    let mappedInsertIndex = 0;
+    for (let i = 0; i < this.blocks.length; i++) {
+      if (i < dropSlot && !removeSet.has(i)) mappedInsertIndex++;
+      if (!removeSet.has(i)) remaining.push(this.blocks[i].raw);
+    }
+    while (remaining.length && !remaining[0].trim()) {
+      remaining.shift();
+      if (mappedInsertIndex > 0) mappedInsertIndex--;
+    }
+    const movedCombined = this.joinBlocks(movedRaws);
+    const before = remaining.slice(0, mappedInsertIndex);
+    const after = remaining.slice(mappedInsertIndex);
+    let nextBody = this.joinBlocks([...before, movedCombined, ...after]);
+    if (!hadTrailingEol) nextBody = nextBody.replace(/\r?\n$/, '');
+    else if (nextBody && !/\r?\n$/.test(nextBody)) nextBody += this.newline;
+    const movedStartOffset = before.length ? this.joinBlocks([...before, '']).length : 0;
+    this.selectedIndices.clear();
+    this.body = nextBody;
+    this.render();
+    const nextBlocks = this.blocks;
+    for (let i = 0; i < nextBlocks.length; i++) {
+      if (nextBlocks[i].type !== 'space' && nextBlocks[i].start >= movedStartOffset && nextBlocks[i].start < movedStartOffset + movedCombined.length) {
+        this.selectedIndices.add(i);
+      }
+    }
+    this.syncSelectionUI();
+    this.onChange();
+    return true;
+  }
+  moveSelectedByStep(direction) {
+    const indices = this.selectedBlockIndicesSorted();
+    if (!indices.length || this.readonly) return false;
+    const edge = direction < 0 ? indices[0] : indices.at(-1);
+    let partner = edge + direction;
+    while (partner >= 0 && partner < this.blocks.length && (this.selectedIndices.has(partner) || this.blocks[partner].type === 'space')) {
+      partner += direction;
+    }
+    if (partner < 0 || partner >= this.blocks.length) return false;
+    return this.moveSelectedToSlot(direction < 0 ? partner : partner + 1);
+  }
+  duplicateSelected() {
+    const indices = this.selectedBlockIndicesSorted();
+    if (!indices.length || this.readonly) return false;
+    this.remember(true);
+    const lastBlock = this.blocks[indices.at(-1)];
+    const movedCombined = this.joinBlocks(indices.map(i => this.blocks[i].raw));
+    const before = this.body.slice(0, lastBlock.end);
+    const after = this.body.slice(lastBlock.end);
+    const nextBody = this.joinBlocks([before, movedCombined, ...(after ? [after] : [])]);
+    this.clearMultiSelection(false);
+    this.body = nextBody;
+    this.render();
+    this.onChange();
+    return true;
+  }
+  deleteSelected() {
+    const indices = this.selectedBlockIndicesSorted();
+    if (!indices.length || this.readonly) return false;
+    this.remember(true);
+    const { removeSet } = this.extractWithSingleSeparators(indices);
+    const remaining = this.blocks.filter((_, i) => !removeSet.has(i)).map(b => b.raw);
+    while (remaining.length && !remaining[0].trim()) remaining.shift();
+    while (remaining.length && !remaining.at(-1).trim()) remaining.pop();
+    this.clearMultiSelection(false);
+    this.body = remaining.join('');
+    this.render();
+    this.onChange();
+    return true;
+  }
+  moveActiveBlock(direction) {
+    if (this.selectedIndices.size) return this.moveSelectedByStep(direction);
+    if (this.readonly || this.activeIndex === null) return false;
+    const index = this.activeIndex;
+    const current = this.blocks[index];
+    if (!current) return false;
+    if (current.type === 'space') {
+      const target = index + direction;
+      if (target < 0 || target >= this.blocks.length) return false;
+      this.remember(true);
+      const rawBlocks = this.blocks.map(block => block.raw);
+      const [moved] = rawBlocks.splice(index, 1);
+      rawBlocks.splice(target, 0, moved);
+      const nextRawBlocks = rawBlocks.map((raw, slot) => slot < rawBlocks.length - 1 && !raw.endsWith('\n') ? raw + this.newline : raw);
+      this.body = nextRawBlocks.join('');
+      let offset = 0;
+      for (let slot = 0; slot < target; slot++) offset += nextRawBlocks[slot].length;
+      this.render(offset, true);
+      this.onChange();
+      return true;
+    }
+    let partner = index + direction;
+    while (partner >= 0 && partner < this.blocks.length && this.blocks[partner].type === 'space') partner += direction;
+    if (partner < 0 || partner >= this.blocks.length) return false;
+    this.remember(true);
+    const cursorPos = this.code ? this.code.state.selection.main.head : 0;
+    const rawBlocks = this.blocks.map(block => block.raw);
+    const splitEnd = raw => {
+      const body = raw.replace(/\r?\n$/, '');
+      return [body, raw.slice(body.length)];
+    };
+    const [sourceBody, sourceEol] = splitEnd(rawBlocks[index]);
+    const [partnerBody, partnerEol] = splitEnd(rawBlocks[partner]);
+    rawBlocks[index] = partnerBody + sourceEol;
+    rawBlocks[partner] = sourceBody + partnerEol;
+    const nextRawBlocks = rawBlocks.map((raw, slot) => slot < rawBlocks.length - 1 && !raw.endsWith('\n') ? raw + this.newline : raw);
+    this.body = nextRawBlocks.join('');
+    let offset = 0;
+    for (let slot = 0; slot < partner; slot++) offset += nextRawBlocks[slot].length;
+    this.render(offset, true);
+    if (this.code) {
+      const clamped = Math.min(cursorPos, this.code.state.doc.length);
+      this.code.dispatch({ selection: { anchor: clamped, head: clamped } });
+    }
+    this.onChange();
+    return true;
+  }
   duplicateActiveBlock() {
+    if (this.selectedIndices.size) return this.duplicateSelected();
     if (this.readonly || !this.blocks.length) return false;
     this.blockAction(this.activeIndex ?? 0, 'duplicate');
     return true;
   }
   dragStart(event, index, handle) {
-    if (event.button !== 0 || this.readonly) return;
+    if (event.button !== 0 || this.readonly || event.shiftKey || event.ctrlKey || event.metaKey) return;
     event.preventDefault();
-    this.dragState = { pointerId: event.pointerId, index, handle, startX: event.clientX, startY: event.clientY, active: false, dropSlot: null };
+    const draggingSelected = this.selectedIndices.has(index) && this.selectedIndices.size > 0;
+    this.dragState = { pointerId: event.pointerId, index, draggingSelected, handle, startX: event.clientX, startY: event.clientY, active: false, dropSlot: null };
     handle.setPointerCapture(event.pointerId);
   }
   dragMove(event) {
@@ -285,8 +616,11 @@ export class HybridEditor {
     if (!this.dragState.active) {
       if (Math.hypot(event.clientX - this.dragState.startX, event.clientY - this.dragState.startY) < 4) return;
       this.dragState.active = true;
+      this.suppressNextClick = true;
       this.closeMenus();
-      this.ghost.textContent = this.blocks[this.dragState.index]?.raw.trim().slice(0, 60) || `Block ${this.dragState.index + 1}`;
+      this.ghost.textContent = this.dragState.draggingSelected && this.selectedIndices.size > 1
+        ? `${this.selectedIndices.size} Blocks`
+        : (this.blocks[this.dragState.index]?.raw.trim().slice(0, 60) || `Block ${this.dragState.index + 1}`);
       this.ghost.hidden = false;
     }
     this.ghost.style.left = `${event.clientX + 12}px`;
@@ -311,11 +645,15 @@ export class HybridEditor {
   dragEnd(event, handle, commit) {
     if (!this.dragState || event.pointerId !== this.dragState.pointerId) return;
     if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
-    const { active, index, dropSlot } = this.dragState;
+    const { active, index, draggingSelected, dropSlot } = this.dragState;
     this.endDrag();
     if (commit && active && dropSlot !== null) {
-      const destination = dropSlot > index ? dropSlot - 1 : dropSlot;
-      this.move(index, destination);
+      if (draggingSelected) {
+        this.moveSelectedToSlot(dropSlot);
+      } else {
+        const destination = dropSlot > index ? dropSlot - 1 : dropSlot;
+        this.move(index, destination);
+      }
     }
   }
   cancelDrag() {
@@ -387,9 +725,17 @@ export class HybridEditor {
   destroy() {
     this.closeMenus();
     this.endDrag();
+    this.host.removeEventListener('scroll', this.boundScroll);
+    window.removeEventListener('resize', this.boundScroll);
+    this.host.removeEventListener('pointerdown', this.boundHostPointerDown);
+    document.removeEventListener('pointermove', this.boundWindowPointerMove);
+    document.removeEventListener('pointerup', this.boundWindowPointerUp);
+    document.removeEventListener('pointercancel', this.boundWindowPointerUp);
     document.removeEventListener('keydown', this.boundDragEscape, true);
     this.indicator.remove();
     this.ghost.remove();
+    this.marquee.remove();
+    this.multiBar.remove();
     this.code?.destroy();
     this.host.replaceChildren();
   }

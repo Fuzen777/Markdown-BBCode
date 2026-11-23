@@ -1,7 +1,7 @@
 // ==> Section 1 - Source Formatting And Inspection Tests <==
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatMarkdownSelection, inspectMarkdownFormatting } from '../src/source-formatting.js';
+import { formatMarkdownSelection, inspectMarkdownFormatting, moveSourceLines } from '../src/source-formatting.js';
 import { findTextMatches } from '../src/find-replace.js';
 
 test('inline wrappers toggle on, off, and place empty-selection caret inside delimiters', () => {
@@ -89,4 +89,32 @@ test('table formatting builds sized GFM tables with optional headers', () => {
   const noHeader = formatMarkdownSelection('', 0, 0, 'table', { rows: 2, cols: 2, withHeaderRow: false });
   assert.equal(noHeader.insert.split('\n').length, 4);
   assert.match(noHeader.insert, /^\| {3}\| {3}\|/);
+});
+
+test('inlineCode toggles cleanly without colliding with fenced code, and unlink strips links', () => {
+  const codeWrapped = formatMarkdownSelection('Use mod_id here', 4, 10, 'inlineCode');
+  assert.equal(codeWrapped.insert, '`mod_id`');
+  const struckCode = formatMarkdownSelection('Use `mod_id` here', codeWrapped.start, codeWrapped.end, 'strike');
+  assert.equal(struckCode.from, 4);
+  assert.equal(struckCode.to, 12);
+  assert.equal(struckCode.insert, '~~`mod_id`~~');
+  const codeUnwrapped = formatMarkdownSelection('Use `mod_id` here', codeWrapped.start, codeWrapped.end, 'inlineCode');
+  assert.equal(codeUnwrapped.insert, 'mod_id');
+
+  const unlinkedSelected = formatMarkdownSelection('See [Nexus](https://nexusmods.com) now', 4, 33, 'unlink');
+  assert.equal(unlinkedSelected.insert, 'Nexus');
+  const unlinkedCaret = formatMarkdownSelection('See [Nexus](https://nexusmods.com) now', 7, 7, 'unlink');
+  assert.equal(unlinkedCaret.insert, 'Nexus');
+});
+
+test('moveSourceLines reorders lines cleanly with CRLF and preserves boundaries', () => {
+  const movedDown = moveSourceLines('First\r\nSecond\r\nThird', 2, 2, 1);
+  assert.equal(movedDown.value, 'Second\r\nFirst\r\nThird');
+  assert.equal(movedDown.start, 10);
+
+  const movedMulti = moveSourceLines('One\nTwo\nThree', 4, 13, -1);
+  assert.equal(movedMulti.value, 'Two\nThree\nOne');
+
+  assert.equal(moveSourceLines('Only\nLine', 1, 1, -1), null);
+  assert.equal(moveSourceLines('Only\nLine', 6, 6, 1), null);
 });

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.5 — 2026-11-23
+
+1. Expanded `/` slash and Turn Into options with Divider, Toggle (collapsed callout), Spoiler Block, Centered Block and Image plus short keyword aliases (`/h1`–`/h3`, `/todo`, `/ul`, `/ol`, `/hr`, `/div`, `/img`, `/toggle`, `/warn`, `/tip`), alongside an active-line `Type '/' for commands…` Visual placeholder.
+2. Added cross-mode Smart URL Paste on selected text, link hover/caret popover (Open via validated desktop command, Copy, Edit, Unlink), expanded formatting bubble bar (`Turn Into`, color swatches, `Choose Color…`, `Clear Color`), Visual code block language/copy bar, image hover pill with URL/alt dialog and cross-mode shortcuts (`Ctrl+K`, `Ctrl+Shift+X`, `Ctrl+E`, `Ctrl+Alt+0`–`6`, `Alt+Up`/`Down`).
+3. Added Visual table row/column drag handles (click for menu, pointer-drag to reorder with Header Row normalization), drag-to-nest list items and Callouts/containers, Shift/Ctrl+Click plus left-gutter marquee multi-block selection across Visual and Hybrid, and a right-side segmented Document Outline (`Off` / `Float` / `Dock`).
+4. Created [TODO.md](TODO.md) tracking the deferred Quick Command Palette and wiki backlinks recognition.
+
 ## 0.2.4 — 2026-11-23
 
 1. Added draggable splitter resize (with double-click reset and keyboard support) and bidirectional block-anchored scroll sync to the Nexus BBCode preview pane.

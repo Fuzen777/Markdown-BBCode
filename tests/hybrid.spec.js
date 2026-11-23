@@ -297,3 +297,54 @@ test('Hybrid pointer drag reorders blocks and Ctrl+D duplicates active block', a
   await activeBlock(page).press('Control+d');
   expect(await savedSource(page)).toBe('\nSecond\n\nSecond\n\nThird\nFirst\n');
 });
+
+test('Hybrid supports Smart URL Paste, cross-mode shortcuts and Alt+Up/Down block movement', async ({ page }) => {
+  await openDocument(page, 'First line\n\nSecond word here\n\nThird line');
+  await activateBlock(page, 2);
+  await activeBlock(page).press('Control+Home');
+  for (let i = 0; i < 6; i++) await activeBlock(page).press('Shift+ArrowRight');
+  await activeBlock(page).evaluate(element => {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', 'https://example.com');
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  expect(await savedSource(page)).toBe('First line\n\n[Second](https://example.com) word here\n\nThird line');
+
+  await activateBlock(page, 1);
+  await activeBlock(page).press('Control+End');
+  for (let i = 0; i < 4; i++) await activeBlock(page).press('Shift+ArrowLeft');
+  await page.keyboard.press('Control+e');
+  expect(await savedSource(page)).toContain('First `line`');
+
+  await page.keyboard.press('Control+Shift+x');
+  await page.keyboard.press('Alt+ArrowDown');
+  const reordered = await savedSource(page);
+  expect(reordered.indexOf('Second')).toBeLessThan(reordered.indexOf('First'));
+});
+
+test('Hybrid Shift+Click and marquee select multiple blocks for batch Move, Duplicate and Delete', async ({ page }) => {
+  await openDocument(page, 'Alpha\n\nBeta\n\nGamma');
+  const first = page.locator('.hybrid-block:not(.blank-block)').nth(0);
+  const second = page.locator('.hybrid-block:not(.blank-block)').nth(1);
+
+  await first.hover();
+  await first.getByRole('button', { name: 'Drag Block 1', exact: true }).click({ modifiers: ['Shift'] });
+  await second.hover();
+  await second.getByRole('button', { name: 'Drag Block 3', exact: true }).click({ modifiers: ['Shift'] });
+  await expect(page.locator('.multi-block-count')).toHaveText('2 Blocks');
+
+  await page.getByRole('button', { name: 'Move Selected Down', exact: true }).click();
+  expect(await savedSource(page)).toBe('Gamma\n\nAlpha\n\nBeta');
+
+  await page.getByRole('button', { name: 'Duplicate Selected', exact: true }).click();
+  expect(await savedSource(page)).toBe('Gamma\n\nAlpha\n\nBeta\n\nAlpha\n\nBeta');
+
+  const hybridRect = await page.locator('#hybrid-editor').boundingBox();
+  const topBlockRect = await page.locator('.hybrid-block:not(.blank-block)').nth(0).boundingBox();
+  await page.mouse.move(hybridRect.x + 10, topBlockRect.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(hybridRect.x + 12, topBlockRect.y + 20, { steps: 5 });
+  await page.mouse.up();
+  await page.getByRole('button', { name: 'Delete Selected', exact: true }).click();
+  expect(await savedSource(page)).toBe('Alpha\n\nBeta\n\nAlpha\n\nBeta');
+});

@@ -176,6 +176,42 @@ fn finish_close(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+fn validateExternalUrl(url: &str) -> Result<&str, StorageError> {
+    let trimmed = url.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if !(lower.starts_with("https://")
+        || lower.starts_with("http://")
+        || lower.starts_with("mailto:"))
+    {
+        return Err(StorageError::io(
+            "Links must start with http://, https://, or mailto:.",
+        ));
+    }
+    if trimmed.is_empty()
+        || trimmed.chars().any(|ch| {
+            ch.is_control()
+                || ch.is_whitespace()
+                || matches!(ch, '"' | '\'' | '<' | '>' | '[' | ']')
+        })
+    {
+        return Err(StorageError::io("Link URL contains disallowed characters."));
+    }
+    Ok(trimmed)
+}
+
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), StorageError> {
+    let validated = validateExternalUrl(&url)?;
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", validated])
+        .spawn()
+        .map_err(StorageError::io)?;
+    #[cfg(not(target_os = "windows"))]
+    let _ = validated;
+    Ok(())
+}
+
 // ==> Section 3 - Portable Window Lifecycle <==
 fn argumentPaths(arguments: impl Iterator<Item = String>, workingDirectory: &Path) -> Vec<String> {
     arguments
@@ -250,7 +286,7 @@ fn main() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![read_file, save_file, load_session, save_session, take_pending_paths, finish_close])
+        .invoke_handler(tauri::generate_handler![read_file, save_file, load_session, save_session, take_pending_paths, finish_close, open_external_url])
         .run(tauri::generate_context!())
         .expect("Could not start BBCode Editor. Ensure Microsoft Edge WebView2 is installed and the portable folder is writable.");
 }
@@ -259,6 +295,22 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validates_external_urls() {
+        assert_eq!(
+            validateExternalUrl("https://www.nexusmods.com/mods/1").unwrap(),
+            "https://www.nexusmods.com/mods/1"
+        );
+        assert_eq!(
+            validateExternalUrl("mailto:author@example.com").unwrap(),
+            "mailto:author@example.com"
+        );
+        assert!(validateExternalUrl("file:///C:/Windows/System32/calc.exe").is_err());
+        assert!(validateExternalUrl("javascript:alert(1)").is_err());
+        assert!(validateExternalUrl("https://example.com/bad url").is_err());
+        assert!(validateExternalUrl("https://example.com/\"quote\"").is_err());
+    }
 
     #[test]
     fn refuses_external_changes_and_missing_files() {

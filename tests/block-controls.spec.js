@@ -154,3 +154,103 @@ test('insert after adds a new block without replacing the current one', async ({
   await expect(page.locator('.tiptap > *').nth(1)).toHaveText('Inserted');
   await expect(page.locator('.tiptap > *').nth(1)).toHaveJSProperty('tagName', 'H2');
 });
+
+test('slash aliases insert Divider, Toggle and Spoiler Block and placeholder tracks active focus', async ({ page }) => {
+  await page.evaluate(() => { window.blockEditor.commands.setContent('<p></p>'); });
+  const editorDom = page.locator('.tiptap');
+  await expect(editorDom.locator('p.is-empty-placeholder')).toHaveCount(0);
+  await editorDom.click();
+  await expect(editorDom.locator('p.is-empty-placeholder')).toHaveAttribute('data-placeholder', "Type '/' for commands…");
+
+  await editorDom.pressSequentially('/hr');
+  await expect(page.getByRole('menuitem', { name: 'Divider', exact: true })).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Divider', exact: true }).click();
+  await expect(editorDom.locator('hr')).toHaveCount(1);
+
+  await editorDom.pressSequentially('/toggle');
+  await expect(page.getByRole('menuitem', { name: 'Toggle', exact: true })).toBeVisible();
+  await editorDom.press('Enter');
+  await expect(editorDom.locator('[data-callout]')).toHaveCount(1);
+  await expect(editorDom.getByLabel('Callout Folding')).toHaveValue('-');
+
+  await page.evaluate(() => { window.blockEditor.commands.setContent('<p>Alpha</p><p>Beta</p>'); window.blockEditor.commands.focus('start'); });
+  await editorDom.press('Alt+ArrowDown');
+  await expect(editorDom).toHaveText('BetaAlpha');
+  await editorDom.press('Alt+ArrowUp');
+  await expect(editorDom).toHaveText('AlphaBeta');
+});
+
+test('drag-to-nest moves blocks into Callouts, extracts them and nests list items on rightward drag', async ({ page }) => {
+  await page.evaluate(() => {
+    window.blockEditor.commands.setContent('<aside data-callout="note" data-callout-title="Box"><div data-callout-body><p>Inside</p></div></aside><p>Outside</p>');
+  });
+  const handle = page.getByRole('button', { name: 'Block Actions And Drag Handle', exact: true });
+  await page.locator('.tiptap > p', { hasText: 'Outside' }).hover();
+  const outHandleBox = await handle.boundingBox();
+  const calloutHeaderBox = await page.locator('.callout-title').boundingBox();
+  await page.mouse.move(outHandleBox.x + outHandleBox.width / 2, outHandleBox.y + outHandleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(calloutHeaderBox.x + 80, calloutHeaderBox.y + calloutHeaderBox.height / 2, { steps: 6 });
+  await expect(page.locator('.container-drop-target')).toBeVisible();
+  await page.mouse.up();
+  await expect(page.locator('[data-callout-body] p')).toHaveCount(2);
+
+  await page.evaluate(() => {
+    window.blockEditor.commands.setContent('<ul><li><p>Parent</p></li><li><p>Child</p></li></ul>');
+  });
+  await page.locator('.tiptap li p', { hasText: 'Child' }).hover();
+  const childHandleBox = await handle.boundingBox();
+  const parentBox = await page.locator('.tiptap li p', { hasText: 'Parent' }).boundingBox();
+  await page.mouse.move(childHandleBox.x + childHandleBox.width / 2, childHandleBox.y + childHandleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(parentBox.x + 48, parentBox.y + parentBox.height - 2, { steps: 6 });
+  await expect(page.locator('.block-drop-indicator.nested-drop')).toBeVisible();
+  await page.mouse.up();
+  await expect(page.locator('.tiptap ul ul li')).toHaveCount(1);
+});
+
+test('Visual Shift+Click handles and left-gutter marquee run multi-block move, duplicate, wrap and delete', async ({ page }) => {
+  const handle = page.getByRole('button', { name: 'Block Actions And Drag Handle', exact: true });
+  await page.locator('.tiptap p').nth(0).hover();
+  await handle.click();
+  await page.keyboard.press('Escape');
+  await page.locator('.tiptap p').nth(0).hover();
+  await handle.click({ modifiers: ['Shift'] });
+  await page.locator('.tiptap p').nth(1).hover();
+  await handle.click({ modifiers: ['Shift'] });
+  await expect(page.locator('.multi-block-bar')).toBeVisible();
+  await expect(page.locator('.multi-block-count')).toHaveText('2 Blocks');
+
+  await page.getByRole('button', { name: 'Move Selected Down', exact: true }).click();
+  await expect(page.locator('.tiptap')).toHaveText('ThirdFirstSecond');
+
+  await page.getByRole('button', { name: 'Clear Block Selection', exact: true }).click();
+  await expect(page.locator('.multi-block-bar')).toBeHidden();
+
+  const hostBox = await page.locator('#host').boundingBox();
+  const firstBox = await page.locator('.tiptap p').nth(0).boundingBox();
+  const secondBox = await page.locator('.tiptap p').nth(1).boundingBox();
+  await page.mouse.move(hostBox.x + 3, firstBox.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(hostBox.x + 4, secondBox.y + 10, { steps: 5 });
+  await expect(page.locator('.block-marquee')).toBeVisible();
+  await page.mouse.up();
+  await expect(page.locator('.multi-block-count')).toHaveText('2 Blocks');
+
+  await page.getByRole('button', { name: 'Duplicate Selected', exact: true }).click();
+  await expect(page.locator('.tiptap p')).toHaveCount(5);
+
+  await page.locator('.tiptap p').nth(0).hover();
+  await handle.click({ modifiers: ['Shift'] });
+  await page.locator('.tiptap p').nth(1).hover();
+  await handle.click({ modifiers: ['Shift'] });
+  await page.getByRole('button', { name: 'Wrap Selected Blocks', exact: true }).click();
+  await page.locator('.multi-wrap-menu').getByRole('menuitem', { name: 'Callout', exact: true }).click();
+  await expect(page.locator('.tiptap [data-callout-body] p')).toHaveCount(2);
+
+  await page.locator('.tiptap p').last().hover();
+  await handle.click({ modifiers: ['Shift'] });
+  await page.getByRole('button', { name: 'Delete Selected', exact: true }).click();
+  await expect(page.locator('.tiptap p', { hasText: 'Second' })).toHaveCount(0);
+  await expect(page.locator('.tiptap > p')).toHaveCount(2);
+});

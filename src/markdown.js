@@ -36,6 +36,10 @@ export function normalizeColor(value) {
   throw new Error('Use a hexadecimal colour such as #e6a050.');
 }
 
+export function isHttpUrl(value) {
+  return /^https?:\/\/[^\s<>[\]]+$/i.test(String(value || '').trim());
+}
+
 const InlineSpoiler = Mark.create({
   name: 'spoiler', priority: 1100,
   parseHTML: () => [{ tag: 'span[data-spoiler]' }],
@@ -113,6 +117,15 @@ const TextColor = Mark.create({
 });
 
 export const blockHighlightPluginKey = new PluginKey('blockHighlight');
+export const activePlaceholderPluginKey = new PluginKey('activePlaceholder');
+
+function normalizeHighlightRanges(value) {
+  if (!value) return [];
+  const list = Array.isArray(value) ? value : [value];
+  return list
+    .filter(item => item && Number.isInteger(item.from) && Number.isInteger(item.to) && item.to > item.from)
+    .map(item => ({ from: item.from, to: item.to, className: item.className || 'block-menu-target' }));
+}
 
 const BlockHighlight = Extension.create({
   name: 'blockHighlight',
@@ -121,23 +134,108 @@ const BlockHighlight = Extension.create({
       new Plugin({
         key: blockHighlightPluginKey,
         state: {
-          init: () => null,
+          init: () => [],
           apply(transaction, previous) {
             const meta = transaction.getMeta(blockHighlightPluginKey);
-            if (meta !== undefined) return meta;
-            if (previous && transaction.docChanged) {
-              const from = transaction.mapping.map(previous.from);
-              const to = transaction.mapping.map(previous.to);
-              return from < to ? { from, to } : null;
+            if (meta !== undefined) return normalizeHighlightRanges(meta);
+            if (previous.length && transaction.docChanged) {
+              return previous
+                .map(item => ({
+                  from: transaction.mapping.map(item.from),
+                  to: transaction.mapping.map(item.to),
+                  className: item.className,
+                }))
+                .filter(item => item.from < item.to);
             }
             return previous;
           },
         },
         props: {
           decorations(state) {
-            const target = blockHighlightPluginKey.getState(state);
-            if (!target || target.to > state.doc.content.size) return DecorationSet.empty;
-            return DecorationSet.create(state.doc, [Decoration.node(target.from, target.to, { class: 'block-menu-target' })]);
+            const targets = blockHighlightPluginKey.getState(state);
+            if (!targets?.length) return DecorationSet.empty;
+            const decorations = [];
+            for (const target of targets) {
+              if (target.from < 0 || target.to > state.doc.content.size) continue;
+              const node = state.doc.nodeAt(target.from);
+              if (node && target.from + node.nodeSize === target.to) {
+                decorations.push(Decoration.node(target.from, target.to, { class: target.className }));
+              }
+            }
+            return decorations.length ? DecorationSet.create(state.doc, decorations) : DecorationSet.empty;
+          },
+        },
+      }),
+    ];
+  },
+});
+
+const ActivePlaceholder = Extension.create({
+  name: 'activePlaceholder',
+  addProseMirrorPlugins() {
+    const editor = this.editor;
+    return [
+      new Plugin({
+        key: activePlaceholderPluginKey,
+        state: {
+          init: () => false,
+          apply(transaction, previous) {
+            const meta = transaction.getMeta(activePlaceholderPluginKey);
+            return meta !== undefined ? Boolean(meta) : previous;
+          },
+        },
+        props: {
+          handleDOMEvents: {
+            focus(view) {
+              view.dispatch(view.state.tr.setMeta(activePlaceholderPluginKey, true));
+              return false;
+            },
+            blur(view) {
+              view.dispatch(view.state.tr.setMeta(activePlaceholderPluginKey, false));
+              return false;
+            },
+          },
+          decorations(state) {
+            if (!editor.isEditable) return DecorationSet.empty;
+            const focused = activePlaceholderPluginKey.getState(state) || (!editor.isDestroyed && editor.view?.hasFocus?.());
+            if (!focused) return DecorationSet.empty;
+            const { selection } = state;
+            const parent = selection.$from.parent;
+            if (!selection.empty || parent.type.name !== 'paragraph' || parent.content.size !== 0) return DecorationSet.empty;
+            const from = selection.$from.before();
+            return DecorationSet.create(state.doc, [
+              Decoration.node(from, from + parent.nodeSize, {
+                class: 'is-empty-placeholder',
+                'data-placeholder': "Type '/' for commands…",
+              }),
+            ]);
+          },
+        },
+      }),
+    ];
+  },
+});
+
+const SmartUrlPaste = Extension.create({
+  name: 'smartUrlPaste',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          handlePaste(view, event) {
+            if (!view.editable) return false;
+            const { selection } = view.state;
+            if (selection.empty) return false;
+            let inCodeBlock = false;
+            view.state.doc.nodesBetween(selection.from, selection.to, node => {
+              if (node.type.name === 'codeBlock') inCodeBlock = true;
+            });
+            if (inCodeBlock) return false;
+            const text = event.clipboardData?.getData('text/plain')?.trim();
+            const linkMark = view.state.schema.marks.link;
+            if (!isHttpUrl(text) || !linkMark) return false;
+            view.dispatch(view.state.tr.addMark(selection.from, selection.to, linkMark.create({ href: text })));
+            return true;
           },
         },
       }),
@@ -165,7 +263,7 @@ const ListIndentShortcuts = Extension.create({
 export const editorExtensions = [
   StarterKit.configure({ underline: false, trailingNode: false, link: { openOnClick: false, autolink: false } }),
   Image.configure({ inline: true, allowBase64: false }), InlineSpoiler, SpoilerBlock, CenterBlock, TextColor, Callout,
-  TaskList, TaskItem.configure({ nested: true }), Table, TableRow, TableCell, TableHeader, SearchHighlight, BlockHighlight, ListIndentShortcuts,
+  TaskList, TaskItem.configure({ nested: true }), Table, TableRow, TableCell, TableHeader, SearchHighlight, BlockHighlight, ActivePlaceholder, SmartUrlPaste, ListIndentShortcuts,
 ];
 // The upstream serializer does not know that literal pipes delimit our custom spoiler marks.
 class EditorMarkdownManager extends MarkdownManager {

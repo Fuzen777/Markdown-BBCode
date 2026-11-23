@@ -4,15 +4,18 @@ const toggleWrappers = {
   italic: '*',
   strike: '~~',
   spoiler: '||',
+  inlineCode: '`',
 };
 
 function isWrappedAtEdge(source, start, end, delimiter) {
-  if (delimiter === '*') {
-    const leftMatch = source.slice(0, start).match(/\*+$/);
-    const rightMatch = source.slice(end).match(/^\*+/);
+  if (delimiter === '*' || delimiter === '`') {
+    const patternLeft = delimiter === '*' ? /\*+$/ : /`+$/;
+    const patternRight = delimiter === '*' ? /^\*+/ : /^`+/;
+    const leftMatch = source.slice(0, start).match(patternLeft);
+    const rightMatch = source.slice(end).match(patternRight);
     const leftRun = leftMatch ? leftMatch[0].length : 0;
     const rightRun = rightMatch ? rightMatch[0].length : 0;
-    return leftRun % 2 === 1 && rightRun % 2 === 1;
+    return delimiter === '*' ? (leftRun % 2 === 1 && rightRun % 2 === 1) : (leftRun === 1 && rightRun === 1);
   }
   return source.slice(start - delimiter.length, start) === delimiter && source.slice(end, end + delimiter.length) === delimiter;
 }
@@ -51,7 +54,7 @@ function clearInlineFormatting(text) {
 
 export function formatMarkdownSelection(source, start, end, command, value) {
   const selected = source.slice(start, end);
-  if (toggleWrappers[command] && (command !== 'spoiler' || !selected.includes('\n'))) {
+  if (toggleWrappers[command] && (!['spoiler', 'inlineCode'].includes(command) || !selected.includes('\n'))) {
     const delimiter = toggleWrappers[command];
     if (isSelectedWrapped(selected, delimiter)) {
       const inner = selected.slice(delimiter.length, -delimiter.length);
@@ -62,9 +65,45 @@ export function formatMarkdownSelection(source, start, end, command, value) {
       const to = end + delimiter.length;
       return { from, to, insert: selected, start: from, end: from + selected.length };
     }
+    if (delimiter !== '`' && isWrappedAtEdge(source, start, end, '`')) {
+      const outerFrom = start - 1;
+      const outerTo = end + 1;
+      const codeSpan = source.slice(outerFrom, outerTo);
+      if (isWrappedAtEdge(source, outerFrom, outerTo, delimiter)) {
+        const unwrapFrom = outerFrom - delimiter.length;
+        const unwrapTo = outerTo + delimiter.length;
+        return { from: unwrapFrom, to: unwrapTo, insert: codeSpan, start: unwrapFrom + 1, end: unwrapFrom + 1 + selected.length };
+      }
+      const wrapped = delimiter + codeSpan + delimiter;
+      const innerStart = outerFrom + delimiter.length + 1;
+      return { from: outerFrom, to: outerTo, insert: wrapped, start: innerStart, end: innerStart + selected.length };
+    }
     const wrapped = delimiter + selected + delimiter;
     const innerStart = start + delimiter.length;
     return { from: start, to: end, insert: wrapped, start: innerStart, end: innerStart + selected.length };
+  }
+  if (command === 'unlink') {
+    if (/(?<!!)\[[^\]]+\]\([^)]+\)/.test(selected)) {
+      const cleaned = selected.replace(/(?<!!)\[([^\]]+)\]\([^)]+\)/g, '$1');
+      return { from: start, to: end, insert: cleaned, start, end: start + cleaned.length };
+    }
+    const lineStart = source.lastIndexOf('\n', Math.max(0, start - 1)) + 1;
+    const lineEndPos = source.indexOf('\n', start);
+    const lineEnd = lineEndPos < 0 ? source.length : lineEndPos;
+    const line = source.slice(lineStart, lineEnd);
+    const relStart = start - lineStart;
+    const relEnd = end - lineStart;
+    for (const match of line.matchAll(/(?<!!)\[([^\]]+)\]\([^)]+\)/g)) {
+      const matchStart = match.index;
+      const matchEnd = matchStart + match[0].length;
+      const hit = start === end ? (relStart >= matchStart && relStart <= matchEnd) : (relEnd >= matchStart && relStart <= matchEnd);
+      if (hit) {
+        const from = lineStart + matchStart;
+        const to = lineStart + matchEnd;
+        return { from, to, insert: match[1], start: from, end: from + match[1].length };
+      }
+    }
+    return null;
   }
   if (command === 'clear') {
     let from = start;
@@ -86,7 +125,12 @@ export function formatMarkdownSelection(source, start, end, command, value) {
     image: ['![', `](${value})`],
   };
   let replacement;
-  if (wrappers[command]) replacement = wrappers[command][0] + selected + wrappers[command][1];
+  if (command === 'image' && value && typeof value === 'object') {
+    const altText = value.alt ?? selected;
+    replacement = `![${altText}](${value.src})`;
+  } else if (wrappers[command]) replacement = wrappers[command][0] + selected + wrappers[command][1];
+  else if (command === 'divider') replacement = `${start > 0 && source[start - 1] !== '\n' ? '\n\n' : ''}---\n\n`;
+  else if (command === 'toggle') replacement = '> [!note]- Toggle\n' + (selected || 'Details').split('\n').map(line => '> ' + line).join('\n');
   else if (command === 'heading') {
     start = source.lastIndexOf('\n', Math.max(0, start - 1)) + 1;
     const newline = source.indexOf('\n', end);
@@ -258,4 +302,54 @@ export function inspectMarkdownFormatting(source, start, end) {
     if (colorMatch.length) state.color = normalizeColorHex(colorMatch.at(-1)[2]);
   }
   return state;
+}
+
+// ==> Section 3 - Line Reordering <==
+export function moveSourceLines(source, start, end, direction) {
+  if (!source) return null;
+  const clampedStart = Math.max(0, Math.min(start, source.length));
+  const clampedEnd = Math.max(clampedStart, Math.min(end, source.length));
+  const effectiveEnd = clampedEnd > clampedStart && source[clampedEnd - 1] === '\n' ? clampedEnd - 1 : clampedEnd;
+
+  const lines = [];
+  let cursor = 0;
+  for (const match of source.matchAll(/[^\r\n]*(?:\r?\n|$)/g)) {
+    const raw = match[0];
+    if (!raw) break;
+    const eol = raw.endsWith('\r\n') ? '\r\n' : raw.endsWith('\n') ? '\n' : '';
+    const text = eol ? raw.slice(0, -eol.length) : raw;
+    lines.push({ start: cursor, end: cursor + raw.length, text, eol });
+    cursor += raw.length;
+  }
+  if (lines.length < 2) return null;
+
+  const findLineIndex = position => {
+    for (let index = 0; index < lines.length; index++) {
+      if (position < lines[index].end) return index;
+    }
+    return lines.length - 1;
+  };
+  const firstIndex = findLineIndex(clampedStart);
+  const lastIndex = Math.max(firstIndex, findLineIndex(effectiveEnd));
+  if (direction < 0 && firstIndex === 0) return null;
+  if (direction > 0 && lastIndex >= lines.length - 1) return null;
+
+  const count = lastIndex - firstIndex + 1;
+  const reorderedTexts = lines.map(line => line.text);
+  const moved = reorderedTexts.splice(firstIndex, count);
+  const targetIndex = direction < 0 ? firstIndex - 1 : firstIndex + 1;
+  reorderedTexts.splice(targetIndex, 0, ...moved);
+
+  let nextValue = '';
+  const newOffsets = [];
+  for (let index = 0; index < lines.length; index++) {
+    newOffsets.push(nextValue.length);
+    nextValue += reorderedTexts[index] + lines[index].eol;
+  }
+  const delta = newOffsets[targetIndex] - lines[firstIndex].start;
+  return {
+    value: nextValue,
+    start: Math.max(0, Math.min(clampedStart + delta, nextValue.length)),
+    end: Math.max(0, Math.min(clampedEnd + delta, nextValue.length)),
+  };
 }

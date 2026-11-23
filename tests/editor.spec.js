@@ -7,7 +7,7 @@ test.beforeEach(async ({ page }) => {
     let revisionCounter = 0;
     const callbacks = {};
     const eventHandlers = {};
-    window.testDesktop = { files: {}, pendingPaths: [], session: JSON.parse(localStorage.getItem('seedSession') || 'null'), openPaths: null, savePath: null, closed: false, failSave: false, failOutput: false,
+    window.testDesktop = { files: {}, pendingPaths: [], openedUrls: [], session: JSON.parse(localStorage.getItem('seedSession') || 'null'), openPaths: null, savePath: null, closed: false, failSave: false, failOutput: false,
       emit(name, payload = null) { callbacks[eventHandlers[name]]?.({ event: name, payload }); },
     };
     const desktop = window.testDesktop;
@@ -22,6 +22,7 @@ test.beforeEach(async ({ page }) => {
         if (command === 'load_session') return structuredClone(desktop.session);
         if (command === 'save_session') { desktop.session = structuredClone(argumentsObject.session); return; }
         if (command === 'take_pending_paths') return desktop.pendingPaths.splice(0);
+        if (command === 'open_external_url') { desktop.openedUrls.push(argumentsObject.url); return; }
         if (command === 'finish_close') { desktop.closed = true; return; }
         if (command === 'read_file') {
           if (!desktop.files[argumentsObject.path]) throw { kind: 'missing', message: 'Missing file' };
@@ -573,8 +574,161 @@ test('selection bubble toolbar and Ctrl+D duplicate work in Visual mode', async 
   await selectText(page, '.tiptap p', true);
   const bubble = page.locator('.bubble-menu');
   await expect(bubble).toBeVisible();
+  await bubble.getByRole('button', { name: 'Turn Selection Block Into', exact: true }).click();
+  await bubble.locator('.bubble-turn-menu').getByRole('menuitem', { name: 'Heading 2', exact: true }).click();
+  await expect(page.locator('.tiptap h2')).toHaveText('Bubble test line');
+  await selectText(page, '.tiptap h2', true);
+  await bubble.getByRole('button', { name: 'Selection Color Options', exact: true }).click();
+  await bubble.getByRole('button', { name: 'Color #528ad4', exact: true }).click();
+  await expect(page.locator('.tiptap h2 span')).toHaveCSS('color', 'rgb(82, 138, 212)');
+  await bubble.getByRole('button', { name: 'Selection Color Options', exact: true }).click();
+  await bubble.getByRole('menuitem', { name: 'Clear Selection Color', exact: true }).click();
+  await expect(page.locator('.tiptap h2 span')).toHaveCount(0);
+  await selectText(page, '.tiptap h2', true);
   await bubble.getByRole('button', { name: 'Inline Code', exact: true }).click();
   await expect(page.locator('.tiptap code')).toHaveText('Bubble test line');
   await page.keyboard.press('Control+d');
-  await expect(page.locator('.tiptap p')).toHaveCount(2);
+  await expect(page.locator('.tiptap h2')).toHaveCount(2);
+});
+
+test('cross-mode shortcuts, Save As Ctrl+Shift+S, Smart URL Paste and link popover work', async ({ page }) => {
+  const visual = page.getByRole('textbox', { name: 'Visual Markdown Editor' });
+  await visual.fill('Click Me');
+  await visual.press('Control+a');
+  await visual.evaluate(element => {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', 'https://nexusmods.com');
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator('.tiptap a')).toHaveAttribute('href', 'https://nexusmods.com');
+
+  await page.locator('.tiptap a').hover();
+  const popover = page.locator('.link-popover');
+  await expect(popover).toBeVisible();
+  await popover.getByRole('button', { name: 'Open Link', exact: true }).click();
+  expect(await page.evaluate(() => window.testDesktop.openedUrls)).toEqual(['https://nexusmods.com']);
+  await popover.getByRole('button', { name: 'Edit Link', exact: true }).click();
+  await page.getByLabel('Value', { exact: true }).fill('https://example.org');
+  await page.getByRole('button', { name: 'Save Link', exact: true }).click();
+  await expect(page.locator('.tiptap a')).toHaveAttribute('href', 'https://example.org');
+
+  await visual.press('Control+Alt+1');
+  await expect(page.locator('.tiptap h1')).toHaveCount(1);
+  await page.locator('.tiptap a').hover();
+  await popover.getByRole('button', { name: 'Unlink', exact: true }).click();
+  await expect(page.locator('.tiptap a')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  const source = page.getByRole('textbox', { name: 'Markdown Source' });
+  await source.fill('First line\nSecond target');
+  await source.evaluate(element => element.setSelectionRange(18, 24));
+  await source.evaluate(element => {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', 'https://example.com');
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await expect(source).toHaveValue('First line\nSecond [target](https://example.com)');
+
+  await source.evaluate(element => element.setSelectionRange(0, 5));
+  await source.press('Control+e');
+  await expect(source).toHaveValue(/^`First` line/);
+  await source.press('Control+Shift+x');
+  await expect(source).toHaveValue(/^~~`First`~~ line/);
+
+  await page.evaluate(() => { window.testDesktop.savePath = 'C:\\ShortcutSaved.md'; });
+  await source.press('Control+Shift+s');
+  await expect.poll(() => page.evaluate(() => Boolean(window.testDesktop.files['C:\\ShortcutSaved.md']))).toBe(true);
+});
+
+test('code block language/copy bar, image pill/dialog and table row/column drag handles work', async ({ page }) => {
+  await setSource(page, '```ini\nbLoad=1\n```\n\n![Old Alt](https://example.com/old.png)\n\nTarget paragraph');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+
+  await page.locator('.tiptap pre').hover();
+  const codeOverlay = page.locator('.code-block-overlay');
+  await expect(codeOverlay).toBeVisible();
+  await expect(codeOverlay.getByLabel('Code Block Language', { exact: true })).toHaveValue('ini');
+  await codeOverlay.getByLabel('Code Block Language', { exact: true }).selectOption('lua');
+  await codeOverlay.getByRole('button', { name: 'Copy Code Block', exact: true }).click();
+  await expect(codeOverlay.locator('.code-copy-button')).toContainText('Copied');
+
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue(/```lua/);
+
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.locator('.tiptap p', { hasText: 'Target paragraph' }).click();
+  await page.getByRole('button', { name: 'Image', exact: true }).click();
+  await page.getByLabel('Image URL', { exact: true }).fill('https://example.com/bad-preview.png');
+  await page.getByLabel('Alt Text', { exact: true }).fill('Cover Photo');
+  await page.getByRole('button', { name: 'Insert Image', exact: true }).click();
+  const realImages = page.locator('.tiptap img:not(.ProseMirror-separator)');
+  await expect(realImages).toHaveCount(2);
+
+  await realImages.last().hover();
+  const imagePill = page.locator('.image-pill');
+  await expect(imagePill).toBeVisible();
+  await imagePill.getByRole('button', { name: 'Edit Image', exact: true }).click();
+  await page.getByLabel('Alt Text', { exact: true }).fill('Updated Cover');
+  await page.getByRole('button', { name: 'Save Image', exact: true }).click();
+  await expect(realImages.last()).toHaveAttribute('alt', 'Updated Cover');
+  await realImages.last().hover();
+  await imagePill.getByRole('button', { name: 'Delete Image', exact: true }).click();
+  await expect(realImages).toHaveCount(1);
+
+  await setSource(page, '| H1 | H2 |\n| --- | --- |\n| R1C1 | R1C2 |\n| R2C1 | R2C2 |');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  const lastRowCell = await page.locator('.tiptap tr').nth(2).locator('td').first().boundingBox();
+  await page.mouse.move(lastRowCell.x + 15, lastRowCell.y + 10);
+  const rowHandle = page.getByRole('button', { name: 'Drag Or Open Row Actions', exact: true });
+  await expect(rowHandle).toBeVisible();
+  const rowHandleBox = await rowHandle.boundingBox();
+  const firstHeaderBox = await page.locator('.tiptap th').first().boundingBox();
+  await page.mouse.move(rowHandleBox.x + rowHandleBox.width / 2, rowHandleBox.y + rowHandleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(firstHeaderBox.x + 15, firstHeaderBox.y + 2, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.locator('.tiptap tr').first().locator('th').first()).toHaveText('R2C1');
+
+  const secondColCell = await page.locator('.tiptap th').nth(1).boundingBox();
+  const firstColCell = await page.locator('.tiptap th').nth(0).boundingBox();
+  await page.mouse.move(secondColCell.x + 20, secondColCell.y + 10);
+  const colHandle = page.getByRole('button', { name: 'Drag Or Open Column Actions', exact: true });
+  await expect(colHandle).toBeVisible();
+  const colHandleBox = await colHandle.boundingBox();
+  await page.mouse.move(colHandleBox.x + colHandleBox.width / 2, colHandleBox.y + colHandleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(firstColCell.x + 4, colHandleBox.y + 4, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.locator('.tiptap tr').first().locator('th').first()).toHaveText('R2C2');
+});
+
+test('right-side Document Outline toggles Off/Float/Dock, jumps across modes and fits narrow layout', async ({ page }) => {
+  await setSource(page, '# Overview\n\nIntro\n\n## Installation\n\nSteps\n\n## Credits\n\nAuthors');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await expect(page.locator('#outline-floating-rail')).toBeHidden();
+  await expect(page.locator('#outline-docked-pane')).toBeHidden();
+
+  await page.getByRole('button', { name: 'Float', exact: true }).click();
+  await expect(page.locator('#outline-floating-rail')).toBeVisible();
+  await expect(page.locator('.outline-tick')).toHaveCount(3);
+  await page.locator('#outline-floating-ticks').hover();
+  await expect(page.locator('#outline-floating-popover')).toBeVisible();
+  await page.locator('#outline-floating-list').getByRole('button', { name: 'Installation' }).click();
+
+  await page.locator('#outline-floating-ticks').hover();
+  await page.getByRole('button', { name: 'Pin To Dock', exact: true }).click();
+  await expect(page.locator('#outline-docked-pane')).toBeVisible();
+  await page.getByRole('button', { name: 'Preview BBCode', exact: true }).click();
+  await expect(page.locator('#bbcode-preview-pane')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  await expect(page.locator('#outline-docked-list .outline-item')).toHaveCount(3);
+  await page.locator('#outline-docked-list').getByRole('button', { name: 'Credits' }).click();
+  await expect(page.getByRole('textbox', { name: 'Active Block Markdown', exact: true })).toContainText('## Credits');
+
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.locator('#outline-docked-list .outline-item')).toHaveCount(3);
+
+  await page.setViewportSize({ width: 720, height: 480 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

@@ -4,18 +4,20 @@ import { HybridEditor } from './hybrid-editor.js';
 import { BlockControls } from './block-controls.js';
 import { TableEdgeControls } from './table-controls.js';
 import { BubbleMenu } from './bubble-menu.js';
-import { formatMarkdownSelection, inspectMarkdownFormatting } from './source-formatting.js';
+import { InlineOverlays } from './inline-overlays.js';
 import { Editor } from '@tiptap/core';
-import { editorExtensions, parseMarkdown, serializeMarkdown } from './markdown.js';
+import { editorExtensions, parseMarkdown, serializeMarkdown, isHttpUrl } from './markdown.js';
+import { formatMarkdownSelection, inspectMarkdownFormatting, moveSourceLines } from './source-formatting.js';
 
 export class MarkdownEditor {
-  constructor(visualElement, sourceElement, onChange, onSelectionChange = () => {}, onBubbleCommand = () => {}) {
+  constructor(visualElement, sourceElement, onChange, onSelectionChange = () => {}, onBubbleCommand = () => {}, overlayCallbacks = {}) {
     this.visualElement = visualElement;
     this.sourceElement = sourceElement;
     this.hybridElement = document.getElementById('hybrid-editor');
     this.onChange = onChange;
     this.onSelectionChange = onSelectionChange;
     this.onBubbleCommand = onBubbleCommand;
+    this.overlayCallbacks = overlayCallbacks;
     this.mode = 'source';
     this.readonly = false;
     sourceElement.addEventListener('input', () => onChange());
@@ -23,9 +25,25 @@ export class MarkdownEditor {
     sourceElement.addEventListener('mouseup', () => onSelectionChange());
     sourceElement.addEventListener('select', () => onSelectionChange());
     sourceElement.addEventListener('keydown', event => {
+      if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+        if (this.moveCurrent(event.key === 'ArrowUp' ? -1 : 1)) {
+          event.preventDefault();
+          event.stopPropagation();
+          this.onChange();
+          this.onSelectionChange();
+        }
+        return;
+      }
       if (!event.ctrlKey || event.altKey || event.shiftKey) return;
       const key = event.key.toLowerCase();
       if (key === 'b' || key === 'i') { event.preventDefault(); this.format(key === 'b' ? 'bold' : 'italic'); }
+    });
+    sourceElement.addEventListener('paste', event => {
+      if (this.readonly || sourceElement.selectionStart === sourceElement.selectionEnd) return;
+      const pasted = event.clipboardData?.getData('text/plain')?.trim();
+      if (!isHttpUrl(pasted)) return;
+      event.preventDefault();
+      this.formatSource('link', pasted);
     });
   }
   load(source, mode, path) {
@@ -36,6 +54,8 @@ export class MarkdownEditor {
     this.blockControls = null;
     this.tableControls?.destroy();
     this.tableControls = null;
+    this.inlineOverlays?.destroy();
+    this.inlineOverlays = null;
     this.bubbleMenu?.destroy();
     this.bubbleMenu = null;
     this.hybridView?.destroy();
@@ -63,9 +83,12 @@ export class MarkdownEditor {
           onSelectionUpdate: () => this.onSelectionChange(),
           onTransaction: () => this.onSelectionChange(),
         });
-        this.blockControls = new BlockControls(this.editor, this.visualElement);
+        this.blockControls = new BlockControls(this.editor, this.visualElement, {
+          onInsertImage: () => this.overlayCallbacks.onInsertImage?.(),
+        });
         this.tableControls = new TableEdgeControls(this.editor, this.visualElement);
-        this.bubbleMenu = new BubbleMenu(this.editor, this.visualElement, command => this.onBubbleCommand(command));
+        this.inlineOverlays = new InlineOverlays(this.editor, this.visualElement, this.overlayCallbacks);
+        this.bubbleMenu = new BubbleMenu(this.editor, this.visualElement, (command, value) => this.onBubbleCommand(command, value));
       } catch (error) { warning = `Source view preserves this document: ${error.message}`; this.mode = 'source'; }
     }
     this.hybridElement.hidden = this.mode !== 'hybrid';
@@ -122,6 +145,20 @@ export class MarkdownEditor {
     if (this.mode === 'hybrid' && this.hybridView) return this.hybridView.duplicateActiveBlock();
     return false;
   }
+  moveCurrent(direction) {
+    if (this.readonly) return false;
+    if (this.mode === 'visual' && this.blockControls) return this.blockControls.moveByStep(direction);
+    if (this.mode === 'hybrid' && this.hybridView) return this.hybridView.moveActiveBlock(direction);
+    if (this.sourceMode()) {
+      const result = moveSourceLines(this.sourceElement.value, this.sourceElement.selectionStart, this.sourceElement.selectionEnd, direction);
+      if (!result) return false;
+      this.sourceElement.value = result.value;
+      this.sourceElement.setSelectionRange(result.start, result.end);
+      this.sourceElement.focus();
+      return true;
+    }
+    return false;
+  }
   focus() { if (this.mode === 'hybrid') { this.hybridView.focus(); return; } if (this.sourceMode()) this.sourceElement.focus(); else this.editor.commands.focus(); }
   readOnly(value) { this.readonly = value; this.sourceElement.readOnly = value; this.editor?.setEditable(!value); this.hybridView?.readOnly(value); }
 
@@ -151,13 +188,29 @@ export class MarkdownEditor {
         return chain.insertTable({ rows, cols, withHeaderRow });
       },
       callout: () => chain.toggleWrap('callout', { type: 'note', title: '', fold: null }),
+      toggle: () => chain.toggleWrap('callout', { type: 'note', title: '', fold: '-' }),
+      divider: () => chain.setHorizontalRule(),
+      turnInto: () => {
+        if (value === 'paragraph') return chain.setParagraph();
+        if (value?.startsWith('heading')) return chain.setHeading({ level: Number(value.at(-1)) });
+        if (value === 'bulletList') return chain.toggleBulletList();
+        if (value === 'orderedList') return chain.toggleOrderedList();
+        if (value === 'taskList') return chain.toggleTaskList();
+        if (value === 'blockquote') return chain.toggleBlockquote();
+        if (value === 'codeBlock') return chain.toggleCodeBlock();
+        if (value === 'callout') return chain.toggleWrap('callout', { type: 'note', title: '', fold: null });
+        if (value === 'spoilerBlock') return this.editor.isActive('spoilerBlock') ? chain.lift('spoilerBlock') : chain.wrapIn('spoilerBlock');
+        if (value === 'centerBlock') return chain.toggleWrap('centerBlock');
+        return null;
+      },
       addRowBefore: () => chain.addRowBefore(), addRowAfter: () => chain.addRowAfter(), deleteRow: () => chain.deleteRow(),
       addColumnBefore: () => chain.addColumnBefore(), addColumnAfter: () => chain.addColumnAfter(), deleteColumn: () => chain.deleteColumn(),
       toggleHeaderRow: () => chain.toggleHeaderRow(), deleteTable: () => chain.deleteTable(),
       code: () => chain.toggleCodeBlock(), inlineCode: () => chain.toggleCode(), center: () => chain.toggleWrap('centerBlock'),
-      color: () => chain.setMark('textColor', { color: value }), clear: () => chain.unsetAllMarks(),
+      color: () => chain.setMark('textColor', { color: value }), clearColor: () => chain.unsetMark('textColor'), clear: () => chain.unsetAllMarks(),
       heading: () => Number(value) ? chain.setHeading({ level: Number(value) }) : chain.setParagraph(),
-      link: () => chain.extendMarkRange('link').setLink({ href: value }), unlink: () => chain.extendMarkRange('link').unsetLink(), image: () => chain.setImage({ src: value }),
+      link: () => chain.extendMarkRange('link').setLink({ href: value }), unlink: () => chain.extendMarkRange('link').unsetLink(),
+      image: () => chain.setImage(typeof value === 'object' ? value : { src: value }),
       spoiler: () => {
         const selection = this.editor.state.selection;
         if (this.editor.isActive('spoilerBlock')) return chain.lift('spoilerBlock');

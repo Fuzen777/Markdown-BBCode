@@ -63,6 +63,14 @@ BBCode is generated only on request. Tables become readable text, tasks become l
 | Ctrl+Shift+S | Save As |
 | Ctrl+W | Close Tab |
 | Ctrl+Shift+C | Copy BBCode |
+| Ctrl+K | Insert Or Edit Link (Visual, Hybrid, Source) |
+| Ctrl+Shift+X | Toggle Strikethrough (Visual, Hybrid, Source) |
+| Ctrl+E | Toggle Inline Code (Visual, Hybrid, Source) |
+| Ctrl+Alt+0–6 | Paragraph, Headings 1–3, Task, Bullet, Numbered List |
+| Alt+Up / Alt+Down | Move Active Block Or Line Up / Down |
+| Ctrl+D | Duplicate Active Block Or List Item |
+| Ctrl+Shift+P | Toggle BBCode Preview Pane |
+| Ctrl+F / Ctrl+H | Find / Find And Replace |
 
 Use Windows **Open With** to associate files with the executable at its permanent location. Subsequent launches open tabs in the existing window. No association changes automatically. Older BBCode recovery is offered for explicit import and backed up as `session-v1-backup.json`.
 
@@ -93,6 +101,6 @@ File and formatting buttons use Google Material Symbols Rounded icons bundled wi
 
 Block-type and block-action entries in Turn Into, Block Actions, Insert and slash menus show matching icons alongside their text, including distinct Heading 1, 2 and 3 symbols.
 
-## Shortcuts, Preview And Search
+## Shortcuts, Preview, Outline And Search
 
-Use `Ctrl+F` to search and `Ctrl+H` to replace across Visual, Hybrid and Source, `Ctrl+D` to duplicate the active block or list item, `Tab`/`Shift+Tab` to indent list items, or toggle the resizable, scroll-synced Nexus BBCode preview pane with `Ctrl+Shift+P` (or the Preview BBCode button). Drop `.md`, `.markdown`, `.mdbbcode`, `.bbcode` or `.txt` files directly onto the window to open or import them. Use the Table toolbar button's size grid, hover `+` rails, or right-click table borders for row/column actions, and select text in Visual mode for the floating formatting bubble bar.
+Use `Ctrl+F` to search and `Ctrl+H` to replace across Visual, Hybrid and Source, paste an HTTP(S) URL onto selected text to wrap a link directly, toggle the right-side Document Outline (`Off`, `Float` edge ticks or `Dock` sidebar) to jump between headings, `Tab`/`Shift+Tab` to indent list items, or toggle the resizable, scroll-synced Nexus BBCode preview pane with `Ctrl+Shift+P`. Drop `.md`, `.markdown`, `.mdbbcode`, `.bbcode` or `.txt` files directly onto the window to open or import them. Use the Table toolbar grid, hover `+` rails, row/column drag handles or border right-click menus for table edits, hover links, code blocks or images in Visual mode for quick inline controls, Shift/Ctrl+Click or gutter-marquee handles for multi-block operations, and select text in Visual mode for the expanded formatting bubble bar.

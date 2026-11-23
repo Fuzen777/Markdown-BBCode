@@ -1,7 +1,7 @@
 // ==> Section 1 - Markdown Conversion Tests <==
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMarkdown, serializeMarkdown, markdownToBBCode, markdownToBBCodeWithWarnings, segmentMarkdown } from '../src/markdown.js';
+import { parseMarkdown, serializeMarkdown, markdownToBBCode, markdownToBBCodeWithWarnings, segmentMarkdown, isHttpUrl } from '../src/markdown.js';
 import { importBBCode } from '../src/bbcode-import.js';
 
 const fixtures = [
@@ -138,4 +138,17 @@ test('each top-level blank line has an exact independent source span', () => {
   }
   assert.deepEqual(segmentMarkdown('A\n\nB').map(block => block.raw), ['A\n', '\n', 'B']);
   assert.equal(segmentMarkdown('\x60\x60\x60\nA\n\nB\n\x60\x60\x60').length, 1);
+});
+
+test('isHttpUrl validates safe external URLs and divider, image alt, code language round-trip', () => {
+  assert.equal(isHttpUrl('https://nexusmods.com/mods/1'), true);
+  assert.equal(isHttpUrl('http://example.com'), true);
+  assert.equal(isHttpUrl('javascript:alert(1)'), false);
+  assert.equal(isHttpUrl('https://bad url.com'), false);
+
+  const source = '```lua\nprint("hi")\n```\n\n---\n\n![Banner Alt](https://example.com/banner.png)';
+  const roundTripped = serializeMarkdown(parseMarkdown(source));
+  assert.match(roundTripped, /^```lua/m);
+  assert.match(roundTripped, /^---$/m);
+  assert.match(roundTripped, /!\[Banner Alt\]\(https:\/\/example\.com\/banner\.png\)/);
 });

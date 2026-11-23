@@ -9,6 +9,7 @@ import { importBBCode } from './bbcode-import.js';
 import { ColorPicker } from './color-picker.js';
 import { FindReplaceController } from './find-replace.js';
 import { TableGridPicker } from './table-controls.js';
+import { DocumentOutline } from './outline.js';
 import './style.css';
 import { initializeIcons, setButtonIcon } from './icons.js';
 
@@ -25,6 +26,7 @@ const store = new DocumentStore(backend, render);
 let editor;
 let colorPicker;
 let findReplace;
+let documentOutline;
 let previewOpen = false;
 let previewMeta = { blockOffsets: [], totalLines: 1 };
 let scrollSyncSource = null;
@@ -258,6 +260,7 @@ function render() {
   const words = activeDocument ? countWords(activeDocument.content) : 0;
   elements['document-stats'].textContent = activeDocument ? `${words.toLocaleString()} ${words === 1 ? 'Word' : 'Words'} · ${activeDocument.content.length.toLocaleString()} Characters` : '';
   updateBBCodePreview();
+  documentOutline?.refresh();
 }
 
 function capture() {
@@ -454,11 +457,27 @@ async function closeWindow() {
 
 // ==> Section 4 - Keyboard And Window Events <==
 function keyboardShortcut(event) {
-  if (!event.ctrlKey || event.altKey || elements['choice-dialog'].open || elements['color-dialog'].open) return;
+  if (elements['choice-dialog'].open || elements['color-dialog'].open || elements['image-dialog']?.open) return;
+  if (!(event.ctrlKey || event.metaKey)) return;
+  if (event.altKey && !event.shiftKey) {
+    const digit = event.code?.match(/^Digit([0-6])$/)?.[1] || (/^[0-6]$/.test(event.key) ? event.key : null);
+    if (!digit || elements['find-bar'].contains(event.target)) return;
+    const command = digit === '4' ? ['task'] : digit === '5' ? ['bullet'] : digit === '6' ? ['numbered'] : ['heading', digit];
+    event.preventDefault();
+    event.stopPropagation();
+    void runAction(() => formatDocument(...command));
+    return;
+  }
+  if (event.altKey) return;
   const key = event.key.toLowerCase();
   if (key === 'f' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); findReplace.open(false, selectedSearchText()); return; }
   if (key === 'h' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); findReplace.open(true, selectedSearchText()); return; }
-  if (key === 'd' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); if (editor.duplicateCurrent()) capture(); return; }
+  if (!elements['find-bar'].contains(event.target)) {
+    if (key === 'k' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); void runAction(() => formatDocument('link')); return; }
+    if (key === 'x' && event.shiftKey) { event.preventDefault(); event.stopPropagation(); void runAction(() => formatDocument('strike')); return; }
+    if (key === 'e' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); void runAction(() => formatDocument('inlineCode')); return; }
+    if (key === 'd' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); if (editor.duplicateCurrent()) capture(); return; }
+  }
   if (key === 'p' && event.shiftKey) { event.preventDefault(); event.stopPropagation(); toggleBBCodePreview(); return; }
   const action = key === 'n' ? () => { capture(); store.add(); showDocument(); return persist(); }
     : key === 'o' ? () => elements.open.click()
@@ -531,13 +550,70 @@ async function applyColor(color) {
   renderFormatting();
 }
 
+async function openImageDialog(editTarget = null) {
+  capture();
+  const bookmark = editTarget ? null : editor.selectionBookmark();
+  editor.readOnly(true);
+  elements['image-dialog-title'].textContent = editTarget ? 'Edit Image' : 'Insert Image';
+  elements['image-submit'].textContent = editTarget ? 'Save Image' : 'Insert Image';
+  elements['image-url-input'].value = editTarget ? editTarget.src : 'https://';
+  elements['image-alt-input'].value = editTarget ? editTarget.alt : '';
+  elements['image-error'].textContent = '';
+
+  const confirmed = await new Promise(resolve => {
+    elements['image-cancel'].onclick = () => elements['image-dialog'].close('cancel');
+    elements['image-form'].onsubmit = event => {
+      event.preventDefault();
+      const url = elements['image-url-input'].value.trim();
+      if (!/^https?:\/\//i.test(url) || /[\s<>[\]]/.test(url)) {
+        elements['image-error'].textContent = 'Enter a complete HTTP(S) address without spaces or brackets.';
+        elements['image-url-input'].focus();
+        return;
+      }
+      elements['image-dialog'].close('apply');
+    };
+    elements['image-dialog'].onclose = () => {
+      editor.readOnly(false);
+      resolve(elements['image-dialog'].returnValue === 'apply');
+    };
+    elements['image-dialog'].returnValue = 'cancel';
+    elements['image-dialog'].showModal();
+    elements['image-url-input'].focus();
+    elements['image-url-input'].select();
+  });
+
+  if (!confirmed) {
+    if (bookmark) editor.restoreSelection(bookmark);
+    return;
+  }
+
+  const src = elements['image-url-input'].value.trim();
+  const alt = elements['image-alt-input'].value.trim();
+  if (editTarget && editor.mode === 'visual' && editor.editor && !editor.editor.isDestroyed) {
+    const node = editor.editor.state.doc.nodeAt(editTarget.pos);
+    if (node && node.type.name === 'image') {
+      editor.editor.view.dispatch(editor.editor.state.tr.setNodeMarkup(editTarget.pos, undefined, { ...node.attrs, src, alt }));
+      editor.focus();
+      capture();
+      return;
+    }
+  }
+  if (bookmark) editor.restoreSelection(bookmark);
+  editor.format('image', { src, alt });
+  capture();
+}
+
 async function formatDocument(command, value) {
-  if (command === 'link' || command === 'image') {
+  if (command === 'image') {
+    await openImageDialog();
+    return;
+  }
+  if (command === 'link') {
     const bookmark = editor.selectionBookmark();
-    const existingHref = command === 'link' ? editor.activeLinkHref() : '';
+    const existingHref = editor.activeLinkHref();
     const choice = existingHref
       ? await choose('Edit Link', 'Enter a complete HTTP or HTTPS address.', [['apply', 'Save Link'], ['remove', 'Remove Link'], ['cancel', 'Cancel']], existingHref)
-      : await choose(command === 'link' ? 'Insert Link' : 'Insert Image', 'Enter a complete HTTP or HTTPS address.', [['apply', 'Insert'], ['cancel', 'Cancel']], 'https://');
+      : await choose('Insert Link', 'Enter a complete HTTP or HTTPS address.', [['apply', 'Insert'], ['cancel', 'Cancel']], 'https://');
     editor.restoreSelection(bookmark);
     if (choice === 'remove') { editor.format('unlink'); capture(); return; }
     if (choice !== 'apply') return;
@@ -549,11 +625,35 @@ async function formatDocument(command, value) {
 }
 
 async function initialize() {
-  editor = new MarkdownEditor(elements['visual-editor'], elements['markdown-source'], capture, renderFormatting, command => {
-    if (command === 'color') return runAction(() => applyColor(store.preferences.lastColor));
-    return runAction(() => formatDocument(command));
-  });
+  const chooseAndApplyColor = async () => {
+    capture();
+    const bookmark = editor.selectionBookmark();
+    const color = await colorPicker.open(store.preferences);
+    editor.restoreSelection(bookmark);
+    if (color) await applyColor(color);
+  };
+  editor = new MarkdownEditor(
+    elements['visual-editor'],
+    elements['markdown-source'],
+    capture,
+    renderFormatting,
+    (command, value) => {
+      if (command === 'color') return runAction(() => applyColor(store.preferences.lastColor));
+      if (command === 'setColor') return runAction(() => applyColor(value));
+      if (command === 'chooseColor') return runAction(chooseAndApplyColor);
+      if (command === 'clearColor') return runAction(() => formatDocument('clearColor'));
+      if (command === 'turnInto') return runAction(() => formatDocument('turnInto', value));
+      return runAction(() => formatDocument(command));
+    },
+    {
+      onOpenUrl: href => runAction(() => invoke('open_external_url', { url: href })),
+      onEditLink: () => runAction(() => formatDocument('link')),
+      onEditImage: target => runAction(() => openImageDialog(target)),
+      onInsertImage: () => runAction(() => openImageDialog()),
+    },
+  );
   findReplace = new FindReplaceController(elements, () => editor, () => { capture(); render(); });
+  documentOutline = new DocumentOutline(elements, () => editor);
   document.addEventListener('keydown', keyboardShortcut, true);
   elements['find-toggle'].onclick = () => findReplace.isOpen() ? findReplace.close() : findReplace.open(false, selectedSearchText());
   elements['preview-bbcode'].onclick = () => toggleBBCodePreview();

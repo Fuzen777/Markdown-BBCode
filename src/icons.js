@@ -11,7 +11,7 @@ export function setButtonIcon(button, name, label, tooltip = label) {
   button.dataset.tooltip = button.title;
 }
 
-function createIcon(name) {
+export function createIcon(name) {
   const symbol = document.createElement('span');
   symbol.className = 'material-icon';
   symbol.setAttribute('aria-hidden', 'true');
@@ -19,8 +19,14 @@ function createIcon(name) {
   return symbol;
 }
 
-const menuIcons = { paragraph: 'format_paragraph', heading1: 'format_h1', heading2: 'format_h2', heading3: 'format_h3', bullet: 'format_list_bulleted', numbered: 'format_list_numbered', task: 'checklist', quote: 'format_quote', code: 'code', callout: 'info', table: 'table', duplicate: 'content_copy', up: 'arrow_upward', down: 'arrow_downward', delete: 'delete', add: 'add' };
-const menuIconAliases = { bulletList: 'bullet', orderedList: 'numbered', taskList: 'task', blockquote: 'quote', codeBlock: 'code' };
+const menuIcons = {
+  paragraph: 'format_paragraph', heading1: 'format_h1', heading2: 'format_h2', heading3: 'format_h3',
+  bullet: 'format_list_bulleted', numbered: 'format_list_numbered', task: 'checklist', quote: 'format_quote',
+  code: 'code', callout: 'info', table: 'table', duplicate: 'content_copy', up: 'arrow_upward', down: 'arrow_downward',
+  delete: 'delete', add: 'add', divider: 'horizontal_rule', spoiler: 'visibility_off', center: 'format_align_center',
+  image: 'image', toggle: 'arrow_drop_down', wrap: 'info',
+};
+const menuIconAliases = { bulletList: 'bullet', orderedList: 'numbered', taskList: 'task', blockquote: 'quote', codeBlock: 'code', horizontalRule: 'divider', spoilerBlock: 'spoiler', centerBlock: 'center' };
 
 export function setMenuItemLabel(button, key, label) {
   button.replaceChildren(createIcon(menuIcons[menuIconAliases[key] || key]), document.createTextNode(label));
