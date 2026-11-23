@@ -152,7 +152,7 @@ export class BlockControls {
     const rectangle = element.getBoundingClientRect();
     const hostRectangle = this.host.getBoundingClientRect();
     this.controls.hidden = !this.editor.isEditable || rectangle.bottom < hostRectangle.top || rectangle.top > hostRectangle.bottom || hostRectangle.height === 0;
-    this.controls.style.left = `${Math.max(4, rectangle.left - 48)}px`;
+    this.controls.style.left = `${Math.max(4, rectangle.left - 60)}px`;
     this.controls.style.top = `${Math.max(hostRectangle.top, rectangle.top)}px`;
   }
   update() {
@@ -190,6 +190,12 @@ export class BlockControls {
       this.addMenuItem(type.label, () => this.chooseType(type.key, slash, insert), false, type.key);
     }
     if (!slash && !insert) {
+      if (this.menu.querySelector('button')) {
+        const divider = document.createElement('hr');
+        divider.className = 'block-menu-divider';
+        divider.setAttribute('role', 'separator');
+        this.menu.append(divider);
+      }
       this.addMenuItem('Duplicate Block', () => this.duplicateBlock(), false, 'duplicate');
       this.addMenuItem('Move Up', () => this.moveBlock(this.activeIndex, this.activeIndex - 1), this.activeIndex === 0, 'up');
       this.addMenuItem('Move Down', () => this.moveBlock(this.activeIndex, this.activeIndex + 2), this.activeIndex === this.editor.state.doc.childCount - 1, 'down');

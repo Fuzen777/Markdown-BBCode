@@ -22,6 +22,10 @@ async function openBlockMenu(page, index = 0) {
 // ==> Section 2 - Visual Block Operations <==
 test('turn into, duplicate, delete and undo preserve the surrounding blocks', async ({ page }) => {
   await openBlockMenu(page);
+  const controlsBox = await page.locator('.block-controls').boundingBox();
+  const blockBox = await page.locator('.tiptap > *').first().boundingBox();
+  expect(controlsBox.x + controlsBox.width).toBeLessThanOrEqual(blockBox.x);
+  await expect(page.locator('.block-menu [role="separator"]')).toHaveCount(1);
   const menuItems = page.locator('.block-menu [role="menuitem"]');
   await expect(menuItems.locator('svg')).toHaveCount(await menuItems.count());
   await page.getByRole('menuitem', { name: 'Heading 1', exact: true }).click();

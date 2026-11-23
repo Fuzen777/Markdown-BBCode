@@ -16,10 +16,11 @@
 
 | Feature | Behaviour |
 | --- | --- |
-| Visual | Formatted editing with selection-aware toolbar and heading dropdown. |
-| Hybrid | Whole enclosing block edits as highlighted Markdown; other blocks remain rendered; untouched raw source retained. |
-| Source | Complete file, including YAML, remains editable. |
-| Blocks | Visual slash insertion, turn into, duplicate/delete, drag and keyboard reorder; Hybrid insertion and block actions. |
+| Visual | Formatted editing with selection-aware toolbar, heading dropdown, contextual table bar and inline callout type/fold selectors. |
+| Hybrid | Whole enclosing block edits as highlighted Markdown; other blocks remain rendered; active formatting state, shortcuts and untouched raw source retained. |
+| Source | Complete file, including YAML, remains editable with active formatting indicators, toggling and Clear support. |
+| Blocks | Visual slash insertion, turn into, duplicate/delete, drag and keyboard reorder; Hybrid insertion with outside-click dismissal and boundary-aware block actions. |
+| Preview & Search | Toggleable live Nexus BBCode split preview pane, cross-mode Find & Replace (`Ctrl+F` / `Ctrl+H`), file drag-and-drop and live word/character counts. |
 | Markdown Elements | Headings, inline styles, links, web images, lists, tasks, tables, quotes and code. |
 | Callouts | Obsidian types, custom editable titles, nesting and optional folding. |
 | Extra Formatting | Discord-style spoilers, HTML center and color wrappers. |

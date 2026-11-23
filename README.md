@@ -92,3 +92,7 @@ Hybrid shows each real top-level blank line as its own editable row. Click it to
 File and formatting buttons use Google Material Symbols Rounded icons bundled with the app. Hover or focus a button to see its action and shortcut. Icons work offline; their Apache 2.0 license is included in the licenses folder.
 
 Block-type and block-action entries in Turn Into, Block Actions, Insert and slash menus show matching icons alongside their text, including distinct Heading 1, 2 and 3 symbols.
+
+## Shortcuts, Preview And Search
+
+Use `Ctrl+F` to search and `Ctrl+H` to replace across Visual, Hybrid and Source, or toggle the live Nexus BBCode preview pane with `Ctrl+Shift+P` (or the Preview BBCode button). Drop `.md`, `.markdown`, `.mdbbcode`, `.bbcode` or `.txt` files directly onto the window to open or import them. Inside Visual tables and callouts, use the contextual table bar and callout header selectors to edit structure directly.

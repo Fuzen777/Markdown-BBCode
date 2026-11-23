@@ -226,6 +226,28 @@ fn main() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.emit("request-close", ());
+            } else if let tauri::WindowEvent::DragDrop(dragEvent) = event {
+                match dragEvent {
+                    tauri::DragDropEvent::Enter { .. } => {
+                        let _ = window.emit("file-drag", true);
+                    }
+                    tauri::DragDropEvent::Leave => {
+                        let _ = window.emit("file-drag", false);
+                    }
+                    tauri::DragDropEvent::Drop { paths, .. } => {
+                        let _ = window.emit("file-drag", false);
+                        let state = window.state::<AppState>();
+                        if let Ok(mut pendingPaths) = state.pendingPaths.lock() {
+                            pendingPaths.extend(
+                                paths.iter().map(|path| path.to_string_lossy().into_owned()),
+                            );
+                        }
+                        let _ = window.emit("open-files", ());
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                    _ => {}
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![read_file, save_file, load_session, save_session, take_pending_paths, finish_close])

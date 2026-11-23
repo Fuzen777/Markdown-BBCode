@@ -233,3 +233,47 @@ test('blank line actions delete or duplicate only the actual separator and undo 
   await activeBlock(page).press('Control+z');
   expect(await savedSource(page)).toBe('Before\r\n \r\n \r\n\r\nAfter');
 });
+
+test('Hybrid menus handle outside clicks, boundary states, active formatting, shortcuts and Clear', async ({ page }) => {
+  await openDocument(page, '# Heading\n\n**Bold** plain');
+  const firstBlock = page.locator('.hybrid-block:not(.blank-block)').nth(0);
+  const secondBlock = page.locator('.hybrid-block:not(.blank-block)').nth(1);
+
+  await firstBlock.hover();
+  await firstBlock.getByRole('button', { name: / Actions$/ }).click();
+  await expect(firstBlock.getByRole('menuitem', { name: 'Move Up', exact: true })).toBeDisabled();
+  await expect(firstBlock.getByRole('menuitem', { name: 'Move Down', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+
+  await secondBlock.hover();
+  await secondBlock.getByRole('button', { name: / Actions$/ }).click();
+  await expect(secondBlock.getByRole('menuitem', { name: 'Move Down', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
+
+  await firstBlock.hover();
+  await firstBlock.getByRole('button', { name: /^Insert After Block/ }).click();
+  await expect(firstBlock.locator('.hybrid-insert-menu')).toBeVisible();
+  await page.locator('#document-path').click();
+  await expect(firstBlock.locator('.hybrid-insert-menu')).toHaveCount(0);
+
+  await activateBlock(page, 1);
+  await expect(page.getByLabel('Paragraph Style')).toHaveValue('1');
+
+  await activateBlock(page, 2);
+  await activeBlock(page).press('Control+Home');
+  await activeBlock(page).press('ArrowRight');
+  await activeBlock(page).press('ArrowRight');
+  await activeBlock(page).press('ArrowRight');
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toHaveAttribute('aria-pressed', 'true');
+
+  await activeBlock(page).press('Control+End');
+  for (let count = 0; count < 5; count++) await activeBlock(page).press('Shift+ArrowLeft');
+  await activeBlock(page).press('Control+b');
+  expect(await savedSource(page)).toBe('# Heading\n\n**Bold** **plain**');
+  await activeBlock(page).press('Control+b');
+  expect(await savedSource(page)).toBe('# Heading\n\n**Bold** plain');
+
+  await activeBlock(page).press('Control+a');
+  await page.getByRole('button', { name: 'Clear', exact: true }).click();
+  expect(await savedSource(page)).toBe('# Heading\n\nBold plain');
+});

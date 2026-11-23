@@ -39,3 +39,7 @@ Each actual top-level blank line is an independent editable block. A content blo
 Use locally bundled Google Material Symbols Rounded SVGs for file, formatting and block actions. Provide accessible names and hover/focus tooltips, including shortcuts where available. Retain text for modes, dropdowns, menus and confirmations. Include the Apache 2.0 license in portable releases.
 
 Block-type and block-action entries in Turn Into, Block Actions, Insert and slash menus show matching icons alongside their text, including distinct Heading 1, 2 and 3 symbols.
+
+## Editing Ergonomics, Preview And Search
+
+Visual block gutter controls sit outside text padding without overlapping content, and Turn Into separates block conversions from block actions. Visual mode exposes contextual row/column table controls inside tables and inline callout type/folding selectors. Hybrid and Source support active formatting state, toggleable inline markers, formatting clear and formatting shortcuts. A toggleable live BBCode split preview pane, cross-mode Find and Replace, word/character counts and window file drag-and-drop complete the desktop workflow.

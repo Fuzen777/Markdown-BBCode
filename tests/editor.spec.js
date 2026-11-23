@@ -7,8 +7,8 @@ test.beforeEach(async ({ page }) => {
     let revisionCounter = 0;
     const callbacks = {};
     const eventHandlers = {};
-    window.testDesktop = { files: {}, session: JSON.parse(localStorage.getItem('seedSession') || 'null'), openPaths: null, savePath: null, closed: false, failSave: false, failOutput: false,
-      emit(name) { callbacks[eventHandlers[name]]?.({ event: name, payload: null }); },
+    window.testDesktop = { files: {}, pendingPaths: [], session: JSON.parse(localStorage.getItem('seedSession') || 'null'), openPaths: null, savePath: null, closed: false, failSave: false, failOutput: false,
+      emit(name, payload = null) { callbacks[eventHandlers[name]]?.({ event: name, payload }); },
     };
     const desktop = window.testDesktop;
     window.__TAURI_INTERNALS__ = {
@@ -21,7 +21,7 @@ test.beforeEach(async ({ page }) => {
         if (command === 'plugin:dialog|save') { desktop.lastSaveOptions = argumentsObject; return desktop.savePath; }
         if (command === 'load_session') return structuredClone(desktop.session);
         if (command === 'save_session') { desktop.session = structuredClone(argumentsObject.session); return; }
-        if (command === 'take_pending_paths') return [];
+        if (command === 'take_pending_paths') return desktop.pendingPaths.splice(0);
         if (command === 'finish_close') { desktop.closed = true; return; }
         if (command === 'read_file') {
           if (!desktop.files[argumentsObject.path]) throw { kind: 'missing', message: 'Missing file' };
@@ -377,4 +377,132 @@ test('tables tasks and folded callouts edit visually and report lossy export', a
   await expect(page.locator('#markdown-source')).toHaveValue(/Install Safely/);
   await page.getByRole('button', { name: 'Visual', exact: true }).click();
   await page.screenshot({ path: 'test-results/markdown-blocks.png' });
+});
+
+// ==> Section 6 - Interactive Workflows And Parity <==
+test('link dialog submits on Enter, edits existing links and removes links', async ({ page }) => {
+  const visual = page.getByRole('textbox', { name: 'Visual Markdown Editor' });
+  await visual.fill('Visit Example');
+  await visual.press('Control+a');
+  await page.getByRole('button', { name: 'Link', exact: true }).click();
+  const input = page.getByLabel('Value', { exact: true });
+  await input.fill('https://example.com');
+  await input.press('Enter');
+  await expect(page.locator('.tiptap a')).toHaveAttribute('href', 'https://example.com');
+
+  await selectText(page, '.tiptap a');
+  await page.getByRole('button', { name: 'Link', exact: true }).click();
+  await expect(input).toHaveValue('https://example.com');
+  await input.fill('https://nexusmods.com');
+  await page.getByRole('button', { name: 'Save Link', exact: true }).click();
+  await expect(page.locator('.tiptap a')).toHaveAttribute('href', 'https://nexusmods.com');
+
+  await selectText(page, '.tiptap a');
+  await page.getByRole('button', { name: 'Link', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove Link', exact: true }).click();
+  await expect(page.locator('.tiptap a')).toHaveCount(0);
+});
+
+test('contextual table bar edits rows and columns and deletes tables', async ({ page }) => {
+  await setSource(page, 'Intro\n\n| A | B |\n| --- | --- |\n| 1 | 2 |');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await expect(page.locator('#table-toolbar')).toBeHidden();
+  await page.locator('.tiptap td').first().click();
+  await expect(page.locator('#table-toolbar')).toBeVisible();
+  await page.getByRole('button', { name: 'Row Below', exact: true }).click();
+  await expect(page.locator('.tiptap tr')).toHaveCount(3);
+  await page.getByRole('button', { name: 'Column Right', exact: true }).click();
+  await expect(page.locator('.tiptap tr').first().locator('th, td')).toHaveCount(3);
+  await page.getByRole('button', { name: 'Delete Column', exact: true }).click();
+  await expect(page.locator('.tiptap tr').first().locator('th, td')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Delete Row', exact: true }).click();
+  await expect(page.locator('.tiptap tr')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Delete Table', exact: true }).click();
+  await expect(page.locator('.tiptap table')).toHaveCount(0);
+  await expect(page.locator('#table-toolbar')).toBeHidden();
+});
+
+test('inline callout controls change type and folding and preserve custom types', async ({ page }) => {
+  await setSource(page, '> [!warning]- Careful\n> Watch out\n\n> [!custom-box] Custom\n> Keep identifier');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await expect(page.getByLabel('Callout Type').nth(0)).toHaveValue('warning');
+  await expect(page.getByLabel('Callout Folding').nth(0)).toHaveValue('-');
+  await page.getByLabel('Callout Type').nth(0).selectOption('tip');
+  await page.getByLabel('Callout Folding').nth(0).selectOption('+');
+  await expect(page.getByLabel('Callout Type').nth(1)).toHaveValue('custom-box');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  const source = await page.getByRole('textbox', { name: 'Markdown Source' }).inputValue();
+  expect(source).toContain('> [!tip]+ Careful');
+  expect(source).toContain('> [!custom-box] Custom');
+});
+
+test('live BBCode preview updates while editing, isolates errors and fits narrow layouts', async ({ page }) => {
+  await page.getByRole('textbox', { name: 'Visual Markdown Editor' }).fill('Preview text');
+  await page.getByRole('button', { name: 'Preview BBCode', exact: true }).click();
+  await expect(page.getByLabel('Generated BBCode', { exact: true })).toHaveValue('Preview text');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Visual Markdown Editor' }).press('Control+a');
+  await page.getByRole('button', { name: 'Bold', exact: true }).click();
+  await expect(page.getByLabel('Generated BBCode', { exact: true })).toHaveValue('[b]Preview text[/b]');
+
+  await setSource(page, '<script>bad</script>');
+  await expect(page.locator('#bbcode-preview-notes')).toContainText('Unsupported');
+  await expect(page.locator('#notice')).toBeHidden();
+
+  await page.setViewportSize({ width: 720, height: 480 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.keyboard.press('Control+Shift+p');
+  await expect(page.locator('#bbcode-preview-pane')).toBeHidden();
+});
+
+test('find and replace works across Visual, Hybrid and Source modes', async ({ page }) => {
+  await setSource(page, 'Alpha one\n\nAlpha two\n\nalpha three');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Visual Markdown Editor' }).click();
+  await page.keyboard.press('Control+h');
+  await page.getByLabel('Find Text', { exact: true }).fill('Alpha');
+  await expect(page.locator('#find-count')).toHaveText('1 / 3');
+  await page.getByRole('button', { name: 'Match Case', exact: true }).click();
+  await expect(page.locator('#find-count')).toHaveText('1 / 2');
+  await page.getByLabel('Replace With', { exact: true }).fill('Beta');
+  await page.getByRole('button', { name: 'Replace', exact: true }).click();
+  await expect(page.locator('.tiptap')).toContainText('Beta one');
+  await page.getByRole('button', { name: 'Replace All', exact: true }).click();
+  await expect(page.locator('#find-count')).toHaveText('No Matches');
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  await page.keyboard.press('Control+h');
+  await page.getByLabel('Find Text', { exact: true }).fill('Beta');
+  await expect(page.locator('#find-count')).toHaveText('1 / 2');
+  await page.getByLabel('Replace With', { exact: true }).fill('Gamma');
+  await page.getByRole('button', { name: 'Replace All', exact: true }).click();
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue(/Gamma one[\s\S]*Gamma two[\s\S]*alpha three/);
+  await page.keyboard.press('Control+h');
+  await page.getByLabel('Find Text', { exact: true }).fill('Gamma');
+  await page.getByLabel('Replace With', { exact: true }).fill('Delta');
+  await page.getByRole('button', { name: 'Replace', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue(/Delta one[\s\S]*Gamma two/);
+});
+
+test('footer shows word count and dropped files open or import cleanly', async ({ page }) => {
+  await setSource(page, '---\ntitle: Meta\n---\n\nOne two three');
+  await expect(page.locator('#document-stats')).toHaveText('3 Words · 34 Characters');
+
+  await page.evaluate(() => {
+    window.testDesktop.files['C:\\Dropped.md'] = { path: 'C:\\Dropped.md', content: '# Dropped File', revision: 'd1' };
+    window.testDesktop.files['C:\\Dropped.bbcode'] = { path: 'C:\\Dropped.bbcode', content: '[b]Imported Drop[/b]', revision: 'd2' };
+    window.testDesktop.emit('file-drag', true);
+  });
+  await expect(page.locator('#editor-host')).toHaveClass(/file-drop-active/);
+  await page.evaluate(() => {
+    window.testDesktop.emit('file-drag', false);
+    window.testDesktop.pendingPaths.push('C:\\Dropped.md', 'C:\\Dropped.bbcode');
+    window.testDesktop.emit('open-files');
+  });
+  await expect(page.getByRole('tab', { name: 'Dropped.md', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /Dropped\.imported/ })).toBeVisible();
 });

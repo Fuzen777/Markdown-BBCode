@@ -2,7 +2,7 @@
 import { readDocumentSource, isMdbbcode, withDocumentMetadata } from './document-format.js';
 import { HybridEditor } from './hybrid-editor.js';
 import { BlockControls } from './block-controls.js';
-import { formatMarkdownSelection } from './source-formatting.js';
+import { formatMarkdownSelection, inspectMarkdownFormatting } from './source-formatting.js';
 import { Editor } from '@tiptap/core';
 import { editorExtensions, parseMarkdown, serializeMarkdown } from './markdown.js';
 
@@ -16,6 +16,14 @@ export class MarkdownEditor {
     this.mode = 'source';
     this.readonly = false;
     sourceElement.addEventListener('input', () => onChange());
+    sourceElement.addEventListener('keyup', () => onSelectionChange());
+    sourceElement.addEventListener('mouseup', () => onSelectionChange());
+    sourceElement.addEventListener('select', () => onSelectionChange());
+    sourceElement.addEventListener('keydown', event => {
+      if (!event.ctrlKey || event.altKey || event.shiftKey) return;
+      const key = event.key.toLowerCase();
+      if (key === 'b' || key === 'i') { event.preventDefault(); this.format(key === 'b' ? 'bold' : 'italic'); }
+    });
   }
   load(source, mode, path) {
     this.path = path;
@@ -64,7 +72,9 @@ export class MarkdownEditor {
     this.onChange();
   }
   formattingState() {
-    if (this.sourceMode() || !this.editor) return null;
+    if (this.mode === 'hybrid') return this.hybridView?.formattingState() || null;
+    if (this.sourceMode()) return inspectMarkdownFormatting(this.sourceElement.value, this.sourceElement.selectionStart, this.sourceElement.selectionEnd);
+    if (!this.editor) return null;
     const editor = this.editor;
     const active = name => editor.isActive(name);
     const paragraphStyles = new Set();
@@ -85,6 +95,7 @@ export class MarkdownEditor {
     };
   }
   sourceMode() { return this.mode === 'source'; }
+  activeLinkHref() { return this.mode === 'visual' && this.editor?.isActive('link') ? this.editor.getAttributes('link').href || '' : ''; }
   focus() { if (this.mode === 'hybrid') { this.hybridView.focus(); return; } if (this.sourceMode()) this.sourceElement.focus(); else this.editor.commands.focus(); }
   readOnly(value) { this.readonly = value; this.sourceElement.readOnly = value; this.editor?.setEditable(!value); this.hybridView?.readOnly(value); }
 
@@ -109,10 +120,13 @@ export class MarkdownEditor {
       bold: () => chain.toggleBold(), italic: () => chain.toggleItalic(), strike: () => chain.toggleStrike(),
       bullet: () => chain.toggleBulletList(), numbered: () => chain.toggleOrderedList(), quote: () => chain.toggleBlockquote(),
       task: () => chain.toggleTaskList(), table: () => chain.insertTable({ rows: 3, cols: 2, withHeaderRow: true }), callout: () => chain.toggleWrap('callout', { type: 'note', title: '', fold: null }),
+      addRowBefore: () => chain.addRowBefore(), addRowAfter: () => chain.addRowAfter(), deleteRow: () => chain.deleteRow(),
+      addColumnBefore: () => chain.addColumnBefore(), addColumnAfter: () => chain.addColumnAfter(), deleteColumn: () => chain.deleteColumn(),
+      toggleHeaderRow: () => chain.toggleHeaderRow(), deleteTable: () => chain.deleteTable(),
       code: () => chain.toggleCodeBlock(), center: () => chain.toggleWrap('centerBlock'),
       color: () => chain.setMark('textColor', { color: value }), clear: () => chain.unsetAllMarks(),
       heading: () => Number(value) ? chain.setHeading({ level: Number(value) }) : chain.setParagraph(),
-      link: () => chain.extendMarkRange('link').setLink({ href: value }), image: () => chain.setImage({ src: value }),
+      link: () => chain.extendMarkRange('link').setLink({ href: value }), unlink: () => chain.extendMarkRange('link').unsetLink(), image: () => chain.setImage({ src: value }),
       spoiler: () => {
         const selection = this.editor.state.selection;
         if (this.editor.isActive('spoilerBlock')) return chain.lift('spoilerBlock');
@@ -125,9 +139,11 @@ export class MarkdownEditor {
     const textarea = this.sourceElement;
     const change = formatMarkdownSelection(textarea.value, textarea.selectionStart, textarea.selectionEnd, command, value);
     if (!change) return false;
-    textarea.setRangeText(change.insert, change.from, change.to, 'select');
+    textarea.setRangeText(change.insert, change.from, change.to);
+    textarea.setSelectionRange(change.start, change.end);
     textarea.focus();
     this.onChange();
+    this.onSelectionChange();
     return true;
   }
 }

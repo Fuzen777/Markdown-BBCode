@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.3 — 2026-11-23
+
+1. Fixed Visual gutter overlap over block text, added a Turn Into divider and ensured Delete Block remains visible without clipping.
+2. Added outside-click dismissal to Hybrid Insert/slash menus, boundary disabled states to Hybrid Block Actions and Enter-to-submit plus link editing/removal to link dialogs.
+3. Added Hybrid and Source formatting parity: live toolbar indicators, toggleable inline styles, Clear formatting support and `Ctrl+B`/`Ctrl+I` shortcuts.
+4. Added a contextual Visual table toolbar, inline callout type and folding selectors, toggleable live BBCode preview pane (`Ctrl+Shift+P`), cross-mode Find & Replace (`Ctrl+F`/`Ctrl+H`), window file drag-and-drop and footer word counts.
+
 ## 0.2.2 — 2026-11-23
 
 1. Added icon-and-text entries to Turn Into, Block Actions, Insert and slash menus, including distinct heading-level symbols and block actions (Duplicate, Move Up, Move Down, Delete).

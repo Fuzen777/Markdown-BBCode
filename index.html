@@ -17,6 +17,8 @@
         <button id="drafts" hidden>Drafts</button>
         <button id="recovered" hidden>Recovered BBCode</button>
       </nav>
+      <button id="find-toggle" title="Find And Replace (Ctrl+F)">Find</button>
+      <button id="preview-bbcode" title="Toggle BBCode Preview (Ctrl+Shift+P)" aria-pressed="false">Preview BBCode</button>
       <button id="export">Export BBCode…</button>
       <button id="copy" class="primary" title="Copy BBCode (Ctrl+Shift+C)">Copy BBCode</button>
     </header>
@@ -49,9 +51,53 @@
           <span class="color-control"><button id="apply-color" aria-label="Apply Last Color" aria-pressed="false">Color <span id="last-color-swatch" aria-hidden="true"></span></button><button id="choose-color" aria-label="Choose Text Color" title="Choose Text Color" aria-haspopup="dialog">▾</button></span>
           <button data-format="clear" title="Clear Text Formatting">Clear</button>
         </div>
-        <div id="visual-editor"></div>
-        <div id="hybrid-editor" hidden></div>
-        <textarea id="markdown-source" aria-label="Markdown Source" spellcheck="false" hidden></textarea>
+        <div id="table-toolbar" role="toolbar" aria-label="Table Controls" hidden>
+          <span class="table-toolbar-label">Table</span>
+          <button type="button" data-table-action="addRowBefore" title="Add Row Above">Row Above</button>
+          <button type="button" data-table-action="addRowAfter" title="Add Row Below">Row Below</button>
+          <button type="button" data-table-action="deleteRow" title="Delete Current Row">Delete Row</button>
+          <span class="toolbar-divider"></span>
+          <button type="button" data-table-action="addColumnBefore" title="Add Column Left">Column Left</button>
+          <button type="button" data-table-action="addColumnAfter" title="Add Column Right">Column Right</button>
+          <button type="button" data-table-action="deleteColumn" title="Delete Current Column">Delete Column</button>
+          <span class="toolbar-divider"></span>
+          <button type="button" data-table-action="toggleHeaderRow" title="Toggle Header Row">Header Row</button>
+          <button type="button" data-table-action="deleteTable" title="Delete Table">Delete Table</button>
+        </div>
+        <div id="editor-panes">
+          <div id="editor-primary">
+            <div id="find-bar" role="search" aria-label="Find And Replace" hidden>
+              <div class="find-row">
+                <input id="find-input" type="text" placeholder="Find…" aria-label="Find Text" spellcheck="false">
+                <span id="find-count" aria-live="polite"></span>
+                <button id="find-case" type="button" aria-label="Match Case" aria-pressed="false" title="Match Case">Aa</button>
+                <button id="find-prev" type="button" aria-label="Previous Match" title="Previous Match (Shift+Enter)">Previous</button>
+                <button id="find-next" type="button" aria-label="Next Match" title="Next Match (Enter)">Next</button>
+                <button id="find-replace-toggle" type="button" aria-expanded="false" aria-pressed="false" title="Show Replace">Replace…</button>
+                <button id="find-close" type="button" aria-label="Close Find" title="Close Find (Escape)">Close</button>
+              </div>
+              <div id="find-replace-row" class="find-row" hidden>
+                <input id="find-replace-input" type="text" placeholder="Replace With…" aria-label="Replace With" spellcheck="false">
+                <button id="find-replace-one" type="button">Replace</button>
+                <button id="find-replace-all" type="button">Replace All</button>
+              </div>
+            </div>
+            <div id="visual-editor"></div>
+            <div id="hybrid-editor" hidden></div>
+            <textarea id="markdown-source" aria-label="Markdown Source" spellcheck="false" hidden></textarea>
+          </div>
+          <aside id="bbcode-preview-pane" aria-label="BBCode Preview" hidden>
+            <div class="bbcode-preview-header">
+              <strong>Nexus BBCode Preview</strong>
+              <div class="bbcode-preview-actions">
+                <button id="preview-copy" type="button">Copy</button>
+                <button id="preview-close" type="button" aria-label="Close BBCode Preview" title="Close BBCode Preview">Close</button>
+              </div>
+            </div>
+            <div id="bbcode-preview-notes" hidden></div>
+            <textarea id="bbcode-preview-output" aria-label="Generated BBCode" readonly spellcheck="false"></textarea>
+          </aside>
+        </div>
       </div>
     </main>
     <footer><span id="save-status" role="status">Starting…</span><span id="document-stats"></span><span>Autosave · Local Markdown</span></footer>

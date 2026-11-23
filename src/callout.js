@@ -5,6 +5,12 @@ export function calloutTitle(attributes) {
   return attributes.title || String(attributes.type || 'note').replaceAll('-', ' ').replace(/\b\w/g, character => character.toUpperCase());
 }
 
+const standardCalloutTypes = [
+  ['note', 'Note'], ['info', 'Info'], ['tip', 'Tip'], ['success', 'Success'],
+  ['warning', 'Warning'], ['caution', 'Caution'], ['danger', 'Danger'], ['error', 'Error'],
+  ['abstract', 'Abstract'], ['quote', 'Quote'], ['example', 'Example'],
+];
+
 export const Callout = Node.create({
   name: 'callout', group: 'block', content: 'block+', defining: true,
   addAttributes: () => ({ type: { default: 'note' }, title: { default: '' }, fold: { default: null } }),
@@ -57,13 +63,32 @@ export const Callout = Node.create({
       const title = document.createElement('input');
       title.type = 'text';
       title.setAttribute('aria-label', 'Callout Title');
+      const typeSelect = document.createElement('select');
+      typeSelect.className = 'callout-type-select';
+      typeSelect.setAttribute('aria-label', 'Callout Type');
+      for (const [value, label] of standardCalloutTypes) typeSelect.add(new Option(label, value));
+      const foldSelect = document.createElement('select');
+      foldSelect.className = 'callout-fold-select';
+      foldSelect.setAttribute('aria-label', 'Callout Folding');
+      for (const [value, label] of [['', 'Fixed'], ['+', 'Open (+)'], ['-', 'Collapsed (-)']]) foldSelect.add(new Option(label, value));
       const body = document.createElement('div');
       body.dataset.calloutBody = '';
       const updateDisplay = () => {
-        container.dataset.callout = currentNode.attrs.type;
+        const calloutType = currentNode.attrs.type || 'note';
+        container.dataset.callout = calloutType;
         if (title.value !== currentNode.attrs.title) title.value = currentNode.attrs.title;
         title.placeholder = calloutTitle({ ...currentNode.attrs, title: '' });
         title.readOnly = !editor.isEditable;
+        for (const option of typeSelect.querySelectorAll('[data-custom]')) option.remove();
+        if (!standardCalloutTypes.some(([value]) => value === calloutType)) {
+          const customOption = new Option(calloutTitle({ type: calloutType }), calloutType);
+          customOption.dataset.custom = 'true';
+          typeSelect.add(customOption);
+        }
+        typeSelect.value = calloutType;
+        typeSelect.disabled = !editor.isEditable;
+        foldSelect.value = currentNode.attrs.fold || '';
+        foldSelect.disabled = !editor.isEditable;
         toggle.hidden = !currentNode.attrs.fold;
         body.hidden = !expanded;
         toggle.textContent = body.hidden ? '▸' : '▾';
@@ -80,7 +105,19 @@ export const Callout = Node.create({
         const position = getPos();
         if (typeof position === 'number') editor.view.dispatch(editor.state.tr.setNodeMarkup(position, undefined, { ...currentNode.attrs, title: title.value.replace(/[\r\n]/g, ' ') }));
       };
-      header.append(toggle, title);
+      typeSelect.onchange = () => {
+        if (!editor.isEditable || typeof getPos !== 'function') return;
+        const position = getPos();
+        if (typeof position === 'number') editor.view.dispatch(editor.state.tr.setNodeMarkup(position, undefined, { ...currentNode.attrs, type: typeSelect.value }));
+      };
+      foldSelect.onchange = () => {
+        if (!editor.isEditable || typeof getPos !== 'function') return;
+        const nextFold = foldSelect.value || null;
+        expanded = nextFold !== '-';
+        const position = getPos();
+        if (typeof position === 'number') editor.view.dispatch(editor.state.tr.setNodeMarkup(position, undefined, { ...currentNode.attrs, fold: nextFold }));
+      };
+      header.append(toggle, title, typeSelect, foldSelect);
       container.append(header, body);
       updateDisplay();
       return {

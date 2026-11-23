@@ -1,6 +1,6 @@
 // ==> Section 1 - Hybrid Markdown Editing <==
 import { EditorState, Compartment } from '@codemirror/state';
-import { EditorView, keymap, Decoration, ViewPlugin } from '@codemirror/view';
+import { EditorView, keymap, Decoration, ViewPlugin, drawSelection } from '@codemirror/view';
 import { defaultKeymap } from '@codemirror/commands';
 import { markdown } from '@codemirror/lang-markdown';
 import { syntaxTree, syntaxHighlighting, HighlightStyle } from '@codemirror/language';
@@ -8,7 +8,7 @@ import { tags } from '@lezer/highlight';
 import { generateHTML } from '@tiptap/core';
 import { editorExtensions, parseMarkdown, segmentMarkdown } from './markdown.js';
 import { setButtonIcon, setMenuItemLabel } from './icons.js';
-import { formatMarkdownSelection } from './source-formatting.js';
+import { formatMarkdownSelection, inspectMarkdownFormatting } from './source-formatting.js';
 
 const markerHighlight = ViewPlugin.fromClass(class {
   constructor(view) { this.decorations = this.build(view); }
@@ -46,7 +46,13 @@ export class HybridEditor {
     this.lastEditTime = 0;
     this.readonly = false;
     this.editable = new Compartment();
+    this.activeMenuCleanup = null;
     this.render();
+  }
+  closeMenus() {
+    this.activeMenuCleanup?.();
+    this.activeMenuCleanup = null;
+    for (const menu of this.host.querySelectorAll('.hybrid-insert-menu, .hybrid-action-menu')) menu.remove();
   }
   val() { return this.body; }
   remember(force = false) {
@@ -64,7 +70,8 @@ export class HybridEditor {
     this.onChange();
     return true;
   }
-  render(activeOffset = null) {
+  render(activeOffset = null, focus = true) {
+    this.closeMenus();
     this.code?.destroy();
     this.code = null;
     this.activeIndex = null;
@@ -100,18 +107,18 @@ export class HybridEditor {
     });
     if (activeOffset !== null) {
       const index = this.blocks.findIndex(block => activeOffset >= block.start && activeOffset < block.end);
-      this.mount(index >= 0 ? index : this.blocks.length - 1);
+      this.mount(index >= 0 ? index : this.blocks.length - 1, focus);
     }
     this.onSelection();
   }
-  activate(index) {
+  activate(index, focus = true) {
     if (this.readonly) return;
-    if (index === this.activeIndex) { this.code?.focus(); return; }
+    if (index === this.activeIndex) { if (focus) this.code?.focus(); return; }
     const offset = this.blocks[index].start;
     this.lastEditTime = 0;
-    this.render(offset);
+    this.render(offset, focus);
   }
-  mount(index) {
+  mount(index, focus = true) {
     this.activeIndex = index;
     const shell = this.host.children[index];
     shell.classList.add('active');
@@ -125,10 +132,11 @@ export class HybridEditor {
       parent,
       state: EditorState.create({ doc: editableText, extensions: [
         EditorState.lineSeparator.of(this.newline),
-        markdown(), syntaxHighlighting(textHighlight), markerHighlight, EditorView.lineWrapping,
+        markdown(), syntaxHighlighting(textHighlight), markerHighlight, drawSelection(), EditorView.lineWrapping,
         this.editable.of(EditorView.editable.of(!this.readonly)),
         EditorView.contentAttributes.of({ 'aria-label': 'Active Block Markdown' }),
         keymap.of([{ key: 'Mod-z', run: () => this.undo() }, { key: 'Mod-Shift-z', run: () => this.undo(true) },
+          { key: 'Mod-b', run: () => this.format('bold') }, { key: 'Mod-i', run: () => this.format('italic') },
           { key: 'Escape', run: () => { this.render(); return true; } },
           { key: 'ArrowUp', run: view => this.navigate(view, -1) }, { key: 'ArrowDown', run: view => this.navigate(view, 1) }, ...defaultKeymap]),
         EditorView.updateListener.of(update => {
@@ -147,7 +155,7 @@ export class HybridEditor {
         }),
       ] }),
     });
-    this.code.focus();
+    if (focus) this.code.focus();
   }
   navigate(view, direction) {
     const cursor = view.state.selection.main;
@@ -175,22 +183,25 @@ export class HybridEditor {
     actions.setAttribute('aria-haspopup', 'menu');
     actions.onclick = () => {
       const existing = controls.querySelector('.hybrid-action-menu');
-      if (existing) { existing.remove(); return; }
+      if (existing) { this.closeMenus(); return; }
+      this.closeMenus();
       const menu = document.createElement('div'); menu.className = 'hybrid-action-menu'; menu.role = 'menu';
       for (const [action, label] of [['up', 'Move Up'], ['down', 'Move Down'], ['duplicate', 'Duplicate'], ['delete', 'Delete']]) {
         const button = document.createElement('button'); setMenuItemLabel(button, action, label); button.role = 'menuitem';
-        button.onclick = () => this.blockAction(index, action);
+        button.disabled = (action === 'up' && index === 0) || (action === 'down' && index === this.blocks.length - 1);
+        button.onclick = () => { this.closeMenus(); this.blockAction(index, action); };
         menu.append(button);
       }
       menu.onkeydown = event => {
-        if (event.key === 'Escape') { event.stopPropagation(); menu.remove(); actions.focus(); }
+        if (event.key === 'Escape') { event.stopPropagation(); this.closeMenus(); actions.focus(); }
         if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
-          event.preventDefault(); const buttons = [...menu.children];
+          event.preventDefault(); const buttons = [...menu.querySelectorAll('button:not(:disabled)')];
+          if (!buttons.length) return;
           buttons[(buttons.indexOf(document.activeElement) + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length].focus();
         }
       };
-      menu.onfocusout = event => { if (!menu.contains(event.relatedTarget)) menu.remove(); };
-      controls.append(menu); menu.firstElementChild.focus();
+      menu.onfocusout = event => { if (!menu.contains(event.relatedTarget)) this.closeMenus(); };
+      controls.append(menu); menu.querySelector('button:not(:disabled)')?.focus();
     };
     controls.append(drag, add, actions);
     return controls;
@@ -206,10 +217,12 @@ export class HybridEditor {
   }
   showInsertMenu(shell, index, replaceSlash = false) {
     if (this.readonly || shell.querySelector('.hybrid-insert-menu')) return;
+    this.closeMenus();
     const menu = document.createElement('div'); menu.className = 'hybrid-insert-menu'; menu.setAttribute('role', 'menu');
     for (const [type, label] of Object.entries(blockLabels)) {
       const button = document.createElement('button'); setMenuItemLabel(button, type, label); button.setAttribute('role', 'menuitem');
       button.onclick = () => {
+        this.closeMenus();
         this.remember(true);
         const block = this.blocks[index];
         const before = this.body.slice(0, replaceSlash ? block.start : block.end);
@@ -224,11 +237,15 @@ export class HybridEditor {
     menu.onkeydown = event => {
       const buttons = [...menu.querySelectorAll('button')];
       const current = buttons.indexOf(document.activeElement);
-      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); menu.remove(); this.code?.focus(); }
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.closeMenus(); this.code?.focus(); }
       if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); buttons[(current + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length].focus(); }
     };
+    menu.onfocusout = event => { if (event.relatedTarget && !menu.contains(event.relatedTarget)) this.closeMenus(); };
+    const onOutside = event => { if (!menu.contains(event.target)) this.closeMenus(); };
+    const timer = setTimeout(() => { if (menu.isConnected) document.addEventListener('pointerdown', onOutside); }, 0);
+    this.activeMenuCleanup = () => { clearTimeout(timer); document.removeEventListener('pointerdown', onOutside); };
     shell.append(menu);
-    setTimeout(() => menu.querySelector('button')?.focus(), 0);
+    setTimeout(() => { if (menu.isConnected) menu.querySelector('button')?.focus(); }, 0);
   }
   joinBlocks(blocks) {
     return blocks.reduce((result, raw) => result + (result && !/\r?\n[ \t]*\r?\n$/.test(result) ? (result.endsWith('\n') ? this.newline : this.newline.repeat(2)) : '') + raw, '');
@@ -250,9 +267,52 @@ export class HybridEditor {
     this.code.dispatch({ changes: { from: change.from, to: change.to, insert: change.insert }, selection: { anchor: change.start, head: change.end } });
     this.code.focus(); return true;
   }
+  formattingState() { return this.code ? inspectMarkdownFormatting(this.code.state.doc.toString(), this.code.state.selection.main.from, this.code.state.selection.main.to) : null; }
+  selectBodyRange(from, to, focus = false) {
+    let blockIndex = this.blocks.findIndex(block => from >= block.start && from < block.end);
+    if (blockIndex < 0) blockIndex = this.blocks.length - 1;
+    this.activate(blockIndex, focus);
+    if (!this.code) return;
+    const block = this.blocks[blockIndex];
+    const length = this.code.state.doc.length;
+    const anchor = Math.max(0, Math.min(from - block.start, length));
+    const head = Math.max(anchor, Math.min(to - block.start, length));
+    this.code.dispatch({ selection: { anchor, head }, effects: EditorView.scrollIntoView(head) });
+  }
+  replaceBodyRange(from, to, replacement) {
+    if (this.readonly) return false;
+    const blockIndex = this.blocks.findIndex(block => from >= block.start && from < block.end);
+    if (blockIndex >= 0) {
+      this.activate(blockIndex, false);
+      const block = this.blocks[blockIndex];
+      const length = this.code ? this.code.state.doc.length : 0;
+      if (this.code && to - block.start <= length) {
+        const relFrom = Math.max(0, from - block.start);
+        const relTo = Math.max(relFrom, to - block.start);
+        this.code.dispatch({ changes: { from: relFrom, to: relTo, insert: replacement }, selection: { anchor: relFrom, head: relFrom + replacement.length } });
+        return true;
+      }
+    }
+    this.remember(true);
+    this.body = this.body.slice(0, from) + replacement + this.body.slice(to);
+    this.render(from, false);
+    this.onChange();
+    return true;
+  }
+  replaceAllInBody(matches, replacement) {
+    if (this.readonly || !matches.length) return false;
+    this.remember(true);
+    let nextBody = this.body;
+    for (const match of [...matches].reverse()) nextBody = nextBody.slice(0, match.from) + replacement + nextBody.slice(match.to);
+    this.body = nextBody;
+    const activeStart = this.activeIndex !== null ? this.blocks[this.activeIndex]?.start ?? null : null;
+    this.render(activeStart, false);
+    this.onChange();
+    return true;
+  }
   focus() { if (!this.code) this.activate(0); else this.code.focus(); }
   selectionBookmark() { return this.code ? { from: this.code.state.selection.main.from, to: this.code.state.selection.main.to } : { from: 0, to: 0 }; }
   restoreSelection(bookmark) { this.focus(); this.code.dispatch({ selection: { anchor: bookmark.from, head: bookmark.to } }); }
   readOnly(value) { this.readonly = value; this.code?.dispatch({ effects: this.editable.reconfigure(EditorView.editable.of(!value)) }); }
-  destroy() { this.code?.destroy(); this.host.replaceChildren(); }
+  destroy() { this.closeMenus(); this.code?.destroy(); this.host.replaceChildren(); }
 }

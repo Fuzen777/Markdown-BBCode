@@ -28,7 +28,12 @@ export function setMenuItemLabel(button, key, label) {
 }
 
 export function initializeIcons() {
-  const actions = { new: 'add', open: 'folder_open', import: 'file_open', save: 'save', 'save-as': 'save_as', export: 'file_export', copy: 'content_copy', 'choose-color': 'arrow_drop_down' };
+  const actions = {
+    new: 'add', open: 'folder_open', import: 'file_open', save: 'save', 'save-as': 'save_as',
+    export: 'file_export', copy: 'content_copy', 'choose-color': 'arrow_drop_down',
+    'find-toggle': 'search', 'preview-bbcode': 'preview', 'preview-close': 'close',
+    'find-prev': 'arrow_upward', 'find-next': 'arrow_downward', 'find-close': 'close',
+  };
   const formats = { bold: 'format_bold', italic: 'format_italic', strike: 'format_strikethrough', bullet: 'format_list_bulleted', numbered: 'format_list_numbered', task: 'checklist', table: 'table', callout: 'info', quote: 'format_quote', code: 'code', link: 'link', image: 'image', spoiler: 'visibility_off', center: 'format_align_center', clear: 'format_clear' };
   for (const [id, name] of Object.entries(actions)) {
     const button = document.getElementById(id);

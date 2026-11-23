@@ -5,6 +5,7 @@ import Image from '@tiptap/extension-image';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
 import { Callout, calloutTitle } from './callout.js';
+import { SearchHighlight } from './find-replace.js';
 import { MarkdownManager } from '@tiptap/markdown';
 import { Marked } from 'marked';
 
@@ -113,7 +114,7 @@ const TextColor = Mark.create({
 export const editorExtensions = [
   StarterKit.configure({ underline: false, trailingNode: false, link: { openOnClick: false, autolink: false } }),
   Image.configure({ inline: true, allowBase64: false }), InlineSpoiler, SpoilerBlock, CenterBlock, TextColor, Callout,
-  TaskList, TaskItem.configure({ nested: true }), Table, TableRow, TableCell, TableHeader,
+  TaskList, TaskItem.configure({ nested: true }), Table, TableRow, TableCell, TableHeader, SearchHighlight,
 ];
 // The upstream serializer does not know that literal pipes delimit our custom spoiler marks.
 class EditorMarkdownManager extends MarkdownManager {

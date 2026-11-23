@@ -4,9 +4,10 @@ import { listen } from '@tauri-apps/api/event';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { DocumentStore, documentName, pathKey, outputPath } from './documents.js';
 import { MarkdownEditor } from './visual-editor.js';
-import { documentToBBCodeWithWarnings, hasDocumentContent } from './document-format.js';
+import { documentToBBCodeWithWarnings, hasDocumentContent, readDocumentSource } from './document-format.js';
 import { importBBCode } from './bbcode-import.js';
 import { ColorPicker } from './color-picker.js';
+import { FindReplaceController } from './find-replace.js';
 import './style.css';
 import { initializeIcons, setButtonIcon } from './icons.js';
 
@@ -22,6 +23,8 @@ const backend = {
 const store = new DocumentStore(backend, render);
 let editor;
 let colorPicker;
+let findReplace;
+let previewOpen = false;
 let baselineValue = '';
 let loadingDocument = false;
 let recoveryTimer;
@@ -45,13 +48,60 @@ async function persist() {
 }
 
 // ==> Section 2 - Editor And Tab Rendering <==
+function countWords(source) {
+  let body = source;
+  try { body = readDocumentSource(source).body; }
+  catch { /* fall back to full source */ }
+  const trimmed = body.trim();
+  return trimmed ? trimmed.split(/\s+/).length : 0;
+}
+
+function updateBBCodePreview() {
+  elements['bbcode-preview-pane'].hidden = !previewOpen;
+  elements['preview-bbcode'].setAttribute('aria-pressed', String(previewOpen));
+  if (!previewOpen || !store.active) return;
+  try {
+    const result = documentToBBCodeWithWarnings(store.active.content, store.active.path);
+    elements['bbcode-preview-output'].value = result.bbcode;
+    elements['bbcode-preview-notes'].textContent = result.warnings.join('\n');
+    elements['bbcode-preview-notes'].hidden = result.warnings.length === 0;
+    elements['bbcode-preview-notes'].classList.remove('error');
+  } catch (error) {
+    elements['bbcode-preview-output'].value = '';
+    elements['bbcode-preview-notes'].textContent = errorMessage(error);
+    elements['bbcode-preview-notes'].hidden = false;
+    elements['bbcode-preview-notes'].classList.add('error');
+  }
+}
+
+function toggleBBCodePreview(forceOpen) {
+  previewOpen = forceOpen === undefined ? !previewOpen : Boolean(forceOpen);
+  if (previewOpen) capture();
+  updateBBCodePreview();
+}
+
+function selectedSearchText() {
+  if (!editor || elements['find-bar'].contains(document.activeElement)) return undefined;
+  if (editor.mode === 'visual' && editor.editor) {
+    const { from, to, empty } = editor.editor.state.selection;
+    return empty ? '' : editor.editor.state.doc.textBetween(from, to, '\n');
+  }
+  if (editor.mode === 'hybrid' && editor.hybridView?.code) {
+    const { from, to, empty } = editor.hybridView.code.state.selection.main;
+    return empty ? '' : editor.hybridView.code.state.doc.sliceString(from, to);
+  }
+  if (editor.sourceMode()) return elements['markdown-source'].value.slice(elements['markdown-source'].selectionStart, elements['markdown-source'].selectionEnd);
+  return '';
+}
+
 function renderFormatting() {
   if (!editor) return;
   const state = editor.formattingState();
   for (const button of document.querySelectorAll('[data-format]')) {
     if (button.dataset.format !== 'clear') button.setAttribute('aria-pressed', String(Boolean(state?.[button.dataset.format])));
   }
-  elements.heading.value = state?.heading || '0';
+  elements['heading'].value = state?.heading || '0';
+  elements['table-toolbar'].hidden = editor.mode !== 'visual' || !state?.table;
   elements['apply-color'].setAttribute('aria-pressed', String(Boolean(state?.color)));
   elements['last-color-swatch'].style.backgroundColor = store.preferences.lastColor;
   elements['apply-color'].title = `Apply Last Color (${store.preferences.lastColor})`;
@@ -111,7 +161,9 @@ function render() {
   elements.retry.hidden = !error || error.kind === 'conflict';
   const changed = activeDocument && activeDocument.content !== activeDocument.savedContent;
   elements['save-status'].textContent = error || globalError ? 'Needs Attention' : !activeDocument?.path ? 'Draft Recovery On' : changed ? 'Saving…' : 'Markdown Saved';
-  elements['document-stats'].textContent = activeDocument ? `${activeDocument.content.length.toLocaleString()} Characters` : '';
+  const words = activeDocument ? countWords(activeDocument.content) : 0;
+  elements['document-stats'].textContent = activeDocument ? `${words.toLocaleString()} ${words === 1 ? 'Word' : 'Words'} · ${activeDocument.content.length.toLocaleString()} Characters` : '';
+  updateBBCodePreview();
 }
 
 function capture() {
@@ -121,6 +173,7 @@ function capture() {
   store.active.content = currentValue;
   baselineValue = currentValue;
   render();
+  findReplace?.syncOnEdit();
   scheduleSave();
 }
 
@@ -143,6 +196,7 @@ function showDocument() {
     baselineValue = editor.val();
   } finally { loadingDocument = false; }
   render();
+  findReplace?.refresh(true);
 }
 
 async function activate(documentId) {
@@ -178,9 +232,17 @@ async function choose(title, message, choices, inputValue) {
       button.onclick = () => elements['choice-dialog'].close(value);
       elements['dialog-actions'].append(button);
     }
-    elements['choice-dialog'].onclose = () => { editor.readOnly(false); resolve(elements['choice-dialog'].returnValue || 'cancel'); };
+    elements['dialog-input'].onkeydown = inputValue === undefined ? null : event => {
+      if (event.key === 'Enter') { event.preventDefault(); elements['choice-dialog'].close(choices[0][0]); }
+    };
+    elements['choice-dialog'].onclose = () => {
+      elements['dialog-input'].onkeydown = null;
+      editor.readOnly(false);
+      resolve(elements['choice-dialog'].returnValue || 'cancel');
+    };
     elements['choice-dialog'].returnValue = 'cancel';
     elements['choice-dialog'].showModal();
+    if (inputValue !== undefined) { elements['dialog-input'].focus(); elements['dialog-input'].select(); }
   });
 }
 
@@ -300,6 +362,9 @@ async function closeWindow() {
 function keyboardShortcut(event) {
   if (!event.ctrlKey || event.altKey || elements['choice-dialog'].open || elements['color-dialog'].open) return;
   const key = event.key.toLowerCase();
+  if (key === 'f' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); findReplace.open(false, selectedSearchText()); return; }
+  if (key === 'h' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); findReplace.open(true, selectedSearchText()); return; }
+  if (key === 'p' && event.shiftKey) { event.preventDefault(); event.stopPropagation(); toggleBBCodePreview(); return; }
   const action = key === 'n' ? () => { capture(); store.add(); showDocument(); return persist(); }
     : key === 'o' ? () => elements.open.click()
     : key === 's' ? () => saveDocument(store.active, event.shiftKey)
@@ -373,7 +438,13 @@ async function applyColor(color) {
 
 async function formatDocument(command, value) {
   if (command === 'link' || command === 'image') {
-    const choice = await choose(command === 'link' ? 'Insert Link' : 'Insert Image', 'Enter a complete HTTP or HTTPS address.', [['apply', 'Insert'], ['cancel', 'Cancel']], 'https://');
+    const bookmark = editor.selectionBookmark();
+    const existingHref = command === 'link' ? editor.activeLinkHref() : '';
+    const choice = existingHref
+      ? await choose('Edit Link', 'Enter a complete HTTP or HTTPS address.', [['apply', 'Save Link'], ['remove', 'Remove Link'], ['cancel', 'Cancel']], existingHref)
+      : await choose(command === 'link' ? 'Insert Link' : 'Insert Image', 'Enter a complete HTTP or HTTPS address.', [['apply', 'Insert'], ['cancel', 'Cancel']], 'https://');
+    editor.restoreSelection(bookmark);
+    if (choice === 'remove') { editor.format('unlink'); capture(); return; }
     if (choice !== 'apply') return;
     value = elements['dialog-input'].value.trim();
     if (!/^https?:\/\//i.test(value) || /[\s<>[\]]/.test(value)) throw new Error('Enter a complete HTTP(S) address without spaces or brackets.');
@@ -384,7 +455,12 @@ async function formatDocument(command, value) {
 
 async function initialize() {
   editor = new MarkdownEditor(elements['visual-editor'], elements['markdown-source'], capture, renderFormatting);
+  findReplace = new FindReplaceController(elements, () => editor, () => { capture(); render(); });
   document.addEventListener('keydown', keyboardShortcut, true);
+  elements['find-toggle'].onclick = () => findReplace.isOpen() ? findReplace.close() : findReplace.open(false, selectedSearchText());
+  elements['preview-bbcode'].onclick = () => toggleBBCodePreview();
+  elements['preview-close'].onclick = () => toggleBBCodePreview(false);
+  elements['preview-copy'].onclick = () => runAction(copySource);
   elements.new.onclick = () => runAction(async () => { capture(); store.add(); showDocument(); await persist(); editor.focus(); });
   elements.open.onclick = () => runAction(async () => {
     const paths = await open({ multiple: true, filters: [{ name: 'Editor Documents', extensions: ['mdbbcode', 'md', 'markdown'] }] });
@@ -410,6 +486,10 @@ async function initialize() {
     button.onmousedown = event => event.preventDefault();
     button.onclick = () => runAction(() => formatDocument(button.dataset.format));
   }
+  for (const button of document.querySelectorAll('[data-table-action]')) {
+    button.onmousedown = event => event.preventDefault();
+    button.onclick = () => runAction(() => formatDocument(button.dataset.tableAction));
+  }
   elements.heading.onchange = () => runAction(() => formatDocument('heading', elements.heading.value));
   colorPicker = new ColorPicker(elements, mode => { store.preferences.colorMode = mode; void persist().catch(() => {}); });
   for (const id of ['apply-color', 'choose-color']) elements[id].onmousedown = event => event.preventDefault();
@@ -432,6 +512,7 @@ async function initialize() {
     if (drafts.length) await activate(drafts[0].id);
   });
   await listen('request-close', () => runAction(closeWindow));
+  await listen('file-drag', event => { elements['editor-host'].classList.toggle('file-drop-active', Boolean(event.payload)); });
   await listen('open-files', () => { if (startupComplete) void runAction(async () => openPaths(await invoke('take_pending_paths'))); });
   await store.restore();
   if (!store.active) store.add();
