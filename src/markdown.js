@@ -1,5 +1,7 @@
 // ==> Section 1 - Markdown Extension Delimiters <==
-import { Mark, Node, markInputRule, getSchema } from '@tiptap/core';
+import { Mark, Node, Extension, markInputRule, getSchema } from '@tiptap/core';
+import { Plugin, PluginKey } from '@tiptap/pm/state';
+import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
 import { TaskList, TaskItem } from '@tiptap/extension-list';
@@ -110,11 +112,60 @@ const TextColor = Mark.create({
   },
 });
 
+export const blockHighlightPluginKey = new PluginKey('blockHighlight');
+
+const BlockHighlight = Extension.create({
+  name: 'blockHighlight',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: blockHighlightPluginKey,
+        state: {
+          init: () => null,
+          apply(transaction, previous) {
+            const meta = transaction.getMeta(blockHighlightPluginKey);
+            if (meta !== undefined) return meta;
+            if (previous && transaction.docChanged) {
+              const from = transaction.mapping.map(previous.from);
+              const to = transaction.mapping.map(previous.to);
+              return from < to ? { from, to } : null;
+            }
+            return previous;
+          },
+        },
+        props: {
+          decorations(state) {
+            const target = blockHighlightPluginKey.getState(state);
+            if (!target || target.to > state.doc.content.size) return DecorationSet.empty;
+            return DecorationSet.create(state.doc, [Decoration.node(target.from, target.to, { class: 'block-menu-target' })]);
+          },
+        },
+      }),
+    ];
+  },
+});
+
+const ListIndentShortcuts = Extension.create({
+  name: 'listIndentShortcuts',
+  addKeyboardShortcuts() {
+    return {
+      Tab: () => {
+        if (this.editor.isActive('table')) return false;
+        return this.editor.chain().sinkListItem('taskItem').run() || this.editor.chain().sinkListItem('listItem').run();
+      },
+      'Shift-Tab': () => {
+        if (this.editor.isActive('table')) return false;
+        return this.editor.chain().liftListItem('taskItem').run() || this.editor.chain().liftListItem('listItem').run();
+      },
+    };
+  },
+});
+
 // ==> Section 2 - Shared Document Model <==
 export const editorExtensions = [
   StarterKit.configure({ underline: false, trailingNode: false, link: { openOnClick: false, autolink: false } }),
   Image.configure({ inline: true, allowBase64: false }), InlineSpoiler, SpoilerBlock, CenterBlock, TextColor, Callout,
-  TaskList, TaskItem.configure({ nested: true }), Table, TableRow, TableCell, TableHeader, SearchHighlight,
+  TaskList, TaskItem.configure({ nested: true }), Table, TableRow, TableCell, TableHeader, SearchHighlight, BlockHighlight, ListIndentShortcuts,
 ];
 // The upstream serializer does not know that literal pipes delimit our custom spoiler marks.
 class EditorMarkdownManager extends MarkdownManager {
@@ -291,5 +342,17 @@ export function markdownToBBCodeWithWarnings(source) {
     node.content?.forEach(inspect);
   };
   inspect(documentModel);
-  return { bbcode: bbcodeNode(documentModel), warnings: [...warnings] };
+  const chunks = [];
+  const blockOffsets = [];
+  let currentLine = 0;
+  for (const child of documentModel.content || []) {
+    const text = bbcodeNode(child);
+    const lineCount = text ? text.split('\n').length : 1;
+    blockOffsets.push({ startLine: currentLine, endLine: currentLine + lineCount });
+    chunks.push(text);
+    currentLine += lineCount + 1;
+  }
+  const bbcode = chunks.join('\n\n');
+  const totalLines = bbcode ? bbcode.split('\n').length : 1;
+  return { bbcode, warnings: [...warnings], blockOffsets, totalLines };
 }

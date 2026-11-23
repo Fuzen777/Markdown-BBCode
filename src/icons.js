@@ -19,7 +19,7 @@ function createIcon(name) {
   return symbol;
 }
 
-const menuIcons = { paragraph: 'format_paragraph', heading1: 'format_h1', heading2: 'format_h2', heading3: 'format_h3', bullet: 'format_list_bulleted', numbered: 'format_list_numbered', task: 'checklist', quote: 'format_quote', code: 'code', callout: 'info', table: 'table', duplicate: 'content_copy', up: 'arrow_upward', down: 'arrow_downward', delete: 'delete' };
+const menuIcons = { paragraph: 'format_paragraph', heading1: 'format_h1', heading2: 'format_h2', heading3: 'format_h3', bullet: 'format_list_bulleted', numbered: 'format_list_numbered', task: 'checklist', quote: 'format_quote', code: 'code', callout: 'info', table: 'table', duplicate: 'content_copy', up: 'arrow_upward', down: 'arrow_downward', delete: 'delete', add: 'add' };
 const menuIconAliases = { bulletList: 'bullet', orderedList: 'numbered', taskList: 'task', blockquote: 'quote', codeBlock: 'code' };
 
 export function setMenuItemLabel(button, key, label) {

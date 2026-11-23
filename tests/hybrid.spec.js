@@ -277,3 +277,23 @@ test('Hybrid menus handle outside clicks, boundary states, active formatting, sh
   await page.getByRole('button', { name: 'Clear', exact: true }).click();
   expect(await savedSource(page)).toBe('# Heading\n\nBold plain');
 });
+
+test('Hybrid pointer drag reorders blocks and Ctrl+D duplicates active block', async ({ page }) => {
+  await openDocument(page, 'First\n\nSecond\n\nThird');
+  const first = page.locator('.hybrid-block:not(.blank-block)').nth(0);
+  const third = page.locator('.hybrid-block:not(.blank-block)').nth(2);
+  await first.hover();
+  const handle = first.getByRole('button', { name: 'Drag Block 1', exact: true });
+  const handleBox = await handle.boundingBox();
+  const thirdBox = await third.boundingBox();
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(thirdBox.x + 20, thirdBox.y + thirdBox.height - 2, { steps: 6 });
+  await expect(page.locator('.block-drop-indicator')).toBeVisible();
+  await page.mouse.up();
+  expect(await savedSource(page)).toBe('\nSecond\n\nThird\nFirst\n');
+
+  await activateBlock(page, 1);
+  await activeBlock(page).press('Control+d');
+  expect(await savedSource(page)).toBe('\nSecond\n\nSecond\n\nThird\nFirst\n');
+});

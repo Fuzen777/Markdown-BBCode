@@ -80,3 +80,13 @@ test('findTextMatches supports case-insensitive and case-sensitive matching', ()
   ]);
   assert.deepEqual(findTextMatches(text, 'alpha', true), [{ from: 6, to: 11 }]);
 });
+
+test('table formatting builds sized GFM tables with optional headers', () => {
+  const withHeader = formatMarkdownSelection('', 0, 0, 'table', { rows: 4, cols: 3, withHeaderRow: true });
+  assert.equal(withHeader.insert.split('\n').length, 5);
+  assert.match(withHeader.insert, /^\| Column 1 \| Column 2 \| Column 3 \|/);
+
+  const noHeader = formatMarkdownSelection('', 0, 0, 'table', { rows: 2, cols: 2, withHeaderRow: false });
+  assert.equal(noHeader.insert.split('\n').length, 4);
+  assert.match(noHeader.insert, /^\| {3}\| {3}\|/);
+});

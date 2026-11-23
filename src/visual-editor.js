@@ -2,17 +2,20 @@
 import { readDocumentSource, isMdbbcode, withDocumentMetadata } from './document-format.js';
 import { HybridEditor } from './hybrid-editor.js';
 import { BlockControls } from './block-controls.js';
+import { TableEdgeControls } from './table-controls.js';
+import { BubbleMenu } from './bubble-menu.js';
 import { formatMarkdownSelection, inspectMarkdownFormatting } from './source-formatting.js';
 import { Editor } from '@tiptap/core';
 import { editorExtensions, parseMarkdown, serializeMarkdown } from './markdown.js';
 
 export class MarkdownEditor {
-  constructor(visualElement, sourceElement, onChange, onSelectionChange = () => {}) {
+  constructor(visualElement, sourceElement, onChange, onSelectionChange = () => {}, onBubbleCommand = () => {}) {
     this.visualElement = visualElement;
     this.sourceElement = sourceElement;
     this.hybridElement = document.getElementById('hybrid-editor');
     this.onChange = onChange;
     this.onSelectionChange = onSelectionChange;
+    this.onBubbleCommand = onBubbleCommand;
     this.mode = 'source';
     this.readonly = false;
     sourceElement.addEventListener('input', () => onChange());
@@ -30,6 +33,11 @@ export class MarkdownEditor {
     this.visualChanged = false;
     this.documentSource = null;
     this.blockControls?.destroy();
+    this.blockControls = null;
+    this.tableControls?.destroy();
+    this.tableControls = null;
+    this.bubbleMenu?.destroy();
+    this.bubbleMenu = null;
     this.hybridView?.destroy();
     this.hybridView = null;
     this.editor?.destroy();
@@ -56,6 +64,8 @@ export class MarkdownEditor {
           onTransaction: () => this.onSelectionChange(),
         });
         this.blockControls = new BlockControls(this.editor, this.visualElement);
+        this.tableControls = new TableEdgeControls(this.editor, this.visualElement);
+        this.bubbleMenu = new BubbleMenu(this.editor, this.visualElement, command => this.onBubbleCommand(command));
       } catch (error) { warning = `Source view preserves this document: ${error.message}`; this.mode = 'source'; }
     }
     this.hybridElement.hidden = this.mode !== 'hybrid';
@@ -84,10 +94,20 @@ export class MarkdownEditor {
     };
     if (selection.empty) recordStyle(selection.$from.parent);
     else editor.state.doc.nodesBetween(selection.from, selection.to, recordStyle);
+    let tableHeader = false;
+    if (active('table')) {
+      for (let depth = selection.$from.depth; depth > 0; depth--) {
+        const node = selection.$from.node(depth);
+        if (node.type.name === 'table') {
+          tableHeader = node.firstChild?.firstChild?.type.name === 'tableHeader';
+          break;
+        }
+      }
+    }
     return {
       heading: paragraphStyles.size === 1 ? [...paragraphStyles][0] : 'mixed',
       bold: active('bold'), italic: active('italic'), strike: active('strike'),
-      task: active('taskList'), table: active('table'), callout: active('callout'),
+      task: active('taskList'), table: active('table'), tableHeader, callout: active('callout'),
       bullet: active('bulletList'), numbered: active('orderedList'), quote: active('blockquote'),
       code: active('codeBlock') || active('code'), link: active('link'), image: active('image'),
       spoiler: active('spoiler') || active('spoilerBlock'), center: active('centerBlock'),
@@ -96,6 +116,12 @@ export class MarkdownEditor {
   }
   sourceMode() { return this.mode === 'source'; }
   activeLinkHref() { return this.mode === 'visual' && this.editor?.isActive('link') ? this.editor.getAttributes('link').href || '' : ''; }
+  duplicateCurrent() {
+    if (this.readonly) return false;
+    if (this.mode === 'visual' && this.blockControls) return this.blockControls.duplicateBlock();
+    if (this.mode === 'hybrid' && this.hybridView) return this.hybridView.duplicateActiveBlock();
+    return false;
+  }
   focus() { if (this.mode === 'hybrid') { this.hybridView.focus(); return; } if (this.sourceMode()) this.sourceElement.focus(); else this.editor.commands.focus(); }
   readOnly(value) { this.readonly = value; this.sourceElement.readOnly = value; this.editor?.setEditable(!value); this.hybridView?.readOnly(value); }
 
@@ -119,11 +145,16 @@ export class MarkdownEditor {
     const actions = {
       bold: () => chain.toggleBold(), italic: () => chain.toggleItalic(), strike: () => chain.toggleStrike(),
       bullet: () => chain.toggleBulletList(), numbered: () => chain.toggleOrderedList(), quote: () => chain.toggleBlockquote(),
-      task: () => chain.toggleTaskList(), table: () => chain.insertTable({ rows: 3, cols: 2, withHeaderRow: true }), callout: () => chain.toggleWrap('callout', { type: 'note', title: '', fold: null }),
+      task: () => chain.toggleTaskList(),
+      table: () => {
+        const { rows = 3, cols = 2, withHeaderRow = true } = value && typeof value === 'object' ? value : {};
+        return chain.insertTable({ rows, cols, withHeaderRow });
+      },
+      callout: () => chain.toggleWrap('callout', { type: 'note', title: '', fold: null }),
       addRowBefore: () => chain.addRowBefore(), addRowAfter: () => chain.addRowAfter(), deleteRow: () => chain.deleteRow(),
       addColumnBefore: () => chain.addColumnBefore(), addColumnAfter: () => chain.addColumnAfter(), deleteColumn: () => chain.deleteColumn(),
       toggleHeaderRow: () => chain.toggleHeaderRow(), deleteTable: () => chain.deleteTable(),
-      code: () => chain.toggleCodeBlock(), center: () => chain.toggleWrap('centerBlock'),
+      code: () => chain.toggleCodeBlock(), inlineCode: () => chain.toggleCode(), center: () => chain.toggleWrap('centerBlock'),
       color: () => chain.setMark('textColor', { color: value }), clear: () => chain.unsetAllMarks(),
       heading: () => Number(value) ? chain.setHeading({ level: Number(value) }) : chain.setParagraph(),
       link: () => chain.extendMarkRange('link').setLink({ href: value }), unlink: () => chain.extendMarkRange('link').unsetLink(), image: () => chain.setImage({ src: value }),

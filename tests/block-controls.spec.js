@@ -60,7 +60,7 @@ test('slash menu filters insertion types and supports keyboard selection and esc
   await expect(page.locator('.tiptap')).toHaveText('/');
 });
 
-test('keyboard moves and native drag/drop reorder entire enclosing blocks', async ({ page }) => {
+test('keyboard moves and pointer drag reorder entire enclosing blocks', async ({ page }) => {
   await page.locator('.tiptap p').nth(0).hover();
   const handle = page.getByRole('button', { name: 'Block Actions And Drag Handle', exact: true });
   await handle.focus();
@@ -69,15 +69,77 @@ test('keyboard moves and native drag/drop reorder entire enclosing blocks', asyn
   await page.locator('.tiptap').press('Control+z');
   await expect(page.locator('.tiptap')).toHaveText('FirstSecondThird');
   await page.locator('.tiptap p').nth(0).hover();
-  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
-  await handle.dispatchEvent('dragstart', { dataTransfer });
-  const rectangle = await page.locator('.tiptap p').nth(2).boundingBox();
-  await page.locator('#host').dispatchEvent('dragover', { dataTransfer, clientX: rectangle.x + 10, clientY: rectangle.y + rectangle.height - 1 });
+  const handleBox = await handle.boundingBox();
+  const targetBox = await page.locator('.tiptap p').nth(2).boundingBox();
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(targetBox.x + 10, targetBox.y + targetBox.height - 2, { steps: 6 });
   await expect(page.locator('.block-drop-indicator')).toBeVisible();
-  await page.locator('#host').dispatchEvent('drop', { dataTransfer, clientX: rectangle.x + 10, clientY: rectangle.y + rectangle.height - 1 });
+  await page.mouse.up();
   await expect(page.locator('.tiptap')).toHaveText('SecondThirdFirst');
   await page.locator('.tiptap').press('Control+z');
   await expect(page.locator('.tiptap')).toHaveText('FirstSecondThird');
+});
+
+test('approaching a drag handle horizontally preserves the hovered block', async ({ page }) => {
+  const second = page.locator('.tiptap p').nth(1);
+  const secondBox = await second.boundingBox();
+  await page.mouse.move(secondBox.x + 30, secondBox.y + secondBox.height / 2);
+  const handle = page.getByRole('button', { name: 'Block Actions And Drag Handle', exact: true });
+  const before = await handle.boundingBox();
+  expect(Math.abs(before.y - secondBox.y)).toBeLessThanOrEqual(3);
+  await page.mouse.move(before.x + before.width / 2, secondBox.y + secondBox.height / 2, { steps: 6 });
+  const after = await handle.boundingBox();
+  expect(Math.abs(after.y - secondBox.y)).toBeLessThanOrEqual(3);
+  await handle.click();
+  await page.getByRole('menuitem', { name: 'Delete Block', exact: true }).click();
+  await expect(page.locator('.tiptap')).toHaveText('FirstThird');
+});
+
+test('per-list-item handles follow nesting, reorder items, indent, support slash inside lists and click below table', async ({ page }) => {
+  await page.evaluate(() => {
+    window.blockEditor.commands.setContent('<ul><li><p>Alpha</p><ul><li><p>Nested</p></li></ul></li><li><p>Beta</p></li></ul>');
+  });
+  const handle = page.getByRole('button', { name: 'Block Actions And Drag Handle', exact: true });
+  await page.locator('.tiptap li p', { hasText: 'Alpha' }).hover();
+  const alphaHandle = await handle.boundingBox();
+  await page.locator('.tiptap li p', { hasText: 'Nested' }).hover();
+  const nestedHandle = await handle.boundingBox();
+  expect(nestedHandle.x).toBeGreaterThan(alphaHandle.x);
+
+  await page.locator('.tiptap li p', { hasText: 'Beta' }).hover();
+  const betaHandle = await handle.boundingBox();
+  const alphaBox = await page.locator('.tiptap li p', { hasText: 'Alpha' }).boundingBox();
+  await page.mouse.move(betaHandle.x + betaHandle.width / 2, betaHandle.y + betaHandle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(alphaBox.x + 10, alphaBox.y + 2, { steps: 6 });
+  await page.mouse.up();
+  await expect(page.locator('.tiptap > ul > li').first()).toContainText('Beta');
+
+  await page.locator('.tiptap li p', { hasText: 'Beta' }).click();
+  await page.locator('.tiptap').press('End');
+  await page.locator('.tiptap').press('Enter');
+  await page.locator('.tiptap').pressSequentially('/heading 2');
+  await expect(page.getByRole('menuitem', { name: 'Heading 2', exact: true })).toBeVisible();
+  await page.locator('.tiptap').press('Enter');
+  await page.locator('.tiptap').pressSequentially('List Heading');
+  await expect(page.locator('.tiptap h2')).toHaveText('List Heading');
+
+  await page.evaluate(() => {
+    window.blockEditor.commands.setContent('<ul><li><p>One</p></li><li><p>Two</p></li></ul>');
+  });
+  await page.locator('.tiptap li p', { hasText: 'Two' }).click();
+  await page.locator('.tiptap').press('Tab');
+  await expect(page.locator('.tiptap ul ul li')).toHaveCount(1);
+  await page.locator('.tiptap').press('Shift+Tab');
+  await expect(page.locator('.tiptap ul ul li')).toHaveCount(0);
+
+  await page.evaluate(() => {
+    window.blockEditor.commands.setContent('<table><tbody><tr><th><p>H</p></th></tr><tr><td><p>C</p></td></tr></tbody></table>');
+  });
+  const tableBox = await page.locator('.tiptap table').boundingBox();
+  await page.mouse.click(tableBox.x + 20, tableBox.y + tableBox.height + 40);
+  await expect(page.locator('.tiptap > p')).toHaveCount(1);
 });
 
 test('insert after adds a new block without replacing the current one', async ({ page }) => {

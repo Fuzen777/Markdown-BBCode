@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4 — 2026-11-23
+
+1. Added draggable splitter resize (with double-click reset and keyboard support) and bidirectional block-anchored scroll sync to the Nexus BBCode preview pane.
+2. Added an `8 × 8` table size grid picker, active `Header Row` button state, hover `+` row/column append rails and edge-only right-click row/column menus while preserving native cell-interior context menus.
+3. Fixed Visual drag handle jump-to-previous-block and broken drag bugs by replacing HTML5 DnD with pointer-event drag-and-drop and pure vertical hit-testing in both Visual and Hybrid modes, and gave Visual lists per-item handles that follow nested indentation.
+4. Added Notion-style editing ergonomics: floating selection formatting bubble bar, hover-faded gutter controls with active block tint, `Tab`/`Shift+Tab` list indenting, `Ctrl+D` duplication, inline `/` triggers inside lists/callouts and click-below-last-block paragraph creation.
+
 ## 0.2.3 — 2026-11-23
 
 1. Fixed Visual gutter overlap over block text, added a Turn Into divider and ensured Delete Block remains visible without clipping.

@@ -8,6 +8,7 @@ import { documentToBBCodeWithWarnings, hasDocumentContent, readDocumentSource } 
 import { importBBCode } from './bbcode-import.js';
 import { ColorPicker } from './color-picker.js';
 import { FindReplaceController } from './find-replace.js';
+import { TableGridPicker } from './table-controls.js';
 import './style.css';
 import { initializeIcons, setButtonIcon } from './icons.js';
 
@@ -25,6 +26,9 @@ let editor;
 let colorPicker;
 let findReplace;
 let previewOpen = false;
+let previewMeta = { blockOffsets: [], totalLines: 1 };
+let scrollSyncSource = null;
+let scrollSyncTimer;
 let baselineValue = '';
 let loadingDocument = false;
 let recoveryTimer;
@@ -58,6 +62,8 @@ function countWords(source) {
 
 function updateBBCodePreview() {
   elements['bbcode-preview-pane'].hidden = !previewOpen;
+  elements['preview-resizer'].hidden = !previewOpen;
+  elements['preview-resizer'].setAttribute('aria-orientation', window.innerWidth <= 840 ? 'horizontal' : 'vertical');
   elements['preview-bbcode'].setAttribute('aria-pressed', String(previewOpen));
   if (!previewOpen || !store.active) return;
   try {
@@ -66,11 +72,13 @@ function updateBBCodePreview() {
     elements['bbcode-preview-notes'].textContent = result.warnings.join('\n');
     elements['bbcode-preview-notes'].hidden = result.warnings.length === 0;
     elements['bbcode-preview-notes'].classList.remove('error');
+    previewMeta = { blockOffsets: result.blockOffsets || [], totalLines: result.totalLines || 1 };
   } catch (error) {
     elements['bbcode-preview-output'].value = '';
     elements['bbcode-preview-notes'].textContent = errorMessage(error);
     elements['bbcode-preview-notes'].hidden = false;
     elements['bbcode-preview-notes'].classList.add('error');
+    previewMeta = { blockOffsets: [], totalLines: 1 };
   }
 }
 
@@ -78,6 +86,91 @@ function toggleBBCodePreview(forceOpen) {
   previewOpen = forceOpen === undefined ? !previewOpen : Boolean(forceOpen);
   if (previewOpen) capture();
   updateBBCodePreview();
+}
+
+function activeEditorScroller() {
+  if (editor.mode === 'visual') return elements['visual-editor'];
+  if (editor.mode === 'hybrid') return elements['hybrid-editor'];
+  return elements['markdown-source'];
+}
+
+function activeEditorBlockElements() {
+  if (editor.mode === 'visual') return [...elements['visual-editor'].querySelectorAll('.tiptap > *')];
+  if (editor.mode === 'hybrid') return [...elements['hybrid-editor'].querySelectorAll('.hybrid-block:not(.blank-block)')];
+  return [];
+}
+
+function lockScrollSync(source) {
+  scrollSyncSource = source;
+  clearTimeout(scrollSyncTimer);
+  scrollSyncTimer = setTimeout(() => { scrollSyncSource = null; }, 60);
+}
+
+function syncScrollFromEditor() {
+  if (!previewOpen || scrollSyncSource === 'preview' || !editor) return;
+  const scroller = activeEditorScroller();
+  const preview = elements['bbcode-preview-output'];
+  const editorMax = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  const previewMax = Math.max(0, preview.scrollHeight - preview.clientHeight);
+  if (editorMax === 0 || previewMax === 0) return;
+  lockScrollSync('editor');
+  if (scroller.scrollTop <= 1) { preview.scrollTop = 0; return; }
+  if (scroller.scrollTop >= editorMax - 1) { preview.scrollTop = previewMax; return; }
+  const blocks = activeEditorBlockElements();
+  if (blocks.length === previewMeta.blockOffsets.length && blocks.length > 0) {
+    const scrollerRect = scroller.getBoundingClientRect();
+    let targetIndex = blocks.length - 1;
+    let fraction = 0;
+    for (let index = 0; index < blocks.length; index++) {
+      const rect = blocks[index].getBoundingClientRect();
+      const top = rect.top - scrollerRect.top + scroller.scrollTop;
+      const bottom = rect.bottom - scrollerRect.top + scroller.scrollTop;
+      if (bottom > scroller.scrollTop) {
+        targetIndex = index;
+        fraction = Math.max(0, Math.min(1, (scroller.scrollTop - top) / Math.max(1, rect.height)));
+        break;
+      }
+    }
+    const anchor = previewMeta.blockOffsets[targetIndex];
+    const line = anchor.startLine + fraction * Math.max(1, anchor.endLine - anchor.startLine);
+    const contentHeight = Math.max(1, preview.scrollHeight - 28);
+    preview.scrollTop = Math.max(0, Math.min(previewMax, (line / Math.max(1, previewMeta.totalLines)) * contentHeight));
+    return;
+  }
+  preview.scrollTop = (scroller.scrollTop / editorMax) * previewMax;
+}
+
+function syncScrollFromPreview() {
+  if (!previewOpen || scrollSyncSource === 'editor' || !editor) return;
+  const scroller = activeEditorScroller();
+  const preview = elements['bbcode-preview-output'];
+  const editorMax = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  const previewMax = Math.max(0, preview.scrollHeight - preview.clientHeight);
+  if (editorMax === 0 || previewMax === 0) return;
+  lockScrollSync('preview');
+  if (preview.scrollTop <= 1) { scroller.scrollTop = 0; return; }
+  if (preview.scrollTop >= previewMax - 1) { scroller.scrollTop = editorMax; return; }
+  const blocks = activeEditorBlockElements();
+  if (blocks.length === previewMeta.blockOffsets.length && blocks.length > 0) {
+    const contentHeight = Math.max(1, preview.scrollHeight - 28);
+    const line = Math.max(0, Math.min(previewMeta.totalLines, (preview.scrollTop / contentHeight) * previewMeta.totalLines));
+    let targetIndex = blocks.length - 1;
+    let fraction = 1;
+    for (let index = 0; index < previewMeta.blockOffsets.length; index++) {
+      const anchor = previewMeta.blockOffsets[index];
+      if (anchor.endLine > line) {
+        targetIndex = index;
+        fraction = line <= anchor.startLine ? 0 : Math.max(0, Math.min(1, (line - anchor.startLine) / Math.max(1, anchor.endLine - anchor.startLine)));
+        break;
+      }
+    }
+    const scrollerRect = scroller.getBoundingClientRect();
+    const rect = blocks[targetIndex].getBoundingClientRect();
+    const top = rect.top - scrollerRect.top + scroller.scrollTop;
+    scroller.scrollTop = Math.max(0, Math.min(editorMax, top + fraction * Math.max(1, rect.height)));
+    return;
+  }
+  scroller.scrollTop = (preview.scrollTop / previewMax) * editorMax;
 }
 
 function selectedSearchText() {
@@ -102,6 +195,7 @@ function renderFormatting() {
   }
   elements['heading'].value = state?.heading || '0';
   elements['table-toolbar'].hidden = editor.mode !== 'visual' || !state?.table;
+  elements['table-toolbar'].querySelector('[data-table-action="toggleHeaderRow"]')?.setAttribute('aria-pressed', String(Boolean(state?.tableHeader)));
   elements['apply-color'].setAttribute('aria-pressed', String(Boolean(state?.color)));
   elements['last-color-swatch'].style.backgroundColor = store.preferences.lastColor;
   elements['apply-color'].title = `Apply Last Color (${store.preferences.lastColor})`;
@@ -364,6 +458,7 @@ function keyboardShortcut(event) {
   const key = event.key.toLowerCase();
   if (key === 'f' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); findReplace.open(false, selectedSearchText()); return; }
   if (key === 'h' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); findReplace.open(true, selectedSearchText()); return; }
+  if (key === 'd' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); if (editor.duplicateCurrent()) capture(); return; }
   if (key === 'p' && event.shiftKey) { event.preventDefault(); event.stopPropagation(); toggleBBCodePreview(); return; }
   const action = key === 'n' ? () => { capture(); store.add(); showDocument(); return persist(); }
     : key === 'o' ? () => elements.open.click()
@@ -454,13 +549,74 @@ async function formatDocument(command, value) {
 }
 
 async function initialize() {
-  editor = new MarkdownEditor(elements['visual-editor'], elements['markdown-source'], capture, renderFormatting);
+  editor = new MarkdownEditor(elements['visual-editor'], elements['markdown-source'], capture, renderFormatting, command => {
+    if (command === 'color') return runAction(() => applyColor(store.preferences.lastColor));
+    return runAction(() => formatDocument(command));
+  });
   findReplace = new FindReplaceController(elements, () => editor, () => { capture(); render(); });
   document.addEventListener('keydown', keyboardShortcut, true);
   elements['find-toggle'].onclick = () => findReplace.isOpen() ? findReplace.close() : findReplace.open(false, selectedSearchText());
   elements['preview-bbcode'].onclick = () => toggleBBCodePreview();
   elements['preview-close'].onclick = () => toggleBBCodePreview(false);
   elements['preview-copy'].onclick = () => runAction(copySource);
+  let resizeDrag = null;
+  const applyPreviewSize = (stacked, panesRect, nextSize) => {
+    if (stacked) {
+      const maxHeight = Math.max(100, panesRect.height - 120);
+      elements['bbcode-preview-pane'].style.height = `${Math.round(Math.max(100, Math.min(maxHeight, nextSize)))}px`;
+    } else {
+      const maxWidth = Math.max(220, panesRect.width - 260);
+      elements['bbcode-preview-pane'].style.width = `${Math.round(Math.max(220, Math.min(maxWidth, nextSize)))}px`;
+    }
+  };
+  elements['preview-resizer'].addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    elements['preview-resizer'].setPointerCapture(event.pointerId);
+    elements['preview-resizer'].classList.add('dragging');
+    const stacked = window.innerWidth <= 840;
+    const panesRect = elements['editor-panes'].getBoundingClientRect();
+    const paneRect = elements['bbcode-preview-pane'].getBoundingClientRect();
+    resizeDrag = { pointerId: event.pointerId, stacked, panesRect, startX: event.clientX, startY: event.clientY, startSize: stacked ? paneRect.height : paneRect.width };
+  });
+  elements['preview-resizer'].addEventListener('pointermove', event => {
+    if (!resizeDrag || event.pointerId !== resizeDrag.pointerId) return;
+    const delta = resizeDrag.stacked ? event.clientY - resizeDrag.startY : event.clientX - resizeDrag.startX;
+    applyPreviewSize(resizeDrag.stacked, resizeDrag.panesRect, resizeDrag.startSize - delta);
+  });
+  const stopResize = event => {
+    if (!resizeDrag || event.pointerId !== resizeDrag.pointerId) return;
+    if (elements['preview-resizer'].hasPointerCapture(event.pointerId)) elements['preview-resizer'].releasePointerCapture(event.pointerId);
+    elements['preview-resizer'].classList.remove('dragging');
+    resizeDrag = null;
+  };
+  elements['preview-resizer'].addEventListener('pointerup', stopResize);
+  elements['preview-resizer'].addEventListener('pointercancel', stopResize);
+  elements['preview-resizer'].addEventListener('dblclick', () => {
+    elements['bbcode-preview-pane'].style.width = '';
+    elements['bbcode-preview-pane'].style.height = '';
+  });
+  elements['preview-resizer'].addEventListener('keydown', event => {
+    const stacked = window.innerWidth <= 840;
+    const delta = stacked
+      ? (event.key === 'ArrowUp' ? 24 : event.key === 'ArrowDown' ? -24 : 0)
+      : (event.key === 'ArrowLeft' ? 24 : event.key === 'ArrowRight' ? -24 : 0);
+    if (!delta) return;
+    event.preventDefault();
+    const panesRect = elements['editor-panes'].getBoundingClientRect();
+    const paneRect = elements['bbcode-preview-pane'].getBoundingClientRect();
+    applyPreviewSize(stacked, panesRect, (stacked ? paneRect.height : paneRect.width) + delta);
+  });
+  window.addEventListener('resize', () => {
+    const stacked = window.innerWidth <= 840;
+    elements['preview-resizer'].setAttribute('aria-orientation', stacked ? 'horizontal' : 'vertical');
+    if (stacked) elements['bbcode-preview-pane'].style.width = '';
+    else elements['bbcode-preview-pane'].style.height = '';
+  });
+  for (const scroller of [elements['visual-editor'], elements['hybrid-editor'], elements['markdown-source']]) {
+    scroller.addEventListener('scroll', syncScrollFromEditor);
+  }
+  elements['bbcode-preview-output'].addEventListener('scroll', syncScrollFromPreview);
   elements.new.onclick = () => runAction(async () => { capture(); store.add(); showDocument(); await persist(); editor.focus(); });
   elements.open.onclick = () => runAction(async () => {
     const paths = await open({ multiple: true, filters: [{ name: 'Editor Documents', extensions: ['mdbbcode', 'md', 'markdown'] }] });
@@ -482,13 +638,30 @@ async function initialize() {
   });
   elements['document-target'].onchange = () => runAction(() => { editor.setTarget(elements['document-target'].value); render(); });
   elements.export.onclick = () => runAction(exportBBCode);
+  const tableButton = document.querySelector('[data-format="table"]');
+  let tableBookmark = null;
+  const tablePicker = new TableGridPicker(tableButton, options => {
+    void runAction(async () => {
+      if (tableBookmark) editor.restoreSelection(tableBookmark);
+      tableBookmark = null;
+      await formatDocument('table', options);
+    });
+  });
   for (const button of document.querySelectorAll('[data-format]')) {
     button.onmousedown = event => event.preventDefault();
-    button.onclick = () => runAction(() => formatDocument(button.dataset.format));
+    if (button === tableButton) {
+      button.setAttribute('aria-haspopup', 'dialog');
+      button.onclick = () => {
+        if (!tablePicker.isOpen()) tableBookmark = editor.selectionBookmark();
+        tablePicker.toggle();
+      };
+    } else {
+      button.onclick = () => { tablePicker.close(); return runAction(() => formatDocument(button.dataset.format)); };
+    }
   }
   for (const button of document.querySelectorAll('[data-table-action]')) {
     button.onmousedown = event => event.preventDefault();
-    button.onclick = () => runAction(() => formatDocument(button.dataset.tableAction));
+    button.onclick = () => { tablePicker.close(); return runAction(() => formatDocument(button.dataset.tableAction)); };
   }
   elements.heading.onchange = () => runAction(() => formatDocument('heading', elements.heading.value));
   colorPicker = new ColorPicker(elements, mode => { store.preferences.colorMode = mode; void persist().catch(() => {}); });

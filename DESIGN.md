@@ -43,3 +43,7 @@ Block-type and block-action entries in Turn Into, Block Actions, Insert and slas
 ## Editing Ergonomics, Preview And Search
 
 Visual block gutter controls sit outside text padding without overlapping content, and Turn Into separates block conversions from block actions. Visual mode exposes contextual row/column table controls inside tables and inline callout type/folding selectors. Hybrid and Source support active formatting state, toggleable inline markers, formatting clear and formatting shortcuts. A toggleable live BBCode split preview pane, cross-mode Find and Replace, word/character counts and window file drag-and-drop complete the desktop workflow.
+
+## Notion-Style Interactions, Tables And Resizable Synced Preview
+
+The BBCode preview pane supports a draggable resize splitter (vertical on desktop, horizontal when stacked) and bidirectional block-anchored scroll sync. The toolbar Table button opens an `8 × 8` size grid with header-row selection; the contextual table bar reflects `Header Row` state, and Visual tables expose right/bottom `+` hover rails plus edge-only right-click menus while keeping cell interiors native. Visual and Hybrid block handles use pointer-event drag-and-drop with vertical hit-testing locked onto hovered controls; Visual lists provide per-item handles that follow nesting, alongside a floating selection bubble toolbar, hover-faded gutter controls, `Tab`/`Shift+Tab` indenting, `Ctrl+D` duplication, inline `/` triggers and click-below-trailing-block paragraph insertion.

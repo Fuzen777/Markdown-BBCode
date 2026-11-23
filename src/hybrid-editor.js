@@ -47,6 +47,23 @@ export class HybridEditor {
     this.readonly = false;
     this.editable = new Compartment();
     this.activeMenuCleanup = null;
+    this.dragState = null;
+    this.indicator = document.createElement('div');
+    this.indicator.className = 'block-drop-indicator';
+    this.indicator.style.position = 'fixed';
+    this.indicator.hidden = true;
+    this.ghost = document.createElement('div');
+    this.ghost.className = 'block-drag-ghost';
+    this.ghost.hidden = true;
+    document.body.append(this.indicator, this.ghost);
+    this.boundDragEscape = event => {
+      if (this.dragState?.active && event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        this.cancelDrag();
+      }
+    };
+    document.addEventListener('keydown', this.boundDragEscape, true);
     this.render();
   }
   closeMenus() {
@@ -94,14 +111,6 @@ export class HybridEditor {
       if (!block.raw.trim()) { preview.replaceChildren(); preview.setAttribute('aria-label', `Edit Blank Line ${index + 1}`); }
       preview.onclick = event => { if (event.target.closest('summary')) return; event.preventDefault(); this.activate(index); };
       preview.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); this.activate(index); } };
-      shell.ondragover = event => { if (this.dragIndex !== undefined) { event.preventDefault(); shell.classList.add('drop-target'); } };
-      shell.ondragleave = () => shell.classList.remove('drop-target');
-      shell.ondrop = event => {
-        event.preventDefault();
-        shell.classList.remove('drop-target');
-        if (this.dragIndex !== undefined) this.move(this.dragIndex, index);
-        this.dragIndex = undefined;
-      };
       shell.append(controls, preview);
       this.host.append(shell);
     });
@@ -172,9 +181,11 @@ export class HybridEditor {
     const controls = document.createElement('div'); controls.className = 'hybrid-block-controls';
     const drag = document.createElement('button');
     setButtonIcon(drag, 'drag_indicator', `Drag Block ${index + 1}`);
-    drag.draggable = true;
-    drag.ondragstart = event => { if (this.readonly) { event.preventDefault(); return; } this.dragIndex = index; event.dataTransfer.setData('text/plain', 'Move Markdown Block'); event.dataTransfer.effectAllowed = 'move'; };
-    drag.ondragend = () => { this.dragIndex = undefined; };
+    drag.classList.add('block-handle');
+    drag.addEventListener('pointerdown', event => this.dragStart(event, index, drag));
+    drag.addEventListener('pointermove', event => this.dragMove(event));
+    drag.addEventListener('pointerup', event => this.dragEnd(event, drag, true));
+    drag.addEventListener('pointercancel', event => this.dragEnd(event, drag, false));
     const add = document.createElement('button');
     setButtonIcon(add, 'add', `Insert After Block ${index + 1}`);
     add.onclick = () => this.showInsertMenu(controls.parentElement, index);
@@ -258,6 +269,65 @@ export class HybridEditor {
     // Only terminate a moved final line when another line follows; do not invent blank separators.
     this.body = blocks.map((raw, index) => index < blocks.length - 1 && !raw.endsWith('\n') ? raw + this.newline : raw).join(''); this.render(); this.onChange();
   }
+  duplicateActiveBlock() {
+    if (this.readonly || !this.blocks.length) return false;
+    this.blockAction(this.activeIndex ?? 0, 'duplicate');
+    return true;
+  }
+  dragStart(event, index, handle) {
+    if (event.button !== 0 || this.readonly) return;
+    event.preventDefault();
+    this.dragState = { pointerId: event.pointerId, index, handle, startX: event.clientX, startY: event.clientY, active: false, dropSlot: null };
+    handle.setPointerCapture(event.pointerId);
+  }
+  dragMove(event) {
+    if (!this.dragState || event.pointerId !== this.dragState.pointerId) return;
+    if (!this.dragState.active) {
+      if (Math.hypot(event.clientX - this.dragState.startX, event.clientY - this.dragState.startY) < 4) return;
+      this.dragState.active = true;
+      this.closeMenus();
+      this.ghost.textContent = this.blocks[this.dragState.index]?.raw.trim().slice(0, 60) || `Block ${this.dragState.index + 1}`;
+      this.ghost.hidden = false;
+    }
+    this.ghost.style.left = `${event.clientX + 12}px`;
+    this.ghost.style.top = `${event.clientY + 12}px`;
+    const hostRect = this.host.getBoundingClientRect();
+    if (event.clientY < hostRect.top + 36) this.host.scrollTop -= 12;
+    else if (event.clientY > hostRect.bottom - 36) this.host.scrollTop += 12;
+
+    const shells = [...this.host.children];
+    let targetIndex = shells.length - 1;
+    let after = true;
+    for (let index = 0; index < shells.length; index++) {
+      const rect = shells[index].getBoundingClientRect();
+      if (event.clientY < rect.bottom) { targetIndex = index; after = event.clientY > (rect.top + rect.bottom) / 2; break; }
+    }
+    if (targetIndex < 0) return;
+    const targetRect = shells[targetIndex].getBoundingClientRect();
+    this.dragState.dropSlot = targetIndex + (after ? 1 : 0);
+    Object.assign(this.indicator.style, { left: `${targetRect.left}px`, top: `${after ? targetRect.bottom : targetRect.top}px`, width: `${targetRect.width}px` });
+    this.indicator.hidden = false;
+  }
+  dragEnd(event, handle, commit) {
+    if (!this.dragState || event.pointerId !== this.dragState.pointerId) return;
+    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    const { active, index, dropSlot } = this.dragState;
+    this.endDrag();
+    if (commit && active && dropSlot !== null) {
+      const destination = dropSlot > index ? dropSlot - 1 : dropSlot;
+      this.move(index, destination);
+    }
+  }
+  cancelDrag() {
+    if (!this.dragState) return;
+    if (this.dragState.handle.hasPointerCapture(this.dragState.pointerId)) this.dragState.handle.releasePointerCapture(this.dragState.pointerId);
+    this.endDrag();
+  }
+  endDrag() {
+    this.dragState = null;
+    this.indicator.hidden = true;
+    this.ghost.hidden = true;
+  }
   format(command, value) {
     if (this.readonly) return false;
     if (!this.code) this.activate(0);
@@ -314,5 +384,13 @@ export class HybridEditor {
   selectionBookmark() { return this.code ? { from: this.code.state.selection.main.from, to: this.code.state.selection.main.to } : { from: 0, to: 0 }; }
   restoreSelection(bookmark) { this.focus(); this.code.dispatch({ selection: { anchor: bookmark.from, head: bookmark.to } }); }
   readOnly(value) { this.readonly = value; this.code?.dispatch({ effects: this.editable.reconfigure(EditorView.editable.of(!value)) }); }
-  destroy() { this.closeMenus(); this.code?.destroy(); this.host.replaceChildren(); }
+  destroy() {
+    this.closeMenus();
+    this.endDrag();
+    document.removeEventListener('keydown', this.boundDragEscape, true);
+    this.indicator.remove();
+    this.ghost.remove();
+    this.code?.destroy();
+    this.host.replaceChildren();
+  }
 }

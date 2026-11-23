@@ -97,7 +97,14 @@ export function formatMarkdownSelection(source, start, end, command, value) {
   } else if (command === 'callout') {
     replacement = '> [!note]\n' + (selected || 'Callout text').split('\n').map(line => '> ' + line).join('\n');
   } else if (command === 'table') {
-    replacement = '| Column 1 | Column 2 |\n| --- | --- |\n| ' + (selected || 'Text') + ' | Text |';
+    const { rows = 3, cols = 2, withHeaderRow = true } = value && typeof value === 'object' ? value : {};
+    const headerRow = `| ${Array.from({ length: cols }, (_, index) => withHeaderRow ? (index === 0 && selected ? selected : `Column ${index + 1}`) : ' ').join(' | ')} |`;
+    const separatorRow = `| ${Array.from({ length: cols }, () => '---').join(' | ')} |`;
+    const bodyRowCount = withHeaderRow ? Math.max(1, rows - 1) : rows;
+    const bodyRows = Array.from({ length: bodyRowCount }, (_, rowIndex) =>
+      `| ${Array.from({ length: cols }, (_, colIndex) => !withHeaderRow && rowIndex === 0 && colIndex === 0 && selected ? selected : 'Text').join(' | ')} |`
+    );
+    replacement = [headerRow, separatorRow, ...bodyRows].join('\n');
   } else return null;
   return { from: start, to: end, insert: replacement, start, end: start + replacement.length };
 }

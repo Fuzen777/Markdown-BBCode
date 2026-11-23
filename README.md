@@ -95,4 +95,4 @@ Block-type and block-action entries in Turn Into, Block Actions, Insert and slas
 
 ## Shortcuts, Preview And Search
 
-Use `Ctrl+F` to search and `Ctrl+H` to replace across Visual, Hybrid and Source, or toggle the live Nexus BBCode preview pane with `Ctrl+Shift+P` (or the Preview BBCode button). Drop `.md`, `.markdown`, `.mdbbcode`, `.bbcode` or `.txt` files directly onto the window to open or import them. Inside Visual tables and callouts, use the contextual table bar and callout header selectors to edit structure directly.
+Use `Ctrl+F` to search and `Ctrl+H` to replace across Visual, Hybrid and Source, `Ctrl+D` to duplicate the active block or list item, `Tab`/`Shift+Tab` to indent list items, or toggle the resizable, scroll-synced Nexus BBCode preview pane with `Ctrl+Shift+P` (or the Preview BBCode button). Drop `.md`, `.markdown`, `.mdbbcode`, `.bbcode` or `.txt` files directly onto the window to open or import them. Use the Table toolbar button's size grid, hover `+` rails, or right-click table borders for row/column actions, and select text in Visual mode for the floating formatting bubble bar.

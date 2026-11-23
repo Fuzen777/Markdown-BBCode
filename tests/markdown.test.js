@@ -104,6 +104,9 @@ test('GFM tables preserve aligned columns and inline content with export warning
   const exported = markdownToBBCodeWithWarnings(source);
   assert.match(exported.bbcode, /\[b\]Name\[\/b\] \| \[b\]Value/);
   assert.equal(exported.warnings.length, 1);
+  assert.equal(exported.blockOffsets.length, 1);
+  assert.equal(exported.blockOffsets[0].startLine, 0);
+  assert.equal(exported.totalLines, 3);
 });
 
 test('unsupported markup inside task items and table cells is never silently dropped', () => {

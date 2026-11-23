@@ -506,3 +506,75 @@ test('footer shows word count and dropped files open or import cleanly', async (
   await expect(page.getByRole('tab', { name: 'Dropped.md', exact: true })).toBeVisible();
   await expect(page.getByRole('tab', { name: /Dropped\.imported/ })).toBeVisible();
 });
+
+test('preview pane resizes by drag and syncs scroll bidirectionally', async ({ page }) => {
+  const longSource = Array.from({ length: 30 }, (_, index) => `# Section ${index + 1}\n\nParagraph content for block ${index + 1} with extra lines to scroll cleanly.`).join('\n\n');
+  await setSource(page, longSource);
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.getByRole('button', { name: 'Preview BBCode', exact: true }).click();
+
+  const pane = page.locator('#bbcode-preview-pane');
+  const initialBox = await pane.boundingBox();
+  const resizerBox = await page.locator('#preview-resizer').boundingBox();
+  await page.mouse.move(resizerBox.x + resizerBox.width / 2, resizerBox.y + 40);
+  await page.mouse.down();
+  await page.mouse.move(resizerBox.x - 100, resizerBox.y + 40, { steps: 5 });
+  await page.mouse.up();
+  const resizedBox = await pane.boundingBox();
+  expect(resizedBox.width).toBeGreaterThan(initialBox.width + 60);
+
+  await page.locator('#visual-editor').evaluate(element => { element.scrollTop = 600; element.dispatchEvent(new Event('scroll')); });
+  await expect.poll(() => page.locator('#bbcode-preview-output').evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+
+  await page.waitForTimeout(80);
+  await page.locator('#bbcode-preview-output').evaluate(element => { element.scrollTop = 100; element.dispatchEvent(new Event('scroll')); });
+  await expect.poll(() => page.locator('#visual-editor').evaluate(element => element.scrollTop)).toBeLessThan(500);
+});
+
+test('table grid selector, active Header Row, hover + rails and edge RMB menus work', async ({ page }) => {
+  await page.getByRole('button', { name: 'Table', exact: true }).click();
+  const gridDialog = page.getByRole('dialog', { name: 'Insert Table Size', exact: true });
+  await expect(gridDialog).toBeVisible();
+  await gridDialog.getByRole('button', { name: '4 × 3 Table', exact: true }).hover();
+  await expect(gridDialog.locator('.table-grid-readout')).toHaveText('4 × 3 Table');
+  await gridDialog.getByRole('button', { name: '4 × 3 Table', exact: true }).click();
+  await expect(page.locator('.tiptap tr')).toHaveCount(4);
+  await expect(page.locator('.tiptap tr').first().locator('th')).toHaveCount(3);
+  await expect(page.getByRole('button', { name: 'Header Row', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Header Row', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Header Row', exact: true })).toHaveAttribute('aria-pressed', 'false');
+
+  const tableBox = await page.locator('.tiptap table').boundingBox();
+  await page.mouse.move(tableBox.x + tableBox.width - 2, tableBox.y + 20);
+  await expect(page.locator('.table-add-col')).toBeVisible();
+  await page.locator('.table-add-col').click();
+  await expect(page.locator('.tiptap tr').first().locator('td, th')).toHaveCount(4);
+
+  const updatedTableBox = await page.locator('.tiptap table').boundingBox();
+  await page.mouse.move(updatedTableBox.x + 20, updatedTableBox.y + updatedTableBox.height - 2);
+  await expect(page.locator('.table-add-row')).toBeVisible();
+  await page.locator('.table-add-row').click();
+  await expect(page.locator('.tiptap tr')).toHaveCount(5);
+
+  const cellBox = await page.locator('.tiptap td').first().boundingBox();
+  await page.mouse.click(cellBox.x + cellBox.width / 2, cellBox.y + cellBox.height / 2, { button: 'right' });
+  await expect(page.locator('.table-edge-menu')).toBeHidden();
+
+  await page.mouse.move(cellBox.x + 20, cellBox.y + cellBox.height);
+  await page.mouse.click(cellBox.x + 20, cellBox.y + cellBox.height, { button: 'right' });
+  await expect(page.locator('.table-edge-menu')).toBeVisible();
+  await page.getByRole('menuitem', { name: 'Delete Row', exact: true }).click();
+  await expect(page.locator('.tiptap tr')).toHaveCount(4);
+});
+
+test('selection bubble toolbar and Ctrl+D duplicate work in Visual mode', async ({ page }) => {
+  const visual = page.getByRole('textbox', { name: 'Visual Markdown Editor' });
+  await visual.fill('Bubble test line');
+  await selectText(page, '.tiptap p', true);
+  const bubble = page.locator('.bubble-menu');
+  await expect(bubble).toBeVisible();
+  await bubble.getByRole('button', { name: 'Inline Code', exact: true }).click();
+  await expect(page.locator('.tiptap code')).toHaveText('Bubble test line');
+  await page.keyboard.press('Control+d');
+  await expect(page.locator('.tiptap p')).toHaveCount(2);
+});
