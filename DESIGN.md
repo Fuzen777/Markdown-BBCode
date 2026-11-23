@@ -37,3 +37,5 @@ Check source-only saving and migration, explicit export replacement and warnings
 Each actual top-level blank line is an independent editable block. A content block retains its terminating newline on disk without exposing that terminator as an extra editable row. Internal list, callout and code spacing stays inside the enclosing block. Gutter controls occupy no document height. Moving or deleting separators can intentionally change Markdown grouping; do not invent blank lines during moves.
 
 Use locally bundled Google Material Symbols Rounded SVGs for file, formatting and block actions. Provide accessible names and hover/focus tooltips, including shortcuts where available. Retain text for modes, dropdowns, menus and confirmations. Include the Apache 2.0 license in portable releases.
+
+Block-type and block-action entries in Turn Into, Block Actions, Insert and slash menus show matching icons alongside their text, including distinct Heading 1, 2 and 3 symbols.

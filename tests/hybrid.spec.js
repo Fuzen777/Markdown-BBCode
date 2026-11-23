@@ -43,6 +43,7 @@ async function blockAction(page, index, action) {
   const block = page.locator('.hybrid-block:not(.blank-block)').nth(index - 1);
   await block.hover();
   await block.getByRole('button', { name: / Actions$/ }).click();
+  await expect(block.locator('.hybrid-action-menu [role="menuitem"] svg')).toHaveCount(4);
   await block.getByRole('menuitem', { name: { up: 'Move Up', down: 'Move Down', duplicate: 'Duplicate', delete: 'Delete' }[action], exact: true }).click();
 }
 function activeBlock(page) { return page.getByRole('textbox', { name: 'Active Block Markdown', exact: true }); }

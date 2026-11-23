@@ -1,5 +1,5 @@
 // ==> Section 1 - Block Types And Selection <==
-import { setButtonIcon } from './icons.js';
+import { setButtonIcon, setMenuItemLabel } from './icons.js';
 import { TextSelection } from '@tiptap/pm/state';
 import { closeHistory } from '@tiptap/pm/history';
 
@@ -187,13 +187,13 @@ export class BlockControls {
     const types = blockTypes.filter(type => this.editor.schema.nodes[type.key.replace(/heading\d/, 'heading')] && type.label.toLowerCase().includes(query.toLowerCase()));
     for (const type of types) {
       if (!slash && !insert && (!allowConversion || type.key === 'table')) continue;
-      this.addMenuItem(type.label, () => this.chooseType(type.key, slash, insert));
+      this.addMenuItem(type.label, () => this.chooseType(type.key, slash, insert), false, type.key);
     }
     if (!slash && !insert) {
-      this.addMenuItem('Duplicate Block', () => this.duplicateBlock());
-      this.addMenuItem('Move Up', () => this.moveBlock(this.activeIndex, this.activeIndex - 1), this.activeIndex === 0);
-      this.addMenuItem('Move Down', () => this.moveBlock(this.activeIndex, this.activeIndex + 2), this.activeIndex === this.editor.state.doc.childCount - 1);
-      this.addMenuItem('Delete Block', () => this.deleteBlock());
+      this.addMenuItem('Duplicate Block', () => this.duplicateBlock(), false, 'duplicate');
+      this.addMenuItem('Move Up', () => this.moveBlock(this.activeIndex, this.activeIndex - 1), this.activeIndex === 0, 'up');
+      this.addMenuItem('Move Down', () => this.moveBlock(this.activeIndex, this.activeIndex + 2), this.activeIndex === this.editor.state.doc.childCount - 1, 'down');
+      this.addMenuItem('Delete Block', () => this.deleteBlock(), false, 'delete');
     }
     if (!this.menu.querySelector('button')) {
       const empty = document.createElement('div');
@@ -208,8 +208,9 @@ export class BlockControls {
     this.highlightMenu();
     if (!slash) this.menu.querySelector('button:not(:disabled)')?.focus();
   }
-  addMenuItem(label, action, disabled = false) {
+  addMenuItem(label, action, disabled = false, iconKey = null) {
     const button = this.button(label, label, 'block-menu-item');
+    if (iconKey) setMenuItemLabel(button, iconKey, label);
     button.setAttribute('role', 'menuitem');
     button.disabled = disabled;
     button.onclick = action;

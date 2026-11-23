@@ -35,3 +35,5 @@ Steam conversion, publishing, image uploads and managed local attachments are de
 Real top-level blank lines are individual editable blocks; content blocks have no extra trailing editor rows. Gutter actions do not add vertical space. Blank rows can be edited, duplicated, deleted or moved, with undo. Internal container spacing is preserved.
 
 File and formatting actions use locally bundled Material Symbols Rounded icons with hover and keyboard-focus tooltips. Icons work offline, preserve active styles and retain accessible names. Modes, dropdowns and confirmation actions remain text-labelled.
+
+Block-type and block-action entries in Turn Into, Block Actions, Insert and slash menus show matching icons alongside their text, including distinct Heading 1, 2 and 3 symbols.

@@ -22,6 +22,8 @@ async function openBlockMenu(page, index = 0) {
 // ==> Section 2 - Visual Block Operations <==
 test('turn into, duplicate, delete and undo preserve the surrounding blocks', async ({ page }) => {
   await openBlockMenu(page);
+  const menuItems = page.locator('.block-menu [role="menuitem"]');
+  await expect(menuItems.locator('svg')).toHaveCount(await menuItems.count());
   await page.getByRole('menuitem', { name: 'Heading 1', exact: true }).click();
   await expect(page.locator('.tiptap h1')).toHaveText('First');
   await openBlockMenu(page);
@@ -46,6 +48,8 @@ test('slash menu filters insertion types and supports keyboard selection and esc
   await page.evaluate(() => { window.blockEditor.commands.setContent('<p></p>'); window.blockEditor.commands.focus('start'); });
   await page.locator('.tiptap').pressSequentially('/');
   await expect(page.locator('.block-menu')).toBeVisible();
+  const slashItems = page.locator('.block-menu [role="menuitem"]');
+  await expect(slashItems.locator('svg')).toHaveCount(await slashItems.count());
   await page.locator('.tiptap').press('ArrowDown');
   await page.locator('.tiptap').press('Escape');
   await expect(page.locator('.block-menu')).toBeHidden();
@@ -75,6 +79,8 @@ test('keyboard moves and native drag/drop reorder entire enclosing blocks', asyn
 test('insert after adds a new block without replacing the current one', async ({ page }) => {
   await page.locator('.tiptap p').nth(0).hover();
   await page.getByRole('button', { name: 'Insert Block After', exact: true }).click();
+  const insertItems = page.locator('.block-menu [role="menuitem"]');
+  await expect(insertItems.locator('svg')).toHaveCount(await insertItems.count());
   await page.getByRole('menuitem', { name: 'Heading 2', exact: true }).click();
   await page.locator('.tiptap').pressSequentially('Inserted');
   await expect(page.locator('.tiptap > *')).toHaveCount(4);

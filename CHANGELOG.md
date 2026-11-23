@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 — 2026-11-23
+
+1. Added icon-and-text entries to Turn Into, Block Actions, Insert and slash menus, including distinct heading-level symbols and block actions (Duplicate, Move Up, Move Down, Delete).
+
 ## 0.2.1 — 2026-11-23
 
 1. Removed phantom Hybrid rows by separating real top-level blank lines into editable blocks and moving controls into the gutter.

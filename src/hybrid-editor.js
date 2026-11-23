@@ -7,7 +7,7 @@ import { syntaxTree, syntaxHighlighting, HighlightStyle } from '@codemirror/lang
 import { tags } from '@lezer/highlight';
 import { generateHTML } from '@tiptap/core';
 import { editorExtensions, parseMarkdown, segmentMarkdown } from './markdown.js';
-import { setButtonIcon } from './icons.js';
+import { setButtonIcon, setMenuItemLabel } from './icons.js';
 import { formatMarkdownSelection } from './source-formatting.js';
 
 const markerHighlight = ViewPlugin.fromClass(class {
@@ -178,7 +178,7 @@ export class HybridEditor {
       if (existing) { existing.remove(); return; }
       const menu = document.createElement('div'); menu.className = 'hybrid-action-menu'; menu.role = 'menu';
       for (const [action, label] of [['up', 'Move Up'], ['down', 'Move Down'], ['duplicate', 'Duplicate'], ['delete', 'Delete']]) {
-        const button = document.createElement('button'); button.textContent = label; button.role = 'menuitem';
+        const button = document.createElement('button'); setMenuItemLabel(button, action, label); button.role = 'menuitem';
         button.onclick = () => this.blockAction(index, action);
         menu.append(button);
       }
@@ -208,7 +208,7 @@ export class HybridEditor {
     if (this.readonly || shell.querySelector('.hybrid-insert-menu')) return;
     const menu = document.createElement('div'); menu.className = 'hybrid-insert-menu'; menu.setAttribute('role', 'menu');
     for (const [type, label] of Object.entries(blockLabels)) {
-      const button = document.createElement('button'); button.textContent = label; button.setAttribute('role', 'menuitem');
+      const button = document.createElement('button'); setMenuItemLabel(button, type, label); button.setAttribute('role', 'menuitem');
       button.onclick = () => {
         this.remember(true);
         const block = this.blocks[index];

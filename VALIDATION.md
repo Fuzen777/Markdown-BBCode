@@ -2,17 +2,17 @@
 
 ## Automated Checks
 
-Version 0.2.1, Windows x64, 2026-11-23.
+Version 0.2.2, Windows x64, 2026-11-23.
 
 | Check | Result And Coverage |
 | --- | --- |
 | JavaScript | 51 passed: source-only persistence, legacy migration, YAML, export validation/warnings, Markdown round trips, tasks/tables/callouts, segmentation, individual blank-line spans, colors and conflicts. |
-| Browser Integration | 36 checks passed across the full run and targeted Hybrid rerun: Visual blocks, slash menu, dragging, undo, Hybrid whole enclosing blocks, raw HTML safety, source fidelity, navigation, color selection, source-only autosave, export replacement/warnings, metadata, recovery and responsive layouts. |
+| Browser Integration | 36 checks passed in the full suite: Visual blocks, slash menu, dragging, undo, Hybrid whole enclosing blocks, raw HTML safety, source fidelity, navigation, color selection, source-only autosave, export replacement/warnings, metadata, recovery and responsive layouts. |
 | Rust | 3 passed: atomic writes, revision conflicts, missing files, Unicode, Save As and invalid UTF-8. |
 | Lint | ESLint, Rust formatting check and Clippy passed. |
 | Frontend | Production build passed; non-blocking JavaScript chunk-size warning. |
 
-Browser tests use an in-memory desktop bridge. Light/dark Hybrid screenshots were inspected, including icons, focus tooltips and compact blank rows. Blank-line edit/duplicate/delete/undo and narrow layouts passed. Native smoke uses an isolated copy and a test-only WebView2 debugging connection supplied through its environment; the distributed app does not enable it.
+Browser tests use an in-memory desktop bridge. Turn Into, Block Actions, Insert and slash menus (including Duplicate, Move Up, Move Down and Delete) were visually inspected in light and dark modes. Light/dark Hybrid screenshots were inspected, including icons, focus tooltips and compact blank rows. Blank-line edit/duplicate/delete/undo and narrow layouts passed. Native smoke uses an isolated copy and a test-only WebView2 debugging connection supplied through its environment; the distributed app does not enable it.
 
 ## Native Validation
 
@@ -20,9 +20,9 @@ Portable Windows build and native smoke passed with no page errors: real Rust au
 
 | Operation | Observed Time |
 | --- | --- |
-| Startup With Document | 1,135 ms |
-| Second File Launch Into Existing Window | 96 ms |
-| Tab Close | 34 ms |
+| Startup With Document | 1,085 ms |
+| Second File Launch Into Existing Window | 70 ms |
+| Tab Close | 30 ms |
 
 Single samples on the development machine including automation overhead; not performance guarantees.
 

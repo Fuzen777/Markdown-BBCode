@@ -3,15 +3,28 @@ const symbols = import.meta.glob('./assets/icons/*.svg', { query: '?raw', import
 
 export function setButtonIcon(button, name, label, tooltip = label) {
   const accessibleLabel = label || button.getAttribute('aria-label') || button.textContent.trim();
-  const symbol = document.createElement('span');
-  symbol.className = 'material-icon';
-  symbol.setAttribute('aria-hidden', 'true');
-  symbol.innerHTML = symbols[`./assets/icons/${name}.svg`];
+  const symbol = createIcon(name);
   button.replaceChildren(symbol);
   button.classList.add('icon-button');
   button.setAttribute('aria-label', accessibleLabel);
   button.title = tooltip || accessibleLabel;
   button.dataset.tooltip = button.title;
+}
+
+function createIcon(name) {
+  const symbol = document.createElement('span');
+  symbol.className = 'material-icon';
+  symbol.setAttribute('aria-hidden', 'true');
+  symbol.innerHTML = symbols[`./assets/icons/${name}.svg`];
+  return symbol;
+}
+
+const menuIcons = { paragraph: 'format_paragraph', heading1: 'format_h1', heading2: 'format_h2', heading3: 'format_h3', bullet: 'format_list_bulleted', numbered: 'format_list_numbered', task: 'checklist', quote: 'format_quote', code: 'code', callout: 'info', table: 'table', duplicate: 'content_copy', up: 'arrow_upward', down: 'arrow_downward', delete: 'delete' };
+const menuIconAliases = { bulletList: 'bullet', orderedList: 'numbered', taskList: 'task', blockquote: 'quote', codeBlock: 'code' };
+
+export function setMenuItemLabel(button, key, label) {
+  button.replaceChildren(createIcon(menuIcons[menuIconAliases[key] || key]), document.createTextNode(label));
+  button.classList.add('block-type-item');
 }
 
 export function initializeIcons() {
