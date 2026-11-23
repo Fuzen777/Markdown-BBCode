@@ -1,40 +1,33 @@
-# BBCode Editor Design
+# Markdown-First Editor Design
 
 ## Purpose
 
-A portable Windows visual Markdown editor for Nexus mod descriptions. New documents use .mdbbcode: Markdown plus YAML metadata. The document source is authoritative; a same-stem `.bbcode` companion is generated alongside it. Steam support is deferred.
+A fast portable Windows Markdown editor with optional Nexus BBCode export. Ordinary .md files are the default; .markdown and existing .mdbbcode documents remain supported. Steam export is deferred. Keep the current application name and portable directory identity for compatibility.
 
-## Editing
+## Documents And Saving
 
-Tauri hosts Tiptap with locally bundled assets. Tabs offer Visual and Markdown Source views. Copy BBCode converts the active document. Spoilers use `||text||`, or standalone delimiter lines around multiple paragraphs. Centered blocks use `<div style="text-align: center">`; colors use `<span style="color: #rrggbb">`. Toolbar controls manage these extensions. Spoilers remain expanded while editing.
+Autosave only the editable source after 750 ms and recovery after 250 ms. Opening, editing, saving and closing must never create, update, check or delete a BBCode companion. Existing companions remain untouched. Preserve source revision checks, atomic writes, recoverable drafts, tabs and single-instance opening.
 
-Supported Markdown covers headings, emphasis, strikethrough, lists, quotes, code, links and web images. Unsupported Markdown remains source-editable and saved, but blocks visual conversion and BBCode export. No silent dropping of unknown HTML. Merely opening or switching tabs must not rewrite source files. Actual visual edits may normalize syntax.
+New documents and one-time imports default to .md without mandatory metadata. Preserve ordinary YAML frontmatter without interpreting unrelated format/version/target keys as application settings. Existing explicit mdbbcode metadata remains readable; validate export target only on export. Unsupported source stays source-editable and saved.
 
-## Document Metadata
+## BBCode Export
 
-A YAML header uses format: mdbbcode, version: 1 and target: nexus. In Visual view, a compact Document Properties panel edits Target through a dropdown. Steam is disabled until implemented. Format and version are managed by the app. Source displays the complete file. Preserve unknown fields/comments; exclude the header from BBCode. Invalid metadata stays saved but blocks output and remains source-editable. Unsupported target values remain visible and can be changed to Nexus.
+Copy BBCode converts the current document on demand. Export BBCode chooses a destination and writes once, with explicit revision-checked replacement for an existing file. Never replace the editable source or an original BBCode import. Show conversion problems only when exporting. Ask before applying lossy fallbacks: callouts become titled quotes/spoilers; tasks become checklist text; tables become readable text. Do not silently omit content.
 
-New files and imports default to .mdbbcode. Existing .md/.markdown files still open without automatic rewriting; Save As offers conversion. The generated companion keeps the same basename. File association remains manual and applies to .mdbbcode independently of ordinary Markdown.
+## Visual Blocks
 
-Missing YAML headers offer Initialize Document Properties, which adds Nexus metadata, saves the source and generates BBCode. The body is preserved. Invalid metadata or unsupported content offers Fix Source instead of an ineffective retry. Existing BBCode still requires reviewed replacement.
+Use the existing Tiptap document model. Support headings, text styles, lists, tasks, tables, quotes, code, links, images, spoilers, centered blocks, colors and Obsidian callouts. Provide block drag handles, an insertion menu triggered by /, and actions to change block type, duplicate and delete. Keep ordinary Markdown on disk.
 
-## Files And Recovery
+Callouts use > [!type] Title, optional + or - for folding, and nested Markdown blocks. Preserve unknown callout identifiers with neutral styling. Opening or switching modes without editing preserves source. Unknown or unsafe markup remains source-editable rather than silently discarded.
 
-Save Markdown first, then generate BBCode. Conversion or output failures must never prevent saving valid source text. Show output failure separately as BBCode Out Of Date. Existing and externally modified outputs require reviewed replacement with a revision check. Source conflicts retain the existing explicit resolution workflow. Source failures block close; output-only failures permit explicit close after warning.
+## Hybrid Editing
 
-New documents are recoverable drafts until named. Save As creates a separate pair. Autosave runs after 750 ms; session recovery after 250 ms. Atomic replacement and SHA-256 revision checks protect local files. Settings and recovery live beside the executable in portable-data.
+Offer Visual, Hybrid and Source. Visual remains the default. In Hybrid, only the active top-level enclosing block exposes editable Markdown with syntax markers visually distinct from text; surrounding blocks remain rendered. Entering a nested list or callout exposes the whole enclosing block, as approved. Preserve raw source for untouched blocks, including spacing. Incomplete active Markdown remains editable and autosaved. Switching blocks reparses the edited block; unsupported blocks display their raw source. Source remains the full-document fallback, including frontmatter.
 
-## Import And Migration
+## Interface And Preferences
 
-BBCode import is one-time conversion, with unsupported formatting reported before acceptance. Save imported drafts to a different basename, keeping the original BBCode intact. Do not synchronize edits back from BBCode.
+Keep light/dark appearance, standard file shortcuts, source-conflict handling and selection-aware formatting controls. Retain the split Color button, last-applied color and Hex/RGB/HSL preferences across launches. Property settings are optional and shown only for explicit legacy document metadata. No automatic system file associations or app renaming.
 
-Legacy session documents remain pending BBCode imports until explicitly accepted. Save a version-1 session backup before writing the new session format. New portable releases use separate versioned folders.
+## Validation
 
-## Interface
-
-Use system light/dark appearance, compact file controls, tabs, formatting toolbar, Visual/Source switch and separate Markdown/output status. Highlight active formatting at the cursor or across the whole selection. The paragraph dropdown reflects headings 1–6, Paragraph, Mixed or Other Block. Recompute indicators on selection, edits and undo; source mode has no inferred formatting state. Keep standard file shortcuts and single-instance opening. Windows file association remains manual.
-
-
-## Color Preferences
-
-The Color control is split: click the swatch to apply the last-used color immediately, or the arrow to open the in-app picker. Hex, RGB and HSL input modes and hue/saturation/lightness sliders are supported. Hex accepts 3 or 6 digits with an optional #. The last-applied color and selected input mode persist across launches in portable-data; changing mode is remembered even when canceling. Selecting colored text highlights the control without replacing the remembered color. Cancel/Escape leaves document content unchanged. Visual and Source selections are preserved while choosing a color.
+Check source-only saving and migration, explicit export replacement and warnings, table/task/callout round trips, block actions and undo, Hybrid source fidelity and navigation, malformed source preservation, color selection/persistence and native startup/restart. Leave live Nexus publishing and Windows association changes to the user.

@@ -1,12 +1,22 @@
-// ==> Section 1 - Metadata And Conversion Tests <==
+// ==> Section 1 - Frontmatter Preservation And On-Demand Export <==
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readDocumentSource, withDocumentMetadata, documentToBBCode, hasDocumentContent } from '../src/document-format.js';
-import { DocumentStore, outputPath } from '../src/documents.js';
+import { readDocumentSource, withDocumentMetadata, documentToBBCode, documentToBBCodeWithWarnings, hasDocumentContent } from '../src/document-format.js';
+import { DocumentStore } from '../src/documents.js';
 import { backendFixture } from './backend.js';
 
-test('metadata is excluded from output and unknown fields survive target changes', () => {
-  const source = '---\r\n# Keep this comment\r\nformat: mdbbcode\r\nversion: 1\r\ntarget: steam\r\nauthor: Someone\r\n---\r\n\r\n**Body**\r\n';
+test('ordinary Markdown metadata is preserved and reserved names are not app settings', () => {
+  const source = '\uFEFF---\r\n# Keep this comment\r\nformat: article\r\nversion: 2026\r\ntarget: website\r\nauthor: Someone\r\n---\r\n\r\n**Body**\r\n';
+  const parsed = readDocumentSource(source);
+  assert.equal(parsed.prefix + parsed.body, source);
+  assert.equal(parsed.body, '**Body**\r\n');
+  assert.equal(parsed.target, 'nexus');
+  assert.equal(parsed.legacyMetadata, false);
+  assert.equal(documentToBBCode(source, 'Page.md'), '[b]Body[/b]');
+});
+
+test('legacy properties remain editable and unknown fields survive explicit target changes', () => {
+  const source = '---\r\n# Keep this comment\r\nformat: mdbbcode\r\nversion: 2\r\ntarget: steam\r\nauthor: Someone\r\n---\r\n\r\n**Body**\r\n';
   assert.equal(readDocumentSource(source, true).body, '**Body**\r\n');
   const updated = withDocumentMetadata(source, 'nexus');
   assert.match(updated, /# Keep this comment/);
@@ -16,50 +26,44 @@ test('metadata is excluded from output and unknown fields survive target changes
   assert.equal(hasDocumentContent(withDocumentMetadata('')), false);
 });
 
+test('headerless legacy files are readable and export with Nexus defaults', () => {
+  assert.equal(readDocumentSource('**Body**', true).body, '**Body**');
+  assert.equal(documentToBBCode('**Body**', 'Page.mdbbcode'), '[b]Body[/b]');
+});
+
 for (const [name, source] of [
-  ['missing header', 'Body'],
   ['unclosed header', '---\nformat: mdbbcode\nBody'],
   ['invalid syntax', '---\nformat: [\n---\nBody'],
   ['duplicate keys', '---\nformat: mdbbcode\nversion: 1\ntarget: nexus\ntarget: steam\n---\nBody'],
-  ['wrong format', '---\nformat: other\nversion: 1\ntarget: nexus\n---\nBody'],
-  ['future version', '---\nformat: mdbbcode\nversion: 2\ntarget: nexus\n---\nBody'],
-  ['missing target', '---\nformat: mdbbcode\nversion: 1\n---\nBody'],
-  ['invalid target type', '---\nformat: mdbbcode\nversion: 1\ntarget: [nexus]\n---\nBody'],
-]) test(`${name} preserves saved source and last good output`, async () => {
+  ['wrong legacy format', '---\nformat: other\nversion: 1\ntarget: nexus\n---\nBody'],
+  ['future legacy version', '---\nformat: mdbbcode\nversion: 2\ntarget: nexus\n---\nBody'],
+  ['invalid legacy target type', '---\nformat: mdbbcode\nversion: 1\ntarget: [nexus]\n---\nBody'],
+]) test(`${name} saves unchanged and is validated only when exporting`, async () => {
   const backend = backendFixture();
   const store = new DocumentStore(backend);
-  const documentRecord = store.add(withDocumentMetadata('Good'));
+  const documentRecord = store.add(source);
   await store.saveAs(documentRecord, 'Page.mdbbcode');
-  documentRecord.content = source;
   await store.flush(documentRecord);
   assert.equal(backend.files.get('Page.mdbbcode').content, source);
-  assert.equal(backend.files.get('Page.bbcode').content, 'Good');
-  assert.equal(documentRecord.outputError.kind, 'conversion');
+  assert.equal(backend.files.size, 1);
+  assert.equal(documentRecord.error, null);
   assert.throws(() => documentToBBCode(source, 'Page.mdbbcode'));
 });
 
-test('unsupported targets remain readable but cannot generate Nexus output', () => {
+test('unsupported legacy targets remain editable but cannot generate Nexus output', () => {
   const source = withDocumentMetadata('Body', 'steam');
   assert.equal(readDocumentSource(source).target, 'steam');
   assert.throws(() => documentToBBCode(source), /Unsupported Target: steam/);
 });
 
-test('Save As converts Markdown without rewriting the original or its companion', async () => {
-  const backend = backendFixture();
-  const store = new DocumentStore(backend);
-  const original = '\uFEFF**Body**\r\n';
-  await backend.saveFile('Page.md', original, null);
-  const documentRecord = await store.open('Page.md');
-  await store.flush(documentRecord);
-  await store.saveAs(documentRecord, 'Page.mdbbcode');
-  assert.equal(backend.files.get('Page.md').content, original);
-  assert.match(backend.files.get('Page.mdbbcode').content, /format: mdbbcode/);
-  assert.equal(documentRecord.outputError.kind, 'conflict');
-  assert.equal(outputPath('PAGE.MDBBCODE'), 'PAGE.bbcode');
-  await store.regenerate(documentRecord, backend.files.get('Page.bbcode').revision);
-  await store.persist();
-  const restored = new DocumentStore(backend);
-  await restored.restore();
-  assert.equal(restored.active.path, 'Page.mdbbcode');
-  assert.equal(restored.active.content, documentRecord.content);
+test('leading thematic breaks are not mistaken for required YAML', () => {
+  for (const source of ['---\n\n# Heading', '---\n\nText\n\n---\nMore text']) assert.equal(readDocumentSource(source).body, source);
+});
+
+test('on-demand export returns warnings separately without changing the Markdown', () => {
+  const source = '---\ntitle: Example\n---\n\n**Body**';
+  const output = documentToBBCodeWithWarnings(source, 'Page.md');
+  assert.equal(output.bbcode, '[b]Body[/b]');
+  assert.ok(Array.isArray(output.warnings));
+  assert.equal(readDocumentSource(source).prefix + readDocumentSource(source).body, source);
 });

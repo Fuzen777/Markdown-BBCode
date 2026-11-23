@@ -1,62 +1,57 @@
 # BBCode Editor
 
-A portable Windows x64 visual Markdown editor that generates Nexus Mods BBCode beside each Markdown document. Built with Tauri and Tiptap.
+A portable Windows x64 Markdown editor with optional Nexus Mods BBCode export. Built with Tauri and Tiptap.
 
 ## Running
 
-Extract the portable folder into a writable location and run **BBCode Editor.exe**. Microsoft Edge WebView2 Runtime is required. Settings, recovery drafts and browser cache are kept in `portable-data` beside the executable. Keep that folder when moving the app.
+Extract the portable folder into a writable location and run **BBCode Editor.exe**. Microsoft Edge WebView2 Runtime is required. Settings and recovery stay in `portable-data` beside the executable. Keep that folder when moving or upgrading the app, with both versions closed.
 
 ## Documents And Saving
 
-1. Use **New** or **Open** for `.mdbbcode` documents in tabs. Existing `.md` and `.markdown` files remain supported. **Visual** provides formatted editing; **Source** edits Markdown directly.
-2. **Save** names a new draft. Named documents autosave after a 750 ms typing pause. Saving `Description.mdbbcode` also generates `Description.bbcode` next to it.
-3. **Copy BBCode** converts and copies the current document for Nexus Mods.
-4. **Import BBCode** makes a one-time Markdown draft. Unsupported formatting is reported before acceptance. Save it under the suggested `.imported.mdbbcode` name; the original BBCode stays intact.
+1. Create ordinary `.md` files, or open `.md`, `.markdown` and existing `.mdbbcode` documents in tabs.
+2. **Save** names a draft. Named files autosave after a 750 ms typing pause. Only Markdown is saved; existing `.bbcode` files are untouched.
+3. **Copy BBCode** converts the current document for Nexus. **Export BBCode…** writes to a chosen file and asks before replacing an existing file. Callouts, tables and tasks show conversion-loss warnings before export.
+4. **Import BBCode** creates a one-time Markdown draft with formatting-loss review. The original BBCode is protected.
 
-Markdown is the editable original. Changes to the generated BBCode are not imported back. Existing or externally changed BBCode requires confirmation before replacement. If conversion or output saving fails, Markdown still saves and **BBCode Out Of Date** remains visible. Correct unsupported source or use **Regenerate BBCode** to retry.
+Source conflicts offer **Load Disk Version**, **Keep My Edits**, or **Save As**. Save failures prevent closing until resolved. Unnamed drafts and open tabs recover after restart; snapshots are written after a 250 ms pause. Changes since the latest successful write can be lost on abrupt power loss.
 
-Source conflicts offer **Load Disk Version**, **Keep My Edits**, or **Save As**. Source save failures prevent closing until resolved. Output-only failures allow explicitly closing with outdated BBCode after Markdown has saved.
+## Editing Modes
 
-Unnamed documents are recovered after restarting. Closed unnamed documents remain available through **Drafts**. Recovery snapshots are written after a 250 ms pause; changes since the latest successful write can be lost on abrupt power loss.
+| Mode | Behaviour |
+| --- | --- |
+| Visual | Formatted editing, selection-aware toolbar, block menus, drag handles and slash insertion in an empty paragraph. |
+| Hybrid | Click a block to edit its Markdown with distinguished syntax markers while other blocks stay rendered. Lists and callouts open as a whole enclosing block. Untouched source is preserved. |
+| Source | Edit the complete file, including optional YAML. |
 
-## Document Properties
+Visual block menus insert, duplicate, delete, move or change block types. Alt+Up/Down moves the selected Visual block. Hybrid provides per-block actions, insertion and drag movement. At the start/end of an active Hybrid block, Up/Down moves to its neighbour; Escape restores the preview. Adjacent compatible lists follow Markdown rules and may merge into one list.
 
-New documents use the `.mdbbcode` extension: plain-text Markdown with a YAML header. In Visual view, **Document Properties** presents **Target** as a dropdown. Nexus Mods is supported; Steam is listed but unavailable until its converter is implemented. Source shows the entire file, including YAML:
-
-```markdown
----
-format: mdbbcode
-version: 1
-target: nexus
----
-
-# Mod Description
-```
-
-Format and version are managed automatically. Dropdown changes update the YAML; Source changes appear in the panel when returning to Visual. Unknown fields and comments are preserved. Invalid YAML, unsupported format/version or missing required fields remain saved and source-editable while BBCode generation pauses. Unsupported targets can be changed to Nexus Mods in the panel.
-
-If a .mdbbcode file has no YAML header, click **Initialize Document Properties** to add Nexus settings and generate its BBCode copy. For malformed metadata or unsupported content, **Fix Source** takes you to the source text without changing it.
-
-Opening existing Markdown does not rewrite it. **Save As** suggests `.mdbbcode` and adds metadata when converting plain Markdown. If the new file shares an existing BBCode companion, replacement requires confirmation.
+Visual edits can normalize Markdown. Merely opening a file or switching modes preserves it. Undo history resets when switching modes or tabs. Unsupported syntax remains available in Source or as raw Hybrid blocks.
 
 ## Formatting
 
-Standard formatting includes headings, bold, italic, strikethrough, lists, quotes, code, links and images. Additional formatting is applied using toolbar buttons:
+Headings, bold, italic, strike, lists, tasks, tables, quotes, code, links and web images are supported. Obsidian callouts accept types, custom titles, nested content and `+`/`-` folding markers:
 
-| Format | Markdown Source |
+```markdown
+> [!warning]- Before Installing
+> Back up your files.
+```
+
+Edit callout titles directly in Visual; use Hybrid or Source to change type and default folding. Clicking the folding control only changes the current view.
+
+| Additional Format | Source |
 | --- | --- |
 | Inline Spoiler | `||Hidden text||` |
-| Multiple-Paragraph Spoiler | Standalone `||` lines around the paragraphs. |
+| Multiple-Paragraph Spoiler | Standalone `||` lines around paragraphs. |
 | Center | `<div style="text-align: center">` around Markdown blocks, followed by `</div>`. |
 | Color | `<span style="color: #e6a050">Text</span>` |
 
-Formatting buttons highlight styles active at the cursor or across the selection. The paragraph dropdown follows headings 1–6, shows Mixed for different paragraph styles and Other Block for code blocks. Mixed text styles are not shown as fully active. Indicators update after edits, selection changes and undo. Spoilers stay expanded during editing. Colors use hexadecimal values. Tables, task lists and arbitrary HTML are not supported for visual editing or BBCode conversion; their Markdown remains saved and source-editable. Ordered lists must start at 1. Images require web URLs; uploading or managing local attachments is not included. The app works offline except for loading remote images.
+The Color swatch applies the last-used color; its arrow opens Hex/RGB/HSL controls. Hex accepts an optional #. Color and input mode persist across launches. Cancel leaves content unchanged. Selection is preserved across the picker in all modes.
 
-Visual editing may normalize Markdown syntax after an edit; simply opening a file preserves its source. Switching tabs or modes resets visual undo history. Nexus appearance may differ; check the final description there. Steam support is deferred.
+## YAML And Export
 
-## Color Picker
+Ordinary Markdown can contain arbitrary YAML without application-specific fields. Save As preserves source without adding metadata. Legacy `.mdbbcode` headers remain supported, including their visual Target dropdown. Nexus is supported; Steam is deferred. Invalid metadata never prevents saving the source, but can prevent export.
 
-The Color control is split: click the swatch to apply the last-used color immediately, or the arrow to open the in-app picker. Hex, RGB and HSL input modes and hue/saturation/lightness sliders are supported. Hex accepts 3 or 6 digits with an optional #. The last-applied color and selected input mode persist across launches in portable-data; changing mode is remembered even when canceling. Selecting colored text highlights the control without replacing the remembered color. Cancel/Escape leaves document content unchanged. Visual and Source selections are preserved while choosing a color.
+BBCode is generated only on request. Tables become readable text, tasks become lists and callouts become quotes; review the export warning and check final rendering on Nexus. Arbitrary HTML and unsupported conversion syntax can block export. Images require web URLs; local attachment management is not included. The app works offline except for loading remote images.
 
 ## Keyboard Shortcuts
 
@@ -69,11 +64,7 @@ The Color control is split: click the swatch to apply the last-used color immedi
 | Ctrl+W | Close Tab |
 | Ctrl+Shift+C | Copy BBCode |
 
-Use Windows **Open With** to associate `.mdbbcode` files with the executable if desired. Subsequent file launches open tabs in the existing window. No association is changed automatically.
-
-## Upgrading From 0.1.0
-
-Close the previous app before launching this release. To bring across recovery data, copy the old `portable-data` folder beside the new executable while both apps are closed. Legacy BBCode recovery appears under **Recovered BBCode** for explicit one-time import. The original session is backed up as `session-v1-backup.json` before migration. The previous release and its documents are not modified by installing the new folder.
+Use Windows **Open With** to associate files with the executable at its permanent location. Subsequent launches open tabs in the existing window. No association changes automatically. Older BBCode recovery is offered for explicit import and backed up as `session-v1-backup.json`.
 
 ## Development
 
@@ -82,9 +73,6 @@ Requires Node.js, Rust's Windows MSVC toolchain, Visual Studio C++ Build Tools a
 ```powershell
 npm ci
 npm run tauri dev
-```
-
-```powershell
 npm test
 npm run test:ui
 npm run lint
@@ -95,4 +83,4 @@ npm run portable
 node scripts/native-smoke.mjs
 ```
 
-Browser tests use installed Microsoft Edge. `npm run portable` produces `release/BBCode Editor <version>`. Icons are prepared automatically. Build the frontend before running Rust checks on a clean checkout.
+Browser tests use installed Microsoft Edge. Portable builds appear under `release/BBCode Editor <version>`. Build the frontend before Rust checks on a clean checkout. Close other instances before running the isolated native smoke test.

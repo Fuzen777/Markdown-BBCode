@@ -7,7 +7,7 @@
   </head>
   <body>
     <header>
-      <div class="brand"><span class="brand-mark">[b]</span><div><strong>BBCode Editor</strong><small>Markdown → Nexus BBCode</small></div></div>
+      <div class="brand"><span class="brand-mark">[b]</span><div><strong>BBCode Editor</strong><small>Markdown Editor · Optional BBCode Export</small></div></div>
       <nav aria-label="Files">
         <button id="new" title="New Document (Ctrl+N)">New</button>
         <button id="open" title="Open Document (Ctrl+O)">Open</button>
@@ -17,16 +17,16 @@
         <button id="drafts" hidden>Drafts</button>
         <button id="recovered" hidden>Recovered BBCode</button>
       </nav>
+      <button id="export">Export BBCode…</button>
       <button id="copy" class="primary" title="Copy BBCode (Ctrl+Shift+C)">Copy BBCode</button>
     </header>
     <div id="tabs" role="tablist" aria-label="Documents"></div>
     <main>
       <div class="document-bar">
-        <div class="document-location"><div id="document-path">Recoverable Markdown Draft</div><small id="output-path">Save To Create A BBCode Copy</small></div>
-        <div class="mode-switch" aria-label="Editor Mode"><button id="visual" aria-pressed="true">Visual</button><button id="source" aria-pressed="false">Source</button></div>
+        <div class="document-location"><div id="document-path">Recoverable Markdown Draft</div></div>
+        <div class="mode-switch" aria-label="Editor Mode"><button id="visual" aria-pressed="true">Visual</button><button id="hybrid" aria-pressed="false">Hybrid</button><button id="source" aria-pressed="false">Source</button></div>
       </div>
       <div id="notice" role="status" hidden><span id="notice-text"></span><button id="resolve" hidden>Resolve Conflict</button><button id="retry" hidden>Retry Save</button></div>
-      <div id="output-notice" role="status" hidden><span id="output-notice-text"></span><button id="regenerate">Regenerate BBCode</button></div>
       <section id="document-properties" aria-labelledby="properties-title">
         <strong id="properties-title">Document Properties</strong>
         <label for="document-target">Target</label>
@@ -41,6 +41,7 @@
           <button data-format="strike" aria-label="Strikethrough" title="Strikethrough"><s>S</s></button>
           <span class="toolbar-divider"></span>
           <button data-format="bullet" title="Bullet List">Bullets</button><button data-format="numbered" title="Numbered List">Numbers</button>
+          <button data-format="task">Tasks</button><button data-format="table">Table</button><button data-format="callout">Callout</button>
           <button data-format="quote">Quote</button><button data-format="code">Code</button>
           <button data-format="link">Link</button><button data-format="image">Image</button>
           <span class="toolbar-divider"></span>
@@ -49,10 +50,11 @@
           <button data-format="clear" title="Clear Text Formatting">Clear</button>
         </div>
         <div id="visual-editor"></div>
+        <div id="hybrid-editor" hidden></div>
         <textarea id="markdown-source" aria-label="Markdown Source" spellcheck="false" hidden></textarea>
       </div>
     </main>
-    <footer><span id="save-status" role="status">Starting…</span><span id="document-stats"></span><span>Autosave · Markdown → BBCode</span></footer>
+    <footer><span id="save-status" role="status">Starting…</span><span id="document-stats"></span><span>Autosave · Local Markdown</span></footer>
     <dialog id="choice-dialog" aria-labelledby="dialog-title"><h2 id="dialog-title"></h2><p id="dialog-message"></p><input id="dialog-input" aria-label="Value" hidden><div id="dialog-actions"></div></dialog>
     <dialog id="color-dialog" aria-labelledby="color-title">
       <form id="color-form" novalidate>

@@ -49,18 +49,18 @@ async function setSource(page, content) {
 async function saveDraft(page, path = 'C:\\Page.md') {
   await page.evaluate(selected => { window.testDesktop.savePath = selected; }, path);
   await page.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect.poll(() => page.evaluate(selected => Boolean(window.testDesktop.files[selected]), /\.(mdbbcode|md|markdown)$/i.test(path) ? path : path + '.mdbbcode')).toBe(true);
+  await expect.poll(() => page.evaluate(selected => Boolean(window.testDesktop.files[selected]), /\.(mdbbcode|md|markdown)$/i.test(path) ? path : path + '.md')).toBe(true);
 }
 
 // ==> Section 2 - Markdown UI And Conversion <==
 test('visual editing, Markdown source, and independent tabs', async ({ page }) => {
   await page.getByRole('textbox', { name: 'Visual Markdown Editor' }).fill('A Markdown description');
   await page.getByRole('button', { name: 'Source', exact: true }).click();
-  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue(/target: nexus[\s\S]*A Markdown description$/);
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('A Markdown description');
   await page.getByRole('button', { name: 'New', exact: true }).click();
   await setSource(page, 'Second document');
   await page.getByRole('tab', { name: /Untitled 1/ }).click();
-  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue(/target: nexus[\s\S]*A Markdown description$/);
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('A Markdown description');
 });
 
 test('spoilers, colors, and centered blocks render and export', async ({ page }) => {
@@ -72,6 +72,9 @@ test('spoilers, colors, and centered blocks render and export', async ({ page })
   await expect(page.locator('.tiptap [data-spoiler-block] p')).toHaveCount(2);
   await expect(page.locator('.tiptap [data-spoiler-block]')).toContainText('Second paragraph');
   await saveDraft(page);
+  await page.evaluate(() => { window.testDesktop.savePath = 'C:\\Page.bbcode'; });
+  await page.getByRole('button', { name: 'Export BBCode…', exact: true }).click();
+  await expect(page.locator('#save-status')).toHaveText('BBCode Exported');
   const output = await page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content);
   expect(output).toContain('[center]');
   expect(output).toContain('[spoiler]');
@@ -98,31 +101,24 @@ test('formatting buttons update the Markdown source', async ({ page }) => {
   expect(source).toContain('**');
 });
 
-test('autosave updates both files and external BBCode edits need approval', async ({ page }) => {
+test('autosave writes only Markdown and leaves existing BBCode untouched', async ({ page }) => {
+  await page.evaluate(() => { window.testDesktop.files['C:\\Page.bbcode'] = { path: 'C:\\Page.bbcode', content: 'Keep this', revision: 'existing' }; });
   await setSource(page, '**First**');
   await saveDraft(page);
-  await page.getByRole('textbox', { name: 'Markdown Source' }).fill('**Second**');
-  await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('[b]Second[/b]');
-  await page.evaluate(() => { window.testDesktop.files['C:\\Page.bbcode'] = { path: 'C:\\Page.bbcode', content: 'External edit', revision: 'external' }; });
-  await page.getByRole('textbox', { name: 'Markdown Source' }).fill('**Third**');
-  await expect(page.locator('#output-notice')).toContainText('Out Of Date');
-  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.md'].content)).toBe('**Third**');
-  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('External edit');
-  await page.getByRole('button', { name: 'Regenerate BBCode', exact: true }).click();
-  await page.getByRole('button', { name: 'Regenerate And Replace', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('[b]Third[/b]');
+  await page.locator('#markdown-source').fill('**Second**');
+  await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\Page.md'].content)).toBe('**Second**');
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('Keep this');
+  await expect(page.locator('#save-status')).toHaveText('Markdown Saved');
 });
 
-test('invalid Markdown output does not block source saving and recovers after correction', async ({ page }) => {
-  await setSource(page, 'Good');
+test('unsupported export content stays saved and raises an error only on export', async ({ page }) => {
+  await setSource(page, '<script>not allowed</script>');
   await saveDraft(page);
-  await page.getByRole('textbox', { name: 'Markdown Source' }).fill('<script>not allowed</script>');
-  await expect(page.locator('#save-status')).toHaveText('Markdown Saved · BBCode Out Of Date');
-  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('Good');
-  await page.getByRole('button', { name: 'Visual', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveAttribute('aria-pressed', 'true');
-  await page.getByRole('textbox', { name: 'Markdown Source' }).fill('Corrected');
-  await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('Corrected');
+  await expect(page.locator('#save-status')).toHaveText('Markdown Saved');
+  await page.getByRole('button', { name: 'Copy BBCode', exact: true }).click();
+  await expect(page.locator('#notice')).toContainText('Unsupported');
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.md'].content)).toBe('<script>not allowed</script>');
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'])).toBeUndefined();
 });
 
 test('import reports unsupported tags and preserves the original file', async ({ page }) => {
@@ -137,7 +133,7 @@ test('import reports unsupported tags and preserves the original file', async ({
   await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue(/\*\*Title\*\*/);
   await saveDraft(page, 'C:\\Original.imported.md');
   expect(await page.evaluate(() => window.testDesktop.files['C:\\Original.bbcode'].revision)).toBe('original');
-  expect(await page.evaluate(() => window.testDesktop.files['C:\\Original.imported.bbcode'].content)).toContain('[spoiler]Hidden[/spoiler]');
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Original.imported.bbcode'])).toBeUndefined();
 });
 
 test('legacy recovery is offered for import without automatic conversion', async ({ page }) => {
@@ -173,58 +169,47 @@ test('light, dark, and narrow layouts fit the window', async ({ page }) => {
 });
 
 // ==> Section 3 - Metadata And Selection State <==
-test('new documents expose properties and include metadata in Source', async ({ page }) => {
-  await expect(page.getByRole('region', { name: 'Document Properties' })).toBeVisible();
-  await expect(page.getByLabel('Target', { exact: true })).toHaveValue('nexus');
-  await expect(page.locator('#document-target option[value=steam]')).toBeDisabled();
+test('new documents default to ordinary Markdown without app metadata', async ({ page }) => {
+  await expect(page.locator('#document-properties')).toBeHidden();
   await page.getByRole('textbox', { name: 'Visual Markdown Editor' }).fill('Body');
   await page.getByRole('button', { name: 'Source', exact: true }).click();
-  await expect(page.locator('#document-properties')).toBeHidden();
-  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('---\nformat: mdbbcode\nversion: 1\ntarget: nexus\n---\n\nBody');
+  await expect(page.locator('#markdown-source')).toHaveValue('Body');
   await saveDraft(page, 'C:\\New Document');
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\New Document.bbcode'])).toBeUndefined();
 });
 
-test('Steam metadata is visible and changing the dropdown updates source and output', async ({ page }) => {
+test('legacy export target is editable and validated only on export', async ({ page }) => {
   const source = '---\nformat: mdbbcode\nversion: 1\ntarget: steam\n# Retain this\nauthor: Someone\n---\n\n**Original**';
   await setSource(page, source);
   await saveDraft(page, 'C:\\Page.mdbbcode');
-  await expect(page.locator('#output-notice')).toContainText('Unsupported Target: steam');
+  await expect(page.locator('#save-status')).toHaveText('Markdown Saved');
+  await page.getByRole('button', { name: 'Copy BBCode', exact: true }).click();
+  await expect(page.locator('#notice')).toContainText('Unsupported Target');
   await page.getByRole('button', { name: 'Visual', exact: true }).click();
-  await expect(page.getByLabel('Target', { exact: true })).toHaveValue('steam');
-  await expect(page.locator('.tiptap')).toHaveText('Original');
   await page.getByLabel('Target', { exact: true }).selectOption('nexus');
-  await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode']?.content)).toBe('[b]Original[/b]');
   await page.getByRole('button', { name: 'Source', exact: true }).click();
-  await expect(page.locator('#markdown-source')).toHaveValue(/target: nexus[\s\S]*# Retain this[\s\S]*author: Someone[\s\S]*\*\*Original\*\*/);
+  await expect(page.locator('#markdown-source')).toHaveValue(/target: nexus[\s\S]*author: Someone/);
 });
 
-test('malformed YAML autosaves without replacing good BBCode and can be corrected', async ({ page }) => {
-  const good = '---\nformat: mdbbcode\nversion: 1\ntarget: nexus\n---\n\nGood';
-  await setSource(page, good);
-  await saveDraft(page, 'C:\\Page.mdbbcode');
-  const invalid = good.replace('target: nexus', 'target: [');
-  await page.locator('#markdown-source').fill(invalid);
-  await expect(page.locator('#output-notice')).toContainText('Invalid YAML');
-  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.mdbbcode'].content)).toBe(invalid);
-  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('Good');
+test('arbitrary regular Markdown frontmatter remains intact while editing', async ({ page }) => {
+  const source = '---\nversion: 22\nformat: article\ntarget: readers\ntitle: Example\n---\n\nBody';
+  await setSource(page, source);
   await page.getByRole('button', { name: 'Visual', exact: true }).click();
-  await expect(page.locator('#markdown-source')).toBeVisible();
-  await page.locator('#markdown-source').fill(good.replace('Good', 'Corrected'));
-  await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('Corrected');
+  await expect(page.locator('.tiptap')).toHaveText('Body');
+  await expect(page.locator('#document-properties')).toBeHidden();
+  await page.locator('.tiptap').fill('Edited');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.locator('#markdown-source')).toHaveValue(source.replace('Body', 'Edited'));
+  await saveDraft(page);
 });
 
-test('Save As from plain Markdown adds metadata and leaves the original untouched', async ({ page }) => {
-  await page.evaluate(() => {
-    window.testDesktop.files['C:\\Original.md'] = { path: 'C:\\Original.md', content: '**Body**', revision: 'original' };
-    window.testDesktop.openPaths = ['C:\\Original.md'];
-    window.testDesktop.savePath = 'C:\\Converted.mdbbcode';
-  });
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
+test('Save As preserves source and does not inject metadata', async ({ page }) => {
+  await setSource(page, '**Body**');
+  await saveDraft(page);
+  await page.evaluate(() => { window.testDesktop.savePath = 'C:\\Copy.md'; });
   await page.getByRole('button', { name: 'Save As', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\Converted.mdbbcode']?.content)).toContain('format: mdbbcode');
-  expect(await page.evaluate(() => window.testDesktop.files['C:\\Original.md'].content)).toBe('**Body**');
-  await page.getByRole('button', { name: 'Source', exact: true }).click();
-  await expect(page.locator('#markdown-source')).toHaveValue(/format: mdbbcode[\s\S]*\*\*Body\*\*/);
+  await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\Copy.md']?.content)).toBe('**Body**');
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.md'].content)).toBe('**Body**');
 });
 
 async function selectText(page, selector, entireNode = false) {
@@ -266,45 +251,37 @@ test('formatting controls follow the cursor, selection, mixed styles, and tab ch
 });
 
 // ==> Section 4 - Actionable Output Failures <==
-test('missing properties offer initialization and generate BBCode without changing the body', async ({ page }) => {
-  const original = 'NAME\nExample Mod\n\n# Description\n\n**Body** with ||spoilers||.';
-  await page.evaluate(content => {
-    window.testDesktop.files['C:\\Page.mdbbcode'] = { path: 'C:\\Page.mdbbcode', content, revision: 'original' };
-    window.testDesktop.openPaths = ['C:\\Page.mdbbcode'];
-  }, original);
-  await page.getByRole('button', { name: 'Open', exact: true }).click();
-  await page.getByRole('button', { name: 'Initialize Document Properties', exact: true }).click();
-  await expect(page.getByLabel('Target', { exact: true })).toHaveValue('nexus');
-  await expect(page.locator('#save-status')).toHaveText('Markdown And BBCode Saved');
-  const saved = await page.evaluate(() => window.testDesktop.files['C:\\Page.mdbbcode'].content);
-  expect(saved).toBe('---\nformat: mdbbcode\nversion: 1\ntarget: nexus\n---\n\n' + original);
-  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toContain('[b]Body[/b]');
-  await expect(page.locator('#output-notice')).toBeHidden();
-});
-
-test('invalid metadata offers Fix Source instead of an ineffective regeneration retry', async ({ page }) => {
-  const source = '---\nformat: mdbbcode\nversion: 1\ntarget: [\n---\n\nBody';
-  await setSource(page, source);
-  await saveDraft(page, 'C:\\Page.mdbbcode');
-  await page.getByRole('button', { name: 'Fix Source', exact: true }).click();
-  await expect(page.locator('#markdown-source')).toBeFocused();
-  await expect(page.locator('#markdown-source')).toHaveValue(source);
-  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'])).toBeUndefined();
-  await expect(page.getByRole('button', { name: 'Regenerate BBCode', exact: true })).toHaveCount(0);
-});
-
-test('initializing properties does not replace an existing BBCode copy without review', async ({ page }) => {
+test('headerless legacy documents stay editable without forced initialization', async ({ page }) => {
   await page.evaluate(() => {
     window.testDesktop.files['C:\\Page.mdbbcode'] = { path: 'C:\\Page.mdbbcode', content: '**Body**', revision: 'original' };
-    window.testDesktop.files['C:\\Page.bbcode'] = { path: 'C:\\Page.bbcode', content: 'Keep this', revision: 'existing' };
     window.testDesktop.openPaths = ['C:\\Page.mdbbcode'];
   });
   await page.getByRole('button', { name: 'Open', exact: true }).click();
-  await page.getByRole('button', { name: 'Initialize Document Properties', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Regenerate BBCode', exact: true })).toBeVisible();
+  await expect(page.locator('.tiptap')).toHaveText('Body');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.locator('#markdown-source')).toHaveValue('**Body**');
+});
+
+test('malformed YAML saves and export reports the problem without changing it', async ({ page }) => {
+  const source = '---\ntitle: [\n---\n\nBody';
+  await setSource(page, source);
+  await saveDraft(page);
+  await expect(page.locator('#save-status')).toHaveText('Markdown Saved');
+  await page.getByRole('button', { name: 'Copy BBCode', exact: true }).click();
+  await expect(page.locator('#notice')).toContainText('Invalid YAML');
+  await expect(page.locator('#markdown-source')).toHaveValue(source);
+});
+
+test('explicit export reviews existing files and protects the imported original', async ({ page }) => {
+  await setSource(page, '**Body**');
+  await page.evaluate(() => {
+    window.testDesktop.files['C:\\Page.bbcode'] = { path: 'C:\\Page.bbcode', content: 'Keep this', revision: 'existing' };
+    window.testDesktop.savePath = 'C:\\Page.bbcode';
+  });
+  await page.getByRole('button', { name: 'Export BBCode…', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('Replace Existing BBCode');
   expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('Keep this');
-  await page.getByRole('button', { name: 'Regenerate BBCode', exact: true }).click();
-  await page.getByRole('button', { name: 'Regenerate And Replace', exact: true }).click();
+  await page.getByRole('button', { name: 'Replace File', exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\Page.bbcode'].content)).toBe('[b]Body[/b]');
 });
 
@@ -380,4 +357,24 @@ test('HSL and visual sliders update the preview and picker fits light dark and n
   await page.keyboard.press('Escape');
   await expect(page.locator('#color-dialog')).not.toBeVisible();
   await expect(page.locator('#apply-color')).toHaveAttribute('data-color', '#e6a050');
+});
+
+test('tables tasks and folded callouts edit visually and report lossy export', async ({ page }) => {
+  const source = '- [x] Done\n- [ ] Pending\n\n| Name | Value |\n| --- | --- |\n| One | Two |\n\n> [!warning]- Before Installing\n> Back up your files.';
+  await setSource(page, source);
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await expect(page.locator('.tiptap table')).toBeVisible();
+  await expect(page.locator('.tiptap input[type=checkbox]')).toHaveCount(2);
+  await expect(page.getByLabel('Callout Title')).toHaveValue('Before Installing');
+  await page.getByRole('button', { name: 'Toggle Callout', exact: true }).click();
+  await expect(page.locator('.tiptap [data-callout-body]')).toBeVisible();
+  await page.getByLabel('Callout Title').fill('Install Safely');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.locator('#markdown-source')).toHaveValue(/\[!warning\]- Install Safely/);
+  await page.getByRole('button', { name: 'Copy BBCode', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('BBCode Export Notes');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.locator('#markdown-source')).toHaveValue(/Install Safely/);
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.screenshot({ path: 'test-results/markdown-blocks.png' });
 });

@@ -2,34 +2,30 @@
 
 ## Scope
 
-Portable Windows app built with Tauri 2, Rust, vanilla JavaScript and Tiptap 3. Read DESIGN.md before changing user-facing behaviour. MDBBCode documents contain a YAML header plus Markdown; the full source is authoritative; Nexus BBCode is generated beside it. Steam is deferred.
+Portable Windows Markdown editor built with Tauri 2, Rust, vanilla JavaScript, Tiptap 3 and CodeMirror 6. Read DESIGN.md before changing behaviour. Ordinary .md is the default. Nexus BBCode is optional on-demand output; Steam is deferred. Retain the existing portable identity.
 
 ## Development
 
-Run `npm ci`, then `npm run tauri dev`. `npm run portable` creates a versioned release folder. Keep dependencies locked. WebView2 is required.
+Run npm ci, then npm run tauri dev. npm run portable creates a versioned folder. Keep dependencies locked. WebView2 is required. This project shares its parent Git repository: stage and commit only this project's files. Never commit builds, dependencies or recovery data.
 
 ## Persistence
 
-Save Markdown independently before output generation. Never silently replace existing or externally changed files. Preserve untouched source. Keep legacy recovery as pending imports and back up version-1 sessions. Imports must not overwrite their original BBCode. Export ownership records include the source path as well as the output revision. Settings and recovery belong beside the executable.
+src/documents.js saves authoritative Markdown only. Never create, check or delete automatic BBCode companions. Export is explicit and uses revision-checked replacement confirmation. Protect open source paths and original import paths. Preserve unknown YAML, invalid source and untouched raw text. Portable settings/recovery belong beside the executable; legacy session migration retains pending imports and backs up version-1 sessions.
 
-## Conversion
+## Editing And Conversion
 
-src/markdown.js owns the schema, custom spoiler/center/color extensions, Markdown conversion and Nexus output. src/bbcode-import.js owns one-time imports and loss warnings. The Tiptap Markdown manager is used directly with an isolated Marked instance; the visual editor works with validated schema JSON. Its escapeMarkdownSyntax override escapes literal pipes to distinguish them from spoiler delimiters. Recheck this override when upgrading Tiptap Markdown, which is a beta API. Visual editors are recreated on tab/mode changes, resetting undo history.
+src/markdown.js owns schema, Markdown conversion, block segmentation and Nexus output; src/callout.js owns Obsidian callouts. src/bbcode-import.js owns one-time imports. src/document-format.js owns frontmatter and legacy target-aware export. Use documentToBBCodeWithWarnings for complete document export, not the body-only converter.
+
+src/visual-editor.js coordinates Visual, Hybrid and Source. src/block-controls.js owns Visual block menus and dragging. src/hybrid-editor.js replaces only the active enclosing block span and preserves untouched source; src/source-formatting.js shares source formatting operations. Markdown may merge adjacent compatible lists. Visual serialization can normalize an edited document. Editors are recreated on mode/tab changes, resetting undo.
+
+The Tiptap Markdown manager uses an isolated Marked instance and validated schema JSON. Its escapeMarkdownSyntax override escapes literal pipes to distinguish spoiler delimiters. Recheck this override when upgrading the beta Markdown API. Unsupported HTML must stay raw and never execute in previews.
+
+## Metadata And Preferences
+
+Ordinary Markdown accepts arbitrary optional YAML; only legacy metadata has app-reserved fields. Save As does not inject metadata. Conversion validation happens at export, never as a prerequisite to saving. YAML Document API retains unknown fields/comments. Selection indicators derive from Tiptap transactions and selections.
+
+src/colors.js owns conversion/validation; src/color-picker.js owns the picker. Session preferences.lastColor and preferences.colorMode are global portable settings. Selection never overwrites lastColor. Save input-mode changes immediately, including cancellation. Preserve editor bookmarks across the picker in every mode.
 
 ## Validation And Documentation
 
-Run npm test, npm run test:ui, npm run lint, npm run build, Rust tests and Clippy. After packaging, scripts/native-smoke.mjs exercises the real desktop bridge in an isolated test folder. Keep DESIGN.md, FEATURES.md, README.md, CHANGELOG.md and VALIDATION.md aligned. Do not commit builds, dependencies or recovery data. This project shares its parent Git repository; stage and commit only this project's files.
-
-## Metadata And Toolbar State
-
-src/document-format.js owns frontmatter parsing, metadata validation, .mdbbcode preparation and target-aware export. Use documentToBBCode for full document export/copy; markdownToBBCode only accepts the body. Visual editing preserves the header; Source contains the complete file. Never drop unknown properties or overwrite invalid metadata during autosave. Plain .md/.markdown remain supported. YAML is parsed using the [yaml Document API](https://eemeli.org/yaml/#documents), retaining unknown fields and comments. Selection indicators derive from Tiptap transactions and selections, never stale toolbar values. Development file watching excludes portable runtime caches and build output.
-
-
-## Output Error Actions
-
-Missing-header errors carry action: initialize; other conversion failures offer Fix Source. Revalidate current source before initialization so stale notices cannot replace metadata entered since the error. Preserve source-conflict and companion-replacement checks when initializing.
-
-
-## Color Preferences
-
-src/colors.js owns numeric conversion and preference validation; src/color-picker.js owns the modal picker. Session preferences.lastColor and preferences.colorMode are global, portable settings. Restore with defaults for older sessions. Only applying a color changes lastColor; selection changes must not overwrite it. Save mode changes immediately, including on cancellation. Editor selection bookmarks preserve Visual and Source selection across the dialog.
+Run npm test, npm run test:ui, npm run lint, npm run build, Rust tests, formatting checks and Clippy. After packaging, scripts/native-smoke.mjs exercises the actual desktop bridge in an isolated folder; close other app instances first. Keep DESIGN.md, FEATURES.md, README.md, CHANGELOG.md and VALIDATION.md aligned. Development file watching excludes runtime caches and builds.

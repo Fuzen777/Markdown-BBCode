@@ -1,7 +1,7 @@
 // ==> Section 1 - Markdown Conversion Tests <==
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMarkdown, serializeMarkdown, markdownToBBCode } from '../src/markdown.js';
+import { parseMarkdown, serializeMarkdown, markdownToBBCode, markdownToBBCodeWithWarnings, segmentMarkdown } from '../src/markdown.js';
 import { importBBCode } from '../src/bbcode-import.js';
 
 const fixtures = [
@@ -26,10 +26,9 @@ for (const fixture of fixtures) {
 test('multi-paragraph spoilers keep paragraph boundaries', () => {
   assert.equal(markdownToBBCode(fixtures[2]), '[spoiler]First paragraph\n\nSecond paragraph[/spoiler]');
 });
-test('unrecognized HTML and tables fail instead of silently dropping content', () => {
+test('unrecognized HTML fails instead of silently dropping content', () => {
   assert.throws(() => parseMarkdown('<script>alert(1)</script>'), /Unsupported/);
   assert.throws(() => parseMarkdown('<div style="text-align: right">text</div>'), /Unsupported/);
-  assert.throws(() => parseMarkdown('| A | B |\n| --- | --- |\n| 1 | 2 |'), /tables/);
   assert.throws(() => markdownToBBCode('[bad](javascript:alert)'), /HTTP/);
 });
 test('import converts supported formats and reports losses', () => {
@@ -60,4 +59,65 @@ test('inline spoiler endings do not prematurely close a multiline spoiler', () =
   const converted = markdownToBBCode(source);
   assert.match(converted, /After\s*\[\/spoiler\]$/);
   assert.deepEqual(parseMarkdown(serializeMarkdown(parseMarkdown(source))), parseMarkdown(source));
+});
+
+// ==> Section 2 - Markdown-First Blocks <==
+test('nested callouts preserve type, title and collapse defaults', () => {
+  const source = '> [!warning]- Before installing\n> **Back up** first.\n>\n> > [!custom-type]+ More\n> > Nested details\n\nOutside';
+  const documentModel = parseMarkdown(source);
+  assert.equal(documentModel.content[0].type, 'callout');
+  assert.deepEqual({ ...documentModel.content[0].attrs }, { type: 'warning', title: 'Before installing', fold: '-' });
+  assert.equal(documentModel.content[0].content[1].attrs.type, 'custom-type');
+  assert.deepEqual(parseMarkdown(serializeMarkdown(documentModel)), documentModel);
+  const exported = markdownToBBCodeWithWarnings(source);
+  assert.equal(exported.warnings.length, 1);
+  assert.match(exported.bbcode, /\[quote\]\[spoiler\]\[b\]Before installing/);
+  assert.match(exported.bbcode, /Outside$/);
+});
+
+test('title-only and plain callouts do not invent content or collapse markers', () => {
+  for (const source of ['> [!note]', '> [!tip] Custom title', '> [!abstract]\n> Body']) {
+    const documentModel = parseMarkdown(source);
+    assert.equal(documentModel.content[0].attrs.fold, null);
+    assert.deepEqual(parseMarkdown(serializeMarkdown(documentModel)), documentModel);
+  }
+});
+
+test('task lists preserve checkbox state, nested bullets and multiple paragraphs', () => {
+  const source = '- [x] Done\n- [ ] Pending\n  - [ ] Child\n  - Plain child\n\n  Second paragraph\n\n- [x] Last';
+  const documentModel = parseMarkdown(source);
+  assert.equal(documentModel.content[0].type, 'taskList');
+  assert.deepEqual(parseMarkdown(serializeMarkdown(documentModel)), documentModel);
+  const exported = markdownToBBCodeWithWarnings(source);
+  assert.match(exported.bbcode, /\[x\] Done/);
+  assert.match(exported.bbcode, /\[ \] Pending/);
+  assert.match(exported.bbcode, /Second paragraph/);
+  assert.equal(exported.warnings.length, 1);
+});
+
+test('GFM tables preserve aligned columns and inline content with export warnings', () => {
+  const source = '| Name | Value |\n| :--- | ---: |\n| **One** | `a\\|b` |\n| Two | [Link](https://example.com) |';
+  const documentModel = parseMarkdown(source);
+  assert.equal(documentModel.content[0].type, 'table');
+  assert.equal(documentModel.content[0].content[0].content[1].attrs.align, 'right');
+  assert.deepEqual(parseMarkdown(serializeMarkdown(documentModel)), documentModel);
+  const exported = markdownToBBCodeWithWarnings(source);
+  assert.match(exported.bbcode, /\[b\]Name\[\/b\] \| \[b\]Value/);
+  assert.equal(exported.warnings.length, 1);
+});
+
+test('unsupported markup inside task items and table cells is never silently dropped', () => {
+  assert.throws(() => parseMarkdown('- [ ] <script>Bad</script>'), /Unsupported/);
+  assert.throws(() => parseMarkdown('| A |\n| --- |\n| <script>Bad</script> |'), /Unsupported/);
+  assert.throws(() => parseMarkdown('[reference]: https://example.com'), /Reference/);
+});
+
+test('source blocks retain every byte, CRLF separators and whole enclosing containers', () => {
+  const source = '\r\n# Heading\r\n\r\n- Parent\r\n  - Child\r\n- Other\r\n\r\n> [!note]- Title\r\n> Paragraph\r\n>\r\n> > [!tip]\r\n> > Nested\r\n\r\n```md\r\n## Literal\r\n```\r\n';
+  const blocks = segmentMarkdown(source);
+  assert.equal(blocks.length, 4);
+  assert.equal(blocks.map(block => block.raw).join(''), source);
+  assert.deepEqual(blocks.map(block => block.type), ['heading', 'list', 'callout', 'code']);
+  for (const block of blocks) assert.equal(source.slice(block.start, block.end), block.raw);
+  assert.equal(segmentMarkdown('- [ ] First\n\n  Details\n\n- [x] Second').length, 1);
 });

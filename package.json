@@ -1,6 +1,6 @@
 {
   "name": "bbcode-editor",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,10 +15,18 @@
     "portable": "tauri build --no-bundle && node scripts/package.mjs"
   },
   "dependencies": {
+    "@codemirror/commands": "^6.11.1",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
+    "@lezer/highlight": "^1.2.5",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "@tiptap/core": "^3.35.0",
     "@tiptap/extension-image": "^3.35.0",
+    "@tiptap/extension-list": "^3.35.0",
+    "@tiptap/extension-table": "^3.35.0",
     "@tiptap/markdown": "^3.35.0",
     "@tiptap/starter-kit": "^3.35.0",
     "marked": "^18.2.1",

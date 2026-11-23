@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.0 — 2026-11-23
+
+1. Made ordinary .md files the default, with optional YAML and source-only autosave. Existing .mdbbcode files remain supported.
+2. Removed automatic BBCode companions; Copy BBCode and explicit Export BBCode convert on demand with loss warnings and replacement protection.
+3. Added tables, task lists and nested Obsidian callouts with titles and folding.
+4. Added Visual block menus, drag reordering and slash insertion.
+5. Added Hybrid editing: edit the whole enclosing block as highlighted Markdown while other blocks stay rendered, preserving untouched source.
+
+
 ## 0.1.4 — 2026-11-23
 
 1. Added one-click application of the last-used text color with a split Color button.

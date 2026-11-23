@@ -2,6 +2,9 @@
 import { Mark, Node, markInputRule, getSchema } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
+import { TaskList, TaskItem } from '@tiptap/extension-list';
+import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
+import { Callout, calloutTitle } from './callout.js';
 import { MarkdownManager } from '@tiptap/markdown';
 import { Marked } from 'marked';
 
@@ -109,7 +112,8 @@ const TextColor = Mark.create({
 // ==> Section 2 - Shared Document Model <==
 export const editorExtensions = [
   StarterKit.configure({ underline: false, trailingNode: false, link: { openOnClick: false, autolink: false } }),
-  Image.configure({ inline: true, allowBase64: false }), InlineSpoiler, SpoilerBlock, CenterBlock, TextColor,
+  Image.configure({ inline: true, allowBase64: false }), InlineSpoiler, SpoilerBlock, CenterBlock, TextColor, Callout,
+  TaskList, TaskItem.configure({ nested: true }), Table, TableRow, TableCell, TableHeader,
 ];
 // The upstream serializer does not know that literal pipes delimit our custom spoiler marks.
 class EditorMarkdownManager extends MarkdownManager {
@@ -121,8 +125,10 @@ const documentSchema = getSchema(editorExtensions);
 function validateTokens(tokens) {
   for (const token of tokens) {
     if (token.type === 'html') throw new Error('Unsupported or unfinished HTML. Only the colour span and centred div wrappers are supported.');
-    if (token.type === 'table') throw new Error('Markdown tables are not supported in this version. The source is preserved.');
-    if (token.task) throw new Error('Task checkboxes are not supported. Use an ordinary list instead.');
+    if (token.type === 'def') throw new Error('Reference definitions are preserved in Source or Hybrid mode.');
+    if (token.header) token.header.forEach(cell => validateTokens(cell.tokens || []));
+    if (token.rows) token.rows.forEach(row => row.forEach(cell => validateTokens(cell.tokens || [])));
+    if (token.nestedTokens) validateTokens(token.nestedTokens);
     if (token.tokens) validateTokens(token.tokens);
     if (token.items) validateTokens(token.items);
   }
@@ -135,7 +141,7 @@ export function parseMarkdown(source) {
   if (!documentModel.content?.length) documentModel.content = [{ type: 'paragraph' }];
   const normalizeBlocks = node => {
     node.content?.forEach(normalizeBlocks);
-    if (!['doc', 'blockquote', 'listItem', 'centerBlock', 'spoilerBlock'].includes(node.type)) return;
+    if (!['doc', 'blockquote', 'listItem', 'centerBlock', 'spoilerBlock', 'callout', 'taskItem', 'tableCell', 'tableHeader'].includes(node.type)) return;
     const children = [];
     for (const child of node.content || []) {
       if (documentSchema.nodes[child.type]?.isInline) {
@@ -196,10 +202,76 @@ function bbcodeNode(node) {
       if (node.attrs?.start && node.attrs.start !== 1) throw new Error('Nexus export supports numbered lists starting at 1.');
       return `[list=1]\n${(node.content || []).map(bbcodeNode).join('\n')}\n[/list]`;
     case 'listItem': return `[*]${blocks()}`;
+    case 'taskList': return `[list]\n${(node.content || []).map(bbcodeNode).join('\n')}\n[/list]`;
+    case 'taskItem': return `[*][${node.attrs.checked ? 'x' : ' '}] ${blocks()}`;
+    case 'table': return (node.content || []).map(bbcodeNode).join('\n');
+    case 'tableRow': return (node.content || []).map(bbcodeNode).join(' | ');
+    case 'tableHeader': return `[b]${blocks()}[/b]`;
+    case 'tableCell': return blocks();
+    case 'callout': {
+      const content = `[b]${calloutTitle(node.attrs)}[/b]${blocks() ? '\n\n' + blocks() : ''}`;
+      return `[quote]${node.attrs.fold ? '[spoiler]' + content + '[/spoiler]' : content}[/quote]`;
+    }
     default: throw new Error(`Unsupported document element: ${node.type}`);
   }
 }
 
 export function markdownToBBCode(source) {
   return bbcodeNode(parseMarkdown(source));
+}
+
+
+// ==> Section 4 - Source Blocks And Export Warnings <==
+export function segmentMarkdown(source) {
+  const normalizedOffsets = [0];
+  let normalized = '';
+  for (let index = 0; index < source.length; index++) {
+    if (source[index] === '\r' && source[index + 1] === '\n') index++;
+    normalized += source[index];
+    normalizedOffsets.push(index + 1);
+  }
+  const tokens = markdownManager.instance.lexer(normalized);
+  const blocks = [];
+  let offset = 0;
+  let leadingStart = 0;
+  for (const token of tokens) {
+    const start = normalizedOffsets[offset];
+    if (typeof token.raw !== 'string' || normalized.slice(offset, offset + token.raw.length) !== token.raw) return [{ start: 0, end: source.length, raw: source, type: 'raw' }];
+    offset += token.raw.length;
+    const end = normalizedOffsets[offset];
+    if (token.type === 'space') {
+      if (blocks.length) {
+        blocks.at(-1).end = end;
+        blocks.at(-1).raw = source.slice(blocks.at(-1).start, end);
+      }
+      continue;
+    }
+    if (token.type === 'taskList' && blocks.at(-1)?.type === 'taskList') {
+      blocks.at(-1).end = end;
+      blocks.at(-1).raw = source.slice(blocks.at(-1).start, end);
+      continue;
+    }
+    const blockStart = blocks.length ? start : leadingStart;
+    blocks.push({ start: blockStart, end, raw: source.slice(blockStart, end), type: token.type });
+    leadingStart = end;
+  }
+  if (!blocks.length && source.length) blocks.push({ start: 0, end: source.length, raw: source, type: 'space' });
+  if (blocks.length && blocks.at(-1).end < source.length) {
+    blocks.at(-1).end = source.length;
+    blocks.at(-1).raw = source.slice(blocks.at(-1).start);
+  }
+  return blocks;
+}
+
+export function markdownToBBCodeWithWarnings(source) {
+  const documentModel = parseMarkdown(source);
+  const warnings = new Set();
+  const inspect = node => {
+    if (node.type === 'table') warnings.add('Tables are exported as text rows; column alignment is not retained.');
+    if (node.type === 'taskList') warnings.add('Task checkboxes are exported as text, not interactive controls.');
+    if (node.type === 'callout') warnings.add('Callouts are exported as titled quotes; collapsible callouts use spoilers.');
+    node.content?.forEach(inspect);
+  };
+  inspect(documentModel);
+  return { bbcode: bbcodeNode(documentModel), warnings: [...warnings] };
 }

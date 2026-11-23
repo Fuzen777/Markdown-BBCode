@@ -4,7 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { DocumentStore, documentName, pathKey, outputPath } from './documents.js';
 import { MarkdownEditor } from './visual-editor.js';
-import { documentToBBCode, withDocumentMetadata, hasDocumentContent } from './document-format.js';
+import { documentToBBCodeWithWarnings, hasDocumentContent } from './document-format.js';
 import { importBBCode } from './bbcode-import.js';
 import { ColorPicker } from './color-picker.js';
 import './style.css';
@@ -68,7 +68,7 @@ function render() {
     tab.role = 'tab';
     tab.setAttribute('aria-selected', String(documentRecord.id === store.activeId));
     const changed = documentRecord.content !== documentRecord.savedContent;
-    tab.textContent = `${documentName(documentRecord)}${documentRecord.error || documentRecord.outputError ? ' !' : changed ? ' •' : ''}`;
+    tab.textContent = `${documentName(documentRecord)}${documentRecord.error ? ' !' : changed ? ' •' : ''}`;
     tab.title = documentRecord.path || 'Recoverable Draft';
     tab.onclick = () => runAction(() => activate(documentRecord.id));
     const closeButton = document.createElement('button');
@@ -86,11 +86,11 @@ function render() {
   elements.recovered.textContent = `Recovered BBCode (${store.pendingImports.length})`;
   elements['document-path'].textContent = activeDocument?.path?.replace(/^\\\\\?\\/, '') || 'Recoverable Markdown Draft — Save To Choose A File';
   elements['document-path'].title = elements['document-path'].textContent;
-  elements['output-path'].textContent = activeDocument?.path ? `BBCode Copy: ${outputPath(activeDocument.path).replace(/^\\\\\?\\/, '')}` : 'Save To Create A BBCode Copy';
   const sourceMode = editor.sourceMode();
-  elements.visual.setAttribute('aria-pressed', String(!sourceMode));
+  elements.visual.setAttribute('aria-pressed', String(editor.mode === 'visual'));
+  elements.hybrid.setAttribute('aria-pressed', String(editor.mode === 'hybrid'));
   elements.source.setAttribute('aria-pressed', String(sourceMode));
-  elements['document-properties'].hidden = sourceMode;
+  elements['document-properties'].hidden = sourceMode || !editor.documentSource?.legacyMetadata;
   if (!sourceMode && editor.documentSource) {
     const target = editor.documentSource.target;
     const knownTarget = ['nexus', 'steam'].includes(target);
@@ -106,11 +106,8 @@ function render() {
   elements.notice.classList.toggle('error', Boolean(error || globalError));
   elements.resolve.hidden = error?.kind !== 'conflict';
   elements.retry.hidden = !error || error.kind === 'conflict';
-  elements['output-notice'].hidden = !activeDocument?.outputError;
-  elements['output-notice-text'].textContent = activeDocument?.outputError?.message || '';
-  elements.regenerate.textContent = activeDocument?.outputError?.action === 'initialize' ? 'Initialize Document Properties' : activeDocument?.outputError?.kind === 'conversion' ? 'Fix Source' : 'Regenerate BBCode';
   const changed = activeDocument && activeDocument.content !== activeDocument.savedContent;
-  elements['save-status'].textContent = error || globalError ? 'Needs Attention' : !activeDocument?.path ? 'Draft Recovery On' : changed ? 'Saving…' : activeDocument.outputError ? 'Markdown Saved · BBCode Out Of Date' : activeDocument.outputSource !== activeDocument.content ? 'Markdown Saved · Generating BBCode…' : 'Markdown And BBCode Saved';
+  elements['save-status'].textContent = error || globalError ? 'Needs Attention' : !activeDocument?.path ? 'Draft Recovery On' : changed ? 'Saving…' : 'Markdown Saved';
   elements['document-stats'].textContent = activeDocument ? `${activeDocument.content.length.toLocaleString()} Characters` : '';
 }
 
@@ -139,7 +136,7 @@ function showDocument() {
   try {
     const documentRecord = store.active;
     safetyNotice = editor.load(documentRecord.content, documentRecord.mode, documentRecord.path);
-    documentRecord.mode = editor.sourceMode() ? 'source' : 'visual';
+    documentRecord.mode = editor.mode;
     baselineValue = editor.val();
   } finally { loadingDocument = false; }
   render();
@@ -187,9 +184,9 @@ async function choose(title, message, choices, inputValue) {
 async function saveDocument(documentRecord = store.active, saveAs = false) {
   capture();
   if (!documentRecord.path || saveAs) {
-    const selectedPath = await save({ defaultPath: (documentRecord.path?.replace(/\.(md|markdown)$/i, '.mdbbcode') || documentRecord.suggestedPath)?.replace(/^\\\\\?\\/, '') || `${documentName(documentRecord)}.mdbbcode`, filters: [{ name: 'MDBBCode Documents', extensions: ['mdbbcode'] }, { name: 'Markdown Documents', extensions: ['md'] }] });
+    const selectedPath = await save({ defaultPath: (documentRecord.path || documentRecord.suggestedPath)?.replace(/^\\\\\?\\/, '') || `${documentName(documentRecord)}.md`, filters: [{ name: 'Markdown Documents', extensions: ['md'] }, { name: 'Legacy MDBBCode Documents', extensions: ['mdbbcode'] }] });
     if (!selectedPath) return false;
-    const targetPath = /\.(mdbbcode|md|markdown)$/i.test(selectedPath) ? selectedPath : `${selectedPath}.mdbbcode`;
+    const targetPath = /\.(mdbbcode|md|markdown)$/i.test(selectedPath) ? selectedPath : `${selectedPath}.md`;
     if (pathKey(documentRecord.path) === pathKey(targetPath)) return saveDocument(documentRecord, false);
     const previousContent = documentRecord.content;
     try { await store.saveAs(documentRecord, targetPath); }
@@ -266,15 +263,11 @@ async function closeTab(documentRecord) {
     } else throw documentRecord.error;
   }
   await store.flush(documentRecord);
-  if (documentRecord.outputError) {
-    const choice = await choose('BBCode Out Of Date', 'Your Markdown is saved, but the BBCode copy is not current. Close this tab anyway?', [['close', 'Close Tab'], ['cancel', 'Cancel']]);
-    if (choice !== 'close') return;
-  }
   if (!documentRecord.path && hasDocumentContent(documentRecord.content)) documentRecord.open = false;
   else store.documents = store.documents.filter(otherDocument => otherDocument.id !== documentRecord.id);
   if (store.activeId === documentRecord.id) {
     store.activeId = store.documents.find(otherDocument => otherDocument.open)?.id;
-    if (!store.activeId) store.add(withDocumentMetadata(''));
+    if (!store.activeId) store.add();
     showDocument();
   }
   await persist();
@@ -295,10 +288,6 @@ async function closeWindow() {
       if (documentRecord.error) { store.activeId = documentRecord.id; documentRecord.open = true; showDocument(); throw documentRecord.error; }
       await store.flush(documentRecord);
     }
-    if (store.documents.some(documentRecord => documentRecord.outputError)) {
-      const choice = await choose('BBCode Out Of Date', 'Your Markdown files and drafts are saved. Some BBCode copies could not be updated. Close anyway?', [['close', 'Close Anyway'], ['cancel', 'Cancel']]);
-      if (choice !== 'close') return;
-    }
     await persist();
     await invoke('finish_close');
   } finally { closingWindow = false; editor.readOnly(false); }
@@ -308,7 +297,7 @@ async function closeWindow() {
 function keyboardShortcut(event) {
   if (!event.ctrlKey || event.altKey || elements['choice-dialog'].open || elements['color-dialog'].open) return;
   const key = event.key.toLowerCase();
-  const action = key === 'n' ? () => { capture(); store.add(withDocumentMetadata('')); showDocument(); return persist(); }
+  const action = key === 'n' ? () => { capture(); store.add(); showDocument(); return persist(); }
     : key === 'o' ? () => elements.open.click()
     : key === 's' ? () => saveDocument(store.active, event.shiftKey)
     : key === 'w' ? () => closeTab(store.active)
@@ -316,10 +305,42 @@ function keyboardShortcut(event) {
   if (action) { event.preventDefault(); event.stopPropagation(); void runAction(action); }
 }
 
-async function copySource() {
+async function prepareExport() {
   capture();
-  await navigator.clipboard.writeText(documentToBBCode(store.active.content, store.active.path));
+  const result = documentToBBCodeWithWarnings(store.active.content, store.active.path);
+  globalError = '';
+  render();
+  if (result.warnings.length) {
+    const choice = await choose('BBCode Export Notes', result.warnings.join('\n'), [['continue', 'Continue Export'], ['cancel', 'Cancel']]);
+    if (choice !== 'continue') return null;
+  }
+  return result.bbcode;
+}
+
+async function copySource() {
+  const bbcode = await prepareExport();
+  if (bbcode === null) return;
+  await navigator.clipboard.writeText(bbcode);
   elements['save-status'].textContent = 'BBCode Copied';
+}
+
+async function exportBBCode() {
+  const documentRecord = store.active;
+  const bbcode = await prepareExport();
+  if (bbcode === null) return;
+  const selectedPath = await save({ defaultPath: documentRecord.path ? outputPath(documentRecord.path).replace(/^\\\\\?\\/, '') : documentName(documentRecord) + '.bbcode', filters: [{ name: 'BBCode Documents', extensions: ['bbcode'] }] });
+  if (!selectedPath) return;
+  const targetPath = /\.bbcode$/i.test(selectedPath) ? selectedPath : selectedPath + '.bbcode';
+  if (store.documents.some(other => pathKey(other.path) === pathKey(targetPath)) || pathKey(documentRecord.importedFrom) === pathKey(targetPath)) throw new Error('Choose a different filename to preserve the original document.');
+  let revision = null;
+  try {
+    const existing = await backend.readFile(targetPath);
+    const choice = await choose('Replace Existing BBCode?', 'Exporting will replace the selected BBCode file.', [['replace', 'Replace File'], ['cancel', 'Cancel']]);
+    if (choice !== 'replace') return;
+    revision = existing.revision;
+  } catch (error) { if (error.kind !== 'missing') throw error; }
+  await backend.saveFile(targetPath, bbcode, revision);
+  elements['save-status'].textContent = 'BBCode Exported';
 }
 
 // ==> Section 5 - Import And Output Actions <==
@@ -330,61 +351,14 @@ async function importDocument(snapshot) {
     if (choice !== 'import') return false;
   }
   capture();
-  const documentRecord = store.add(withDocumentMetadata(result.markdown));
+  const documentRecord = store.add(result.markdown);
   documentRecord.importedFrom = snapshot.path || null;
   const originalName = snapshot.path?.split(/[\\/]/).at(-1) || snapshot.name || 'Recovered';
   documentRecord.name = originalName.replace(/\.[^.]+$/, '') + '.imported';
-  documentRecord.suggestedPath = snapshot.path ? snapshot.path.replace(/\.[^.]+$/, '') + '.imported.mdbbcode' : documentRecord.name + '.mdbbcode';
+  documentRecord.suggestedPath = snapshot.path ? snapshot.path.replace(/\.[^.]+$/, '') + '.imported.md' : documentRecord.name + '.md';
   showDocument();
   await persist();
   return true;
-}
-
-async function handleOutputAction() {
-  capture();
-  const documentRecord = store.active;
-  if (documentRecord.outputError?.kind !== 'conversion') return regenerateOutput();
-  // Revalidate current text so a stale notice cannot replace newly entered metadata.
-  try { documentToBBCode(documentRecord.content, documentRecord.path); }
-  catch (error) {
-    if (error.action === 'initialize') {
-      documentRecord.content = withDocumentMetadata(documentRecord.content, 'nexus');
-      documentRecord.mode = 'visual';
-      showDocument();
-      await persist();
-      await store.flush(documentRecord);
-      await persist();
-      globalError = '';
-      render();
-      return;
-    }
-    await changeMode('source');
-    safetyNotice = errorMessage(error);
-    elements['markdown-source'].scrollTop = 0;
-    elements['markdown-source'].setSelectionRange(0, 0);
-    render();
-    return;
-  }
-  await regenerateOutput();
-}
-
-async function regenerateOutput() {
-  capture();
-  const documentRecord = store.active;
-  if (!documentRecord.path) { await saveDocument(documentRecord); return; }
-  let reviewedRevision;
-  if (documentRecord.outputError?.kind === 'conflict') {
-    let snapshot;
-    try { snapshot = await backend.readFile(outputPath(documentRecord.path)); }
-    catch (error) { if (error.kind !== 'missing') throw error; }
-    const choice = await choose('Replace BBCode Copy?', 'The BBCode copy already exists or changed outside the app. Regenerating replaces it with output from the Markdown original. Its edits will not be imported.', [['replace', 'Regenerate And Replace'], ['cancel', 'Cancel']]);
-    if (choice !== 'replace') return;
-    reviewedRevision = snapshot?.revision ?? null;
-  } else if (documentRecord.outputError?.kind === 'missing') reviewedRevision = null;
-  await store.regenerate(documentRecord, reviewedRevision);
-  await persist();
-  globalError = '';
-  render();
 }
 
 async function applyColor(color) {
@@ -408,7 +382,7 @@ async function formatDocument(command, value) {
 async function initialize() {
   editor = new MarkdownEditor(elements['visual-editor'], elements['markdown-source'], capture, renderFormatting);
   document.addEventListener('keydown', keyboardShortcut, true);
-  elements.new.onclick = () => runAction(async () => { capture(); store.add(withDocumentMetadata('')); showDocument(); await persist(); editor.focus(); });
+  elements.new.onclick = () => runAction(async () => { capture(); store.add(); showDocument(); await persist(); editor.focus(); });
   elements.open.onclick = () => runAction(async () => {
     const paths = await open({ multiple: true, filters: [{ name: 'Editor Documents', extensions: ['mdbbcode', 'md', 'markdown'] }] });
     if (paths) await openPaths(Array.isArray(paths) ? paths : [paths]);
@@ -428,7 +402,7 @@ async function initialize() {
     render();
   });
   elements['document-target'].onchange = () => runAction(() => { editor.setTarget(elements['document-target'].value); render(); });
-  elements.regenerate.onclick = () => runAction(handleOutputAction);
+  elements.export.onclick = () => runAction(exportBBCode);
   for (const button of document.querySelectorAll('[data-format]')) {
     button.onmousedown = event => event.preventDefault();
     button.onclick = () => runAction(() => formatDocument(button.dataset.format));
@@ -444,6 +418,7 @@ async function initialize() {
     editor.restoreSelection(bookmark);
     if (color) await applyColor(color);
   });
+  elements.hybrid.onclick = () => runAction(() => changeMode('hybrid'));
   elements.visual.onclick = () => runAction(() => changeMode('visual'));
   elements.source.onclick = () => runAction(() => changeMode('source'));
   elements.resolve.onclick = () => runAction(() => resolveConflict());
@@ -456,7 +431,7 @@ async function initialize() {
   await listen('request-close', () => runAction(closeWindow));
   await listen('open-files', () => { if (startupComplete) void runAction(async () => openPaths(await invoke('take_pending_paths'))); });
   await store.restore();
-  if (!store.active) store.add(withDocumentMetadata(''));
+  if (!store.active) store.add();
   showDocument();
   startupComplete = true;
   try { await openPaths(await invoke('take_pending_paths')); }

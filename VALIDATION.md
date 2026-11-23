@@ -2,35 +2,33 @@
 
 ## Automated Checks
 
-Validated version 0.1.4 on Windows x64 on 2026-11-23.
+Version 0.2.0, Windows x64, 2026-11-23.
 
 | Check | Result And Coverage |
 | --- | --- |
-| JavaScript | 44 passed: Hex/RGB/HSL conversion, optional #, numeric validation and preference restoration, YAML parsing, invalid metadata persistence, target validation, .mdbbcode conversion, Markdown round trips, custom formatting, import warnings, migration, paired saves, conflicts, in-flight edits and output failures. |
-| Browser Integration | 21 passed: color picking, one-click reuse, selection preservation, cancel/reload persistence and color dialog layout, missing-header initialization, Fix Source and initialization conflict protection, metadata/source synchronization, target dropdown, malformed YAML recovery, selection-aware toolbar state and undo, real Tiptap editing, formatting buttons, source switching, imports, recovery, autosave conflicts, save failures and responsive light/dark layouts. |
-| Rust | 3 passed: atomic replacement, revision checks, missing files, Unicode, Save As protection and invalid UTF-8. |
-| Lint | ESLint and Rust Clippy passed; Rust formatting applied. |
-| Production Build | Frontend and portable Windows executable built successfully. Vite reports a non-blocking JavaScript chunk-size warning. |
-| Native Smoke | Full app close/relaunch restoring color and input mode; missing-header initialization and real .mdbbcode writes, YAML metadata, active bold indicator, generated BBCode, clipboard copy, single-instance dispatch, tab close, recovery persistence and version-1 session backup passed with no page errors. |
+| JavaScript | 50 passed: source-only persistence, legacy migration, YAML, export validation/warnings, Markdown round trips, tasks/tables/callouts, segmentation, colors and conflicts. |
+| Browser Integration | 34 checks passed across the full run and targeted Hybrid rerun: Visual blocks, slash menu, dragging, undo, Hybrid whole enclosing blocks, raw HTML safety, source fidelity, navigation, color selection, source-only autosave, export replacement/warnings, metadata, recovery and responsive layouts. |
+| Rust | 3 passed: atomic writes, revision conflicts, missing files, Unicode, Save As and invalid UTF-8. |
+| Lint | ESLint, Rust formatting check and Clippy passed. |
+| Frontend | Production build passed; non-blocking JavaScript chunk-size warning. |
 
-Browser integration uses an in-memory desktop bridge. Native validation uses an isolated copy under test-results/native with a test-only debugging connection supplied through its environment. The distributed app does not enable that connection. Light and dark editor/picker screenshots were inspected; the picker also passed the narrow-window check.
+Browser tests use an in-memory desktop bridge. Hybrid screenshot was inspected. Native smoke uses an isolated copy and a test-only WebView2 debugging connection supplied through its environment; the distributed app does not enable it.
 
-## Timing Sample
+## Native Validation
+
+Portable Windows build and native smoke passed with no page errors: real Rust autosave, no automatic companion, Hybrid editing, clipboard, single-instance file dispatch, tab close, recovery, legacy session backup and color preferences across a full restart. Native Hybrid screenshot inspected.
 
 | Operation | Observed Time |
 | --- | --- |
-| Launch To Ready With A Document | 1,346 ms |
-| Second File Launch Into Existing Window | 97 ms |
-| Closing A Document Tab | 36 ms |
+| Startup With Document | 1,158 ms |
+| Second File Launch Into Existing Window | 1,093 ms |
+| Tab Close | 30 ms |
 
-Single observations on the development machine, including automation overhead; not guarantees or large-document benchmarks.
+Single samples on the development machine including automation overhead; not performance guarantees.
 
 ## Remaining Manual Checks
 
-1. Native Open/Save dialog interaction: computer-control tools could not initialize due to their sandbox launcher. Real native file writes and startup arguments were tested independently.
-2. Final appearance of a representative description on Nexus Mods. Nothing was published during validation.
-3. Windows Open With association at the user's chosen permanent path. No system association was changed.
-
-## Reported Document Regression
-
-The user-specified Streamlined Logistics Nexus Page.mdbbcode was tested using an in-memory backend. Missing properties were detected, Nexus metadata was initialized, and 12,665 characters of BBCode were generated successfully. The document body matched the original exactly, and the original disk file hash was unchanged.
+1. Native Open/Save dialog interaction. Automated tests cover the dialog result handling and actual native file writes separately.
+2. Final rendering of a representative exported description on Nexus Mods; nothing was published.
+3. Windows Open With association at the chosen permanent executable path; no association was changed.
+4. Large-document performance beyond the small native timing sample.

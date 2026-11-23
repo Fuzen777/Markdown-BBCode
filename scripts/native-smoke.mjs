@@ -1,6 +1,6 @@
 // ==> Section 1 - Isolated Native Test Environment <==
 import { chromium, expect } from '@playwright/test';
-import { mkdir, copyFile, writeFile, readFile } from 'node:fs/promises';
+import { mkdir, copyFile, writeFile, readFile, access } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { createServer } from 'node:net';
@@ -13,8 +13,7 @@ await writeFile(resolve(testDirectory, 'portable-data/session.json'), JSON.strin
 const executablePath = resolve(testDirectory, 'BBCode Editor.exe');
 const { version } = JSON.parse(await readFile('package.json', 'utf8'));
 await copyFile(`release/BBCode Editor ${version}/BBCode Editor.exe`, executablePath);
-const metadataHeader = '---\nformat: mdbbcode\nversion: 1\ntarget: nexus\n---\n\n';
-const firstPath = resolve(testDirectory, 'Native Smoke.mdbbcode');
+const firstPath = resolve(testDirectory, 'Native Smoke.md');
 const secondPath = resolve(testDirectory, 'Second Document.md');
 await writeFile(firstPath, '**Native Test**\nOriginal description', 'utf8');
 await writeFile(secondPath, '||Second document||', 'utf8');
@@ -44,14 +43,12 @@ try {
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(error.message));
   await expect(page.locator('html')).toHaveAttribute('data-ready', 'true');
-  await expect(page.getByRole('tab', { name: 'Native Smoke.mdbbcode', exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Native Smoke.md', exact: true })).toBeVisible();
   const startupMilliseconds = Math.round(performance.now() - startedAt);
-  await page.getByRole('button', { name: 'Initialize Document Properties', exact: true }).click();
-  await expect.poll(() => readFile(firstPath, 'utf8')).toBe(metadataHeader + '**Native Test**\nOriginal description');
   await page.getByRole('button', { name: 'Source', exact: true }).click();
-  await page.getByRole('textbox', { name: 'Markdown Source' }).fill(metadataHeader + '**Native Test**\nAutosaved through Rust ✓');
-  await expect.poll(() => readFile(firstPath, 'utf8')).toBe(metadataHeader + '**Native Test**\nAutosaved through Rust ✓');
-  await expect.poll(() => readFile(firstPath.replace(/\.mdbbcode$/, '.bbcode'), 'utf8')).toContain('[b]Native Test[/b]');
+  await page.getByRole('textbox', { name: 'Markdown Source' }).fill('**Native Test**\nAutosaved through Rust ✓');
+  await expect.poll(() => readFile(firstPath, 'utf8')).toBe('**Native Test**\nAutosaved through Rust ✓');
+  await expect(access(firstPath.replace(/\.md$/, '.bbcode'))).rejects.toThrow();
   await page.getByRole('button', { name: 'Copy BBCode', exact: true }).click();
   await expect(page.locator('#save-status')).toHaveText('BBCode Copied');
   const openStartedAt = performance.now();
@@ -63,10 +60,14 @@ try {
   await page.getByRole('button', { name: 'Close Second Document.md', exact: true }).click();
   await expect(page.getByRole('tab', { name: 'Second Document.md', exact: true })).toHaveCount(0);
   const closeMilliseconds = Math.round(performance.now() - closeStartedAt);
-  await page.getByRole('tab', { name: 'Native Smoke.mdbbcode', exact: true }).click();
+  await page.getByRole('tab', { name: 'Native Smoke.md', exact: true }).click();
   await page.getByRole('button', { name: 'Visual', exact: true }).click();
   await expect(page.locator('.tiptap')).toContainText('Autosaved through Rust');
-  await expect(page.getByLabel('Target', { exact: true })).toHaveValue('nexus');
+  await expect(page.getByLabel('Target', { exact: true })).not.toBeVisible();
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Active Block Markdown' })).toContainText('Native Test');
+  await page.screenshot({ path: 'test-results/native-hybrid.png' });
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
   await page.locator('.tiptap strong').click();
   await expect(page.getByRole('button', { name: 'Bold', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Choose Text Color', exact: true }).click();
@@ -110,7 +111,7 @@ try {
   await restartedPage.evaluate(() => window.__TAURI_INTERNALS__.invoke('plugin:event|emit', { event: 'request-close', payload: null }));
   await restartedExit;
   expect(pageErrors).toEqual([]);
-  const results = { startupMilliseconds, secondFileOpenMilliseconds: openMilliseconds, tabCloseMilliseconds: closeMilliseconds, nativeAutosave: true, companionOutput: true, yamlMetadata: true, metadataInitialization: true, colorPreferencesAcrossLaunches: true, activeFormatting: true, legacySessionBackup: true, clipboard: true, singleInstance: true, recovery: true, pageErrors };
+  const results = { startupMilliseconds, secondFileOpenMilliseconds: openMilliseconds, tabCloseMilliseconds: closeMilliseconds, nativeAutosave: true, noAutomaticCompanion: true, hybrid: true, colorPreferencesAcrossLaunches: true, activeFormatting: true, legacySessionBackup: true, clipboard: true, singleInstance: true, recovery: true, pageErrors };
   await writeFile('test-results/native-results.json', JSON.stringify(results, null, 2));
   console.log(JSON.stringify(results, null, 2));
 } finally {
