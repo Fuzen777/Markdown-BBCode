@@ -2,7 +2,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { DocumentStore, documentName, pathKey, outputPath } from './documents.js';
+import { DocumentStore, documentName, pathKey, outputPath, normalizeViewportWidth } from './documents.js';
 import { MarkdownEditor } from './visual-editor.js';
 import { documentToBBCodeWithWarnings, hasDocumentContent, readDocumentSource } from './document-format.js';
 import { importBBCode } from './bbcode-import.js';
@@ -53,7 +53,7 @@ let safetyNotice = '';
 let closingWindow = false;
 let actionQueue = Promise.resolve();
 let startupComplete = false;
-let runtimeInfo = { version: '0.2.9', isPortable: true, executablePath: '' };
+let runtimeInfo = { version: '0.2.10', isPortable: true, executablePath: '' };
 let availableUpdate = null;
 let checkingUpdate = false;
 let installingUpdate = false;
@@ -225,7 +225,7 @@ function renderFormatting() {
 function renderUpdater() {
   const versionButton = elements['app-version'];
   if (versionButton) {
-    const version = runtimeInfo?.version || '0.2.9';
+    const version = runtimeInfo?.version || '0.2.10';
     if (checkingUpdate) versionButton.textContent = 'Checking For Updates…';
     else if (installingUpdate) versionButton.textContent = 'Updating…';
     else if (availableUpdate?.available) versionButton.textContent = `v${version} · Update v${availableUpdate.latestVersion}`;
@@ -253,6 +253,13 @@ function renderUpdater() {
         : 'Download And Install App Update'
     );
   }
+}
+
+function renderViewportWidth() {
+  const mode = normalizeViewportWidth(store.viewportWidth);
+  if (elements['editor-primary']) elements['editor-primary'].dataset.viewport = mode;
+  elements['viewport-page']?.setAttribute('aria-pressed', String(mode === 'page'));
+  elements['viewport-full']?.setAttribute('aria-pressed', String(mode === 'full'));
 }
 
 function render() {
@@ -313,6 +320,7 @@ function render() {
   updateBBCodePreview();
   documentOutline?.refresh();
   folderBrowser?.syncOpenDocuments();
+  renderViewportWidth();
   renderUpdater();
 }
 
@@ -365,6 +373,15 @@ async function changeMode(mode) {
   showDocument();
   await persist();
   editor.focus();
+}
+
+async function setViewportWidth(mode) {
+  const next = normalizeViewportWidth(mode);
+  if (store.viewportWidth === next) return;
+  store.viewportWidth = next;
+  renderViewportWidth();
+  requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  await persist();
 }
 
 // ==> Section 3 - File Actions And Conflict Resolution <==
@@ -953,6 +970,8 @@ async function initialize() {
   elements.hybrid.onclick = () => runAction(() => changeMode('hybrid'));
   elements.visual.onclick = () => runAction(() => changeMode('visual'));
   elements.source.onclick = () => runAction(() => changeMode('source'));
+  if (elements['viewport-page']) elements['viewport-page'].onclick = () => runAction(() => setViewportWidth('page'));
+  if (elements['viewport-full']) elements['viewport-full'].onclick = () => runAction(() => setViewportWidth('full'));
   elements.resolve.onclick = () => runAction(() => resolveConflict());
   elements.retry.onclick = () => runAction(() => saveDocument());
   elements.drafts.onclick = () => runAction(async () => {

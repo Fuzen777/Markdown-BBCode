@@ -85,8 +85,8 @@ async function installFilesystemBridge(page, { dirs = [], files = {}, session = 
         }
         if (command === 'take_pending_paths') return window.fsMock.pendingPaths.splice(0);
         if (command === 'open_external_url' || command === 'finish_close') return;
-        if (command === 'app_runtime_info') return { version: '0.2.9', isPortable: true, executablePath: '' };
-        if (command === 'check_for_update') return { available: false, currentVersion: '0.2.9', latestVersion: '0.2.9', notes: '', isPortable: true };
+        if (command === 'app_runtime_info') return { version: '0.2.10', isPortable: true, executablePath: '' };
+        if (command === 'check_for_update') return { available: false, currentVersion: '0.2.10', latestVersion: '0.2.10', notes: '', isPortable: true };
         if (command === 'install_update') return;
         if (command === 'reveal_in_explorer') { window.fsMock.revealedPaths.push(args.path); return; }
         if (command === 'path_info') {

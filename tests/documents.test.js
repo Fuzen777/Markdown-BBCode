@@ -1,7 +1,7 @@
 // ==> Section 1 - Markdown Persistence Tests <==
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DocumentStore, pathKey, outputPath } from '../src/documents.js';
+import { DocumentStore, pathKey, outputPath, normalizeViewportWidth } from '../src/documents.js';
 import { backendFixture } from './backend.js';
 
 test('opening and saving preserve untouched Markdown without creating an export', async () => {
@@ -158,4 +158,31 @@ test('different Markdown extensions can be edited without sharing an automatic o
   await store.flush(await store.open('Page.md'));
   await store.flush(await store.open('Page.markdown'));
   assert.equal(backend.files.size, 2);
+});
+
+test('viewport width defaults to page, persists globally, and rejects invalid values without altering preferences', async () => {
+  assert.equal(normalizeViewportWidth(undefined), 'page');
+  assert.equal(normalizeViewportWidth('invalid'), 'page');
+  assert.equal(normalizeViewportWidth('full'), 'full');
+
+  const backend = backendFixture();
+  const store = new DocumentStore(backend);
+  assert.equal(store.viewportWidth, 'page');
+  const initialPrefs = { ...store.preferences };
+
+  store.viewportWidth = normalizeViewportWidth('full');
+  await store.persist();
+  const saved = await backend.loadSession();
+  assert.equal(saved.viewportWidth, 'full');
+  assert.deepEqual(saved.preferences, initialPrefs);
+
+  const restored = new DocumentStore(backend);
+  await restored.restore();
+  assert.equal(restored.viewportWidth, 'full');
+  assert.deepEqual(restored.preferences, initialPrefs);
+
+  await backend.saveSession({ ...saved, viewportWidth: 'bogus' });
+  const fallbackStore = new DocumentStore(backend);
+  await fallbackStore.restore();
+  assert.equal(fallbackStore.viewportWidth, 'page');
 });

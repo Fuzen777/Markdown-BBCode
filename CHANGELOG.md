@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.10 — 2026-11-23
+
+1. Added the Notion-style `Width [Page | Full]` segmented toggle in the document bar (defaulting to an `800px` centered reading column across Visual, Hybrid, and Source modes while persisting the preference globally).
+
 ## 0.2.9 — 2026-11-23
 
 1. Rebranded the application from `BBCode Editor` to `Markdown BBCode` across the interface, window title, executable (`Markdown BBCode.exe`), Tauri identifier (`com.fuzen777.markdown-bbcode`), single-instance lock and repository files.

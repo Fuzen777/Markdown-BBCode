@@ -8,8 +8,8 @@ test.beforeEach(async ({ page }) => {
     const callbacks = {};
     const eventHandlers = {};
     window.testDesktop = { files: {}, pendingPaths: [], openedUrls: [], session: JSON.parse(localStorage.getItem('seedSession') || 'null'), openPaths: null, savePath: null, closed: false, failSave: false, failOutput: false,
-      runtimeInfo: { version: '0.2.9', isPortable: true, executablePath: '' },
-      updateCheckResult: { available: false, currentVersion: '0.2.9', latestVersion: '0.2.9', notes: '', isPortable: true },
+      runtimeInfo: { version: '0.2.10', isPortable: true, executablePath: '' },
+      updateCheckResult: { available: false, currentVersion: '0.2.10', latestVersion: '0.2.10', notes: '', isPortable: true },
       failUpdateCheck: false,
       updateInstalls: 0,
       emit(name, payload = null) { callbacks[eventHandlers[name]]?.({ event: name, payload }); },
@@ -868,17 +868,17 @@ test('Windows virtual-key shortcuts respect split Ctrl layouts like BEPO azerty-
 test('updater checks for updates, blocks install on conflict errors, and flushes clean documents before updating', async ({ page }) => {
   const versionButton = page.locator('#app-version');
   const updateButton = page.locator('#update-app');
-  await expect(versionButton).toHaveText('v0.2.9');
+  await expect(versionButton).toHaveText('v0.2.10');
   await expect(updateButton).toBeHidden();
 
   await versionButton.click();
-  await expect(versionButton).toHaveText('v0.2.9 · Up To Date');
+  await expect(versionButton).toHaveText('v0.2.10 · Up To Date');
   await expect(updateButton).toBeHidden();
 
   await page.evaluate(() => {
     window.testDesktop.updateCheckResult = {
       available: true,
-      currentVersion: '0.2.9',
+      currentVersion: '0.2.10',
       latestVersion: '0.3.0',
       notes: 'Release notes',
       isPortable: true,
@@ -887,7 +887,7 @@ test('updater checks for updates, blocks install on conflict errors, and flushes
   await versionButton.click();
   await expect(updateButton).toBeVisible();
   await expect(updateButton).toHaveText('Update v0.3.0');
-  await expect(versionButton).toHaveText('v0.2.9 · Update v0.3.0');
+  await expect(versionButton).toHaveText('v0.2.10 · Update v0.3.0');
 
   await setSource(page, 'Initial content');
   await saveDraft(page, 'C:\\Mod.md');
@@ -914,4 +914,64 @@ test('updater checks for updates, blocks install on conflict errors, and flushes
   await expect.poll(() => page.evaluate(() => window.testDesktop.updateInstalls)).toBe(1);
   expect(await page.evaluate(() => window.testDesktop.files['C:\\Mod.md'].content)).toBe('Flushed before update');
   await expect(updateButton).toBeHidden();
+});
+
+test('viewport width segmented toggle switches between Page (800px) and Full across all modes and persists globally', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 800 });
+  const editorPrimary = page.locator('#editor-primary');
+  const pageButton = page.getByRole('button', { name: 'Page', exact: true });
+  const fullButton = page.getByRole('button', { name: 'Full', exact: true });
+
+  await expect(editorPrimary).toHaveAttribute('data-viewport', 'page');
+  await expect(pageButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(fullButton).toHaveAttribute('aria-pressed', 'false');
+
+  await setSource(page, '# Viewport Demo\n\nCentered page reading width across Visual, Hybrid, and Source modes.');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+
+  const visualBox = await page.locator('#visual-editor').boundingBox();
+  const tiptapPageBox = await page.locator('.tiptap').boundingBox();
+  expect(tiptapPageBox.width).toBeLessThanOrEqual(905);
+  expect(tiptapPageBox.x).toBeGreaterThan(visualBox.x + 20);
+
+  const paragraph = page.locator('.tiptap p').first();
+  const paragraphBox = await paragraph.boundingBox();
+  await paragraph.hover();
+  const controlsBox = await page.locator('.block-controls').boundingBox();
+  expect(controlsBox.x + controlsBox.width).toBeLessThanOrEqual(paragraphBox.x);
+  await page.screenshot({ path: 'test-results/viewport-page.png' });
+
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  const hybridBox = await page.locator('#hybrid-editor').boundingBox();
+  const hybridBlockPageBox = await page.locator('.hybrid-block:not(.blank-block)').first().boundingBox();
+  expect(hybridBlockPageBox.width).toBeLessThanOrEqual(805);
+  expect(hybridBlockPageBox.x).toBeGreaterThan(hybridBox.x + 115);
+
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  const sourcePagePadding = await page.locator('#markdown-source').evaluate(el => Number.parseFloat(getComputedStyle(el).paddingLeft));
+  expect(sourcePagePadding).toBeGreaterThan(40);
+
+  await fullButton.click();
+  await expect(editorPrimary).toHaveAttribute('data-viewport', 'full');
+  await expect(fullButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(pageButton).toHaveAttribute('aria-pressed', 'false');
+
+  const sourceFullPadding = await page.locator('#markdown-source').evaluate(el => Number.parseFloat(getComputedStyle(el).paddingLeft));
+  expect(sourceFullPadding).toBe(22);
+
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  const hybridBlockFullBox = await page.locator('.hybrid-block:not(.blank-block)').first().boundingBox();
+  expect(hybridBlockFullBox.width).toBeGreaterThan(850);
+
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  const tiptapFullBox = await page.locator('.tiptap').boundingBox();
+  expect(tiptapFullBox.width).toBeGreaterThan(950);
+  await page.screenshot({ path: 'test-results/viewport-full.png' });
+
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.viewportWidth)).toBe('full');
+  await page.evaluate(() => localStorage.setItem('seedSession', JSON.stringify(window.testDesktop.session)));
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-ready', 'true');
+  await expect(page.locator('#editor-primary')).toHaveAttribute('data-viewport', 'full');
+  await expect(page.getByRole('button', { name: 'Full', exact: true })).toHaveAttribute('aria-pressed', 'true');
 });

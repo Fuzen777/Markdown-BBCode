@@ -26,7 +26,7 @@ Offer Visual, Hybrid and Source. Visual remains the default. In Hybrid, only the
 
 ## Interface And Preferences
 
-Keep light/dark appearance, standard file shortcuts, source-conflict handling and selection-aware formatting controls. Retain the split Color button, last-applied color and Hex/RGB/HSL preferences across launches. Property settings are optional and shown only for explicit legacy document metadata. No automatic system file associations.
+Keep light/dark appearance, standard file shortcuts, source-conflict handling and selection-aware formatting controls. Retain the split Color button, last-applied color and Hex/RGB/HSL preferences across launches, plus the global document-bar `Width [Page | Full]` segmented toggle (`800px` centered column across Visual, Hybrid and Source by default, or full editor width). Property settings are optional and shown only for explicit legacy document metadata. No automatic system file associations.
 
 ## Validation
 

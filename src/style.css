@@ -1,5 +1,5 @@
 /* ==> Section 1 - Application Palette <== */
-:root { font: 14px 'Segoe UI', sans-serif; color-scheme: light dark; --page: #f4f5f7; --panel: #fff; --text: #23262f; --muted: #606775; --line: #dce0e7; --accent: #8b4c16; --accent-bg: #fff0df; --error-bg: #fff0eb; background: var(--page); color: var(--text); }
+:root { font: 14px 'Segoe UI', sans-serif; color-scheme: light dark; --page: #f4f5f7; --panel: #fff; --text: #23262f; --muted: #606775; --line: #dce0e7; --accent: #8b4c16; --accent-bg: #fff0df; --error-bg: #fff0eb; --editor-page-width: 800px; background: var(--page); color: var(--text); }
 @media (prefers-color-scheme: dark) { :root { --page: #171a20; --panel: #20242b; --text: #e5e8ee; --muted: #a4adbc; --line: #343b47; --accent: #f4b570; --accent-bg: #3b2b1d; --error-bg: #3d2424; } }
 * { box-sizing: border-box; }
 body { margin: 0; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -307,6 +307,9 @@ button.icon-button { display: inline-flex; align-items: center; justify-content:
 .block-type-item .material-icon { width: 20px; height: 20px; }
 #editor-panes { flex: 1; min-height: 0; display: flex; min-width: 0; }
 #editor-primary { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; }
+#editor-primary[data-viewport="page"] #visual-editor .tiptap { width: 100%; max-width: calc(var(--editor-page-width) + 96px); margin: 0 auto; }
+#editor-primary[data-viewport="page"] #hybrid-editor .hybrid-block { width: 100%; max-width: var(--editor-page-width); margin-left: auto; margin-right: auto; }
+#editor-primary[data-viewport="page"] #markdown-source { padding-left: max(22px, calc((100% - var(--editor-page-width)) / 2)); padding-right: max(22px, calc((100% - var(--editor-page-width)) / 2)); }
 #preview-resizer { flex: 0 0 6px; width: 6px; cursor: col-resize; background: transparent; position: relative; touch-action: none; }
 #preview-resizer::after { content: ''; position: absolute; inset: 0 2px; border-radius: 2px; background: var(--line); transition: background .15s; }
 #preview-resizer:hover::after, #preview-resizer:focus-visible::after, #preview-resizer.dragging::after { background: var(--accent); }

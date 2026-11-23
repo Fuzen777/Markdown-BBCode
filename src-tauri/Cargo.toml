@@ -1,6 +1,6 @@
 [package]
 name = "markdown-bbcode"
-version = "0.2.9"
+version = "0.2.10"
 description = "Markdown editor with optional Nexus BBCode export"
 edition = "2021"
 
