@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.11 — 2026-11-24
+
+1. Added middle-mouse-button (`auxclick`) tab closing (canceling cleanly if dragged off before release, ignoring right-clicks, preventing middle-click auto-scroll, and preserving draft recovery and the single-tab invariant).
+2. Added persistent window size, position, and maximized/fullscreen state via `tauri-plugin-window-state` (stored inside `portable-data/window-state.json` when portable or app config directory when installed) paired with an automatic startup off-screen and taskbar rescue guard.
+3. Added `--graceful-close` single-instance support for `npm run portable` hot-swaps so open instances save and exit cleanly without requiring direct Win32 window-handle access.
+
 ## 0.2.10 — 2026-11-23
 
 1. Added the Notion-style `Width [Page | Full]` segmented toggle in the document bar (defaulting to an `800px` centered reading column across Visual, Hybrid, and Source modes while persisting the preference globally).

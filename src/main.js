@@ -53,7 +53,7 @@ let safetyNotice = '';
 let closingWindow = false;
 let actionQueue = Promise.resolve();
 let startupComplete = false;
-let runtimeInfo = { version: '0.2.10', isPortable: true, executablePath: '' };
+let runtimeInfo = { version: '0.2.11', isPortable: true, executablePath: '' };
 let availableUpdate = null;
 let checkingUpdate = false;
 let installingUpdate = false;
@@ -225,7 +225,7 @@ function renderFormatting() {
 function renderUpdater() {
   const versionButton = elements['app-version'];
   if (versionButton) {
-    const version = runtimeInfo?.version || '0.2.10';
+    const version = runtimeInfo?.version || '0.2.11';
     if (checkingUpdate) versionButton.textContent = 'Checking For Updates…';
     else if (installingUpdate) versionButton.textContent = 'Updating…';
     else if (availableUpdate?.available) versionButton.textContent = `v${version} · Update v${availableUpdate.latestVersion}`;
@@ -270,6 +270,12 @@ function render() {
     const tabGroup = document.createElement('div');
     tabGroup.className = 'tab-group';
     tabGroup.classList.toggle('active', documentRecord.id === store.activeId);
+    tabGroup.onmousedown = event => { if (event.button === 1) event.preventDefault(); };
+    tabGroup.onauxclick = event => {
+      if (event.button !== 1) return;
+      event.preventDefault();
+      void runAction(() => closeTab(documentRecord));
+    };
     const tab = document.createElement('button');
     tab.className = 'tab';
     tab.role = 'tab';

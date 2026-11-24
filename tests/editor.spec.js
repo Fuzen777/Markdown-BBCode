@@ -8,8 +8,8 @@ test.beforeEach(async ({ page }) => {
     const callbacks = {};
     const eventHandlers = {};
     window.testDesktop = { files: {}, pendingPaths: [], openedUrls: [], session: JSON.parse(localStorage.getItem('seedSession') || 'null'), openPaths: null, savePath: null, closed: false, failSave: false, failOutput: false,
-      runtimeInfo: { version: '0.2.10', isPortable: true, executablePath: '' },
-      updateCheckResult: { available: false, currentVersion: '0.2.10', latestVersion: '0.2.10', notes: '', isPortable: true },
+      runtimeInfo: { version: '0.2.11', isPortable: true, executablePath: '' },
+      updateCheckResult: { available: false, currentVersion: '0.2.11', latestVersion: '0.2.11', notes: '', isPortable: true },
       failUpdateCheck: false,
       updateInstalls: 0,
       emit(name, payload = null) { callbacks[eventHandlers[name]]?.({ event: name, payload }); },
@@ -868,17 +868,17 @@ test('Windows virtual-key shortcuts respect split Ctrl layouts like BEPO azerty-
 test('updater checks for updates, blocks install on conflict errors, and flushes clean documents before updating', async ({ page }) => {
   const versionButton = page.locator('#app-version');
   const updateButton = page.locator('#update-app');
-  await expect(versionButton).toHaveText('v0.2.10');
+  await expect(versionButton).toHaveText('v0.2.11');
   await expect(updateButton).toBeHidden();
 
   await versionButton.click();
-  await expect(versionButton).toHaveText('v0.2.10 · Up To Date');
+  await expect(versionButton).toHaveText('v0.2.11 · Up To Date');
   await expect(updateButton).toBeHidden();
 
   await page.evaluate(() => {
     window.testDesktop.updateCheckResult = {
       available: true,
-      currentVersion: '0.2.10',
+      currentVersion: '0.2.11',
       latestVersion: '0.3.0',
       notes: 'Release notes',
       isPortable: true,
@@ -887,7 +887,7 @@ test('updater checks for updates, blocks install on conflict errors, and flushes
   await versionButton.click();
   await expect(updateButton).toBeVisible();
   await expect(updateButton).toHaveText('Update v0.3.0');
-  await expect(versionButton).toHaveText('v0.2.10 · Update v0.3.0');
+  await expect(versionButton).toHaveText('v0.2.11 · Update v0.3.0');
 
   await setSource(page, 'Initial content');
   await saveDraft(page, 'C:\\Mod.md');
@@ -974,4 +974,40 @@ test('viewport width segmented toggle switches between Page (800px) and Full acr
   await expect(page.locator('html')).toHaveAttribute('data-ready', 'true');
   await expect(page.locator('#editor-primary')).toHaveAttribute('data-viewport', 'full');
   await expect(page.getByRole('button', { name: 'Full', exact: true })).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('middle mouse button closes tabs on auxclick release while ignoring drag-away and right clicks', async ({ page }) => {
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await expect(page.getByRole('tab')).toHaveCount(3);
+  await expect(page.getByRole('tab', { name: /Untitled 3/ })).toHaveAttribute('aria-selected', 'true');
+
+  // Middle-click inactive tab closes it while preserving the active tab.
+  await page.getByRole('tab', { name: /Untitled 2/ }).click({ button: 'middle' });
+  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('tab', { name: /Untitled 3/ })).toHaveAttribute('aria-selected', 'true');
+
+  // Dragging away before releasing middle button does not close the tab.
+  const firstTab = page.getByRole('tab', { name: /Untitled 1/ });
+  const firstTabBox = await firstTab.boundingBox();
+  await page.mouse.move(firstTabBox.x + firstTabBox.width / 2, firstTabBox.y + firstTabBox.height / 2);
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(firstTabBox.x + firstTabBox.width / 2, firstTabBox.y + firstTabBox.height + 60);
+  await page.mouse.up({ button: 'middle' });
+  await expect(page.getByRole('tab')).toHaveCount(2);
+
+  // Right-click on a tab does not trigger middle-close.
+  await firstTab.click({ button: 'right' });
+  await expect(page.getByRole('tab')).toHaveCount(2);
+
+  // Middle-clicking an active tab with draft content preserves it in Drafts and keeps at least one open tab.
+  await page.getByRole('textbox', { name: 'Visual Markdown Editor' }).fill('Draft kept on middle close');
+  await page.getByRole('tab', { name: /Untitled 3/ }).click({ button: 'middle' });
+  await expect(page.getByRole('tab')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Drafts (1)' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /Untitled 1/ })).toHaveAttribute('aria-selected', 'true');
+
+  // Middle-clicking the last open tab replaces it cleanly with a fresh tab.
+  await page.getByRole('tab', { name: /Untitled 1/ }).click({ button: 'middle' });
+  await expect(page.getByRole('tab')).toHaveCount(1);
 });

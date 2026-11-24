@@ -4,7 +4,7 @@ A fast Windows x64 Markdown editor with optional Nexus Mods BBCode export, avail
 
 ## Running And Updates
 
-Extract the portable release folder into a writable location (or run the portable build in `D:\Apps\Markdown BBCode`) and launch **Markdown BBCode.exe**, or install via the signed Windows NSIS setup executable. Microsoft Edge WebView2 Runtime is required. Portable launches keep settings, recovery drafts and WebView2 data in `portable-data` beside the executable (enabled by `Portable.txt`); installed launches store data in `%APPDATA%\Markdown BBCode`. Keep `portable-data` intact when moving a portable folder. Both modes check GitHub Releases silently on startup or on demand from the footer version button and provide a one-click header **Update** action that flushes clean open files first (and aborts if a file conflict exists) before verifying and applying the signed update.
+Extract the portable release folder into a writable location (or run the portable build in `D:\Apps\Markdown BBCode`) and launch **Markdown BBCode.exe**, or install via the signed Windows NSIS setup executable. Microsoft Edge WebView2 Runtime is required. Portable launches keep settings, recovery drafts, window size/position (`window-state.json`) and WebView2 data in `portable-data` beside the executable (enabled by `Portable.txt`); installed launches store data in `%APPDATA%\Markdown BBCode`. Keep `portable-data` intact when moving a portable folder. Window position and size restore automatically on launch (rescuing any off-screen or disconnected-monitor coordinates). Both modes check GitHub Releases silently on startup or on demand from the footer version button and provide a one-click header **Update** action that flushes clean open files first (and aborts if a file conflict exists) before verifying and applying the signed update.
 
 ## Documents And Saving
 
@@ -61,7 +61,7 @@ BBCode is generated only on request. Tables become readable text, tasks become l
 | Ctrl+O | Open Files |
 | Ctrl+S | Save / Name Draft |
 | Ctrl+Shift+S | Save As |
-| Ctrl+W | Close Tab |
+| Ctrl+W | Close Tab (Or Middle-Click Tab) |
 | Ctrl+Shift+C | Copy BBCode |
 | Ctrl+B / Ctrl+I | Toggle Bold / Italic (Visual, Hybrid, Source) |
 | Ctrl+K | Insert Or Edit Link (Visual, Hybrid, Source) |

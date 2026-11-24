@@ -19,8 +19,8 @@ async function openDocument(page, source, mode = 'hybrid') {
         if (command === 'save_session') { session = structuredClone(options.session); return; }
         if (command === 'take_pending_paths') return [];
         if (command === 'open_external_url') { window.hybridDesktop.openedUrls.push(options.url); return; }
-        if (command === 'app_runtime_info') return { version: '0.2.10', isPortable: true, executablePath: '' };
-        if (command === 'check_for_update') return { available: false, currentVersion: '0.2.10', latestVersion: '0.2.10', notes: '', isPortable: true };
+        if (command === 'app_runtime_info') return { version: '0.2.11', isPortable: true, executablePath: '' };
+        if (command === 'check_for_update') return { available: false, currentVersion: '0.2.11', latestVersion: '0.2.11', notes: '', isPortable: true };
         if (command === 'install_update') return;
         if (command === 'path_info') {
           const clean = String(options.path || '').replace(/^\\\\\?\\/, '').replace(/[\\/]+$/, '');

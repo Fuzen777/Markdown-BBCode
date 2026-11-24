@@ -69,9 +69,10 @@ async function listProcessesInDir(targetDir) {
     .filter(pid => Number.isInteger(pid) && pid > 0);
 }
 
-async function closeRunningProcessesGracefully(targetDir, timeoutMs = 10_000) {
+async function closeRunningProcessesGracefully(targetDir, exeSource, timeoutMs = 10_000) {
   const running = await listProcessesInDir(targetDir);
   if (!running.length) return false;
+  await execFileAsync(exeSource, ['--graceful-close'], { timeout: 5000 }).catch(() => {});
   for (const pid of running) {
     await execFileAsync('powershell.exe', [
       '-NoProfile',
@@ -120,7 +121,7 @@ export async function runPackage(argv = process.argv.slice(2)) {
   }
 
   const targetDir = process.env.PORTABLE_TARGET_DIR || 'D:\\Apps\\Markdown BBCode';
-  const wasRunning = await closeRunningProcessesGracefully(targetDir);
+  const wasRunning = await closeRunningProcessesGracefully(targetDir, exeSource);
   const destExe = await stagePortableFiles({ destinationDir: targetDir, exeSource });
   if (wasRunning && !argv.includes('--no-relaunch')) {
     const child = spawn(destExe, [], { detached: true, stdio: 'ignore', windowsHide: false });

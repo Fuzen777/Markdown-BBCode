@@ -16,6 +16,7 @@ use std::{
 };
 use tauri::{Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
+use tauri_plugin_window_state::{AppHandleExt, StateFlags, WindowExt};
 
 const UPDATER_PUBKEY: &str = "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFCMzBDOTA5QTExRTYwNDYKUldSR1lCNmhDY2t3R3l1VktrZ0duVE9tSFBkVW9kV0lpM0VCVkhrS2x4WWNxUHBwM2N1OGJhTVgK";
 const PORTABLE_MANIFEST_URL: &str =
@@ -249,8 +250,162 @@ fn take_pending_paths(state: tauri::State<PendingState>) -> Result<Vec<String>, 
     ))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WindowRect {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+fn windowStateFlags() -> StateFlags {
+    StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED | StateFlags::FULLSCREEN
+}
+
+fn intersectionArea(a: WindowRect, b: WindowRect) -> i64 {
+    let left = i64::from(a.x).max(i64::from(b.x));
+    let top = i64::from(a.y).max(i64::from(b.y));
+    let right = (i64::from(a.x) + i64::from(a.width)).min(i64::from(b.x) + i64::from(b.width));
+    let bottom = (i64::from(a.y) + i64::from(a.height)).min(i64::from(b.y) + i64::from(b.height));
+    if right > left && bottom > top {
+        (right - left) * (bottom - top)
+    } else {
+        0
+    }
+}
+
+fn resolveRescuedWindowRect(
+    current: WindowRect,
+    workAreas: &[WindowRect],
+    primaryWorkArea: Option<WindowRect>,
+) -> Option<WindowRect> {
+    if workAreas.is_empty() {
+        return None;
+    }
+
+    let titleHeight = current.height.min(40);
+    let minTitleOverlapW = i64::from(current.width.min(120));
+    let minTitleOverlapH = i64::from(titleHeight.min(24));
+
+    let currentTop = i64::from(current.y);
+    let currentLeft = i64::from(current.x);
+    let currentRight = currentLeft + i64::from(current.width);
+    let titleBottom = currentTop + i64::from(titleHeight);
+
+    let safelyVisible = workAreas.iter().any(|area| {
+        let areaLeft = i64::from(area.x);
+        let areaTop = i64::from(area.y);
+        let areaRight = areaLeft + i64::from(area.width);
+        let areaBottom = areaTop + i64::from(area.height);
+
+        let overlapW = (currentRight.min(areaRight) - currentLeft.max(areaLeft)).max(0);
+        let overlapH = (titleBottom.min(areaBottom) - currentTop.max(areaTop)).max(0);
+        let fitsSize = current.width <= area.width.saturating_add(16)
+            && current.height <= area.height.saturating_add(16);
+        let topReachable =
+            currentTop >= areaTop - 8 && currentTop + minTitleOverlapH <= areaBottom + 8;
+
+        overlapW >= minTitleOverlapW && overlapH >= minTitleOverlapH && fitsSize && topReachable
+    });
+    if safelyVisible {
+        return None;
+    }
+
+    let mut bestArea = None;
+    let mut bestOverlap = 0i64;
+    for area in workAreas {
+        let areaOverlap = intersectionArea(current, *area);
+        if areaOverlap > bestOverlap {
+            bestOverlap = areaOverlap;
+            bestArea = Some(*area);
+        }
+    }
+
+    let target = bestArea.or(primaryWorkArea).unwrap_or(workAreas[0]);
+    let targetWidth = if target.width >= 720 {
+        current.width.clamp(720, target.width)
+    } else {
+        current.width.min(target.width.max(1))
+    };
+    let targetHeight = if target.height >= 480 {
+        current.height.clamp(480, target.height)
+    } else {
+        current.height.min(target.height.max(1))
+    };
+
+    let targetLeft = i64::from(target.x);
+    let targetTop = i64::from(target.y);
+    let (nextX, nextY) = if bestOverlap > 0 {
+        let maxX = (targetLeft + i64::from(target.width) - i64::from(targetWidth)).max(targetLeft);
+        let maxY = (targetTop + i64::from(target.height) - i64::from(targetHeight)).max(targetTop);
+        (
+            currentLeft.clamp(targetLeft, maxX) as i32,
+            currentTop.clamp(targetTop, maxY) as i32,
+        )
+    } else {
+        let centeredX = targetLeft + (i64::from(target.width) - i64::from(targetWidth)) / 2;
+        let centeredY = targetTop + (i64::from(target.height) - i64::from(targetHeight)) / 2;
+        (centeredX as i32, centeredY as i32)
+    };
+
+    let rescued = WindowRect {
+        x: nextX,
+        y: nextY,
+        width: targetWidth,
+        height: targetHeight,
+    };
+    (rescued != current).then_some(rescued)
+}
+
+fn rescueWindowIfOffScreen(window: &tauri::WebviewWindow) {
+    if window.is_maximized().unwrap_or(false) || window.is_fullscreen().unwrap_or(false) {
+        return;
+    }
+    let (Ok(pos), Ok(outerSize), Ok(innerSize), Ok(monitors)) = (
+        window.outer_position(),
+        window.outer_size(),
+        window.inner_size(),
+        window.available_monitors(),
+    ) else {
+        return;
+    };
+    let monitorToRect = |monitor: &tauri::Monitor| -> WindowRect {
+        let work = monitor.work_area();
+        WindowRect {
+            x: work.position.x,
+            y: work.position.y,
+            width: work.size.width,
+            height: work.size.height,
+        }
+    };
+    let workAreas: Vec<WindowRect> = monitors.iter().map(monitorToRect).collect();
+    let primaryWorkArea = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| monitorToRect(&monitor));
+    let current = WindowRect {
+        x: pos.x,
+        y: pos.y,
+        width: outerSize.width,
+        height: outerSize.height,
+    };
+    let Some(rescued) = resolveRescuedWindowRect(current, &workAreas, primaryWorkArea) else {
+        return;
+    };
+    if rescued.width < current.width || rescued.height < current.height {
+        let frameWidth = outerSize.width.saturating_sub(innerSize.width);
+        let frameHeight = outerSize.height.saturating_sub(innerSize.height);
+        let nextInnerWidth = rescued.width.saturating_sub(frameWidth).max(320);
+        let nextInnerHeight = rescued.height.saturating_sub(frameHeight).max(240);
+        let _ = window.set_size(tauri::PhysicalSize::new(nextInnerWidth, nextInnerHeight));
+    }
+    let _ = window.set_position(tauri::PhysicalPosition::new(rescued.x, rescued.y));
+}
+
 #[tauri::command]
 fn finish_close(app: tauri::AppHandle) {
+    let _ = app.save_window_state(windowStateFlags());
     app.exit(0);
 }
 
@@ -848,6 +1003,7 @@ async fn install_update(
             .download_and_install(|_, _| {}, || {})
             .await
             .map_err(StorageError::io)?;
+        let _ = app.save_window_state(windowStateFlags());
         app.restart();
     }
 
@@ -931,6 +1087,7 @@ async fn install_update(
             .arg(&scriptPath)
             .spawn()
             .map_err(StorageError::io)?;
+        let _ = app.save_window_state(windowStateFlags());
         app.exit(0);
     }
     #[cfg(not(target_os = "windows"))]
@@ -953,6 +1110,16 @@ fn argumentPaths(arguments: impl Iterator<Item = String>, workingDirectory: &Pat
         .collect()
 }
 
+fn hasGracefulCloseFlag<I, S>(arguments: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    arguments
+        .into_iter()
+        .any(|arg| arg.as_ref() == "--graceful-close")
+}
+
 fn main() {
     let executablePath = std::env::current_exe().expect("Cannot locate Markdown BBCode");
     let executableDir = executablePath
@@ -961,25 +1128,41 @@ fn main() {
         .to_path_buf();
     let isPortable = detectPortableMode(&executableDir);
     let workingDirectory = std::env::current_dir().unwrap_or_default();
+    let gracefulCloseRequested = hasGracefulCloseFlag(std::env::args().skip(1));
     let pendingPaths = argumentPaths(std::env::args().skip(1), &workingDirectory);
     tauri::Builder::default()
         .manage(PendingState {
             pendingPaths: Mutex::new(pendingPaths),
         })
-        .plugin(tauri_plugin_single_instance::init(|app, arguments, workingDirectory| {
-            let state = app.state::<PendingState>();
-            if let Ok(mut pendingPaths) = state.pendingPaths.lock() {
-                pendingPaths.extend(argumentPaths(arguments.into_iter().skip(1), Path::new(&workingDirectory)));
-            }
-            let _ = app.emit("open-files", ());
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.unminimize();
-                let _ = window.set_focus();
-            }
-        }))
+        .plugin(tauri_plugin_single_instance::init(
+            |app, arguments, workingDirectory| {
+                if hasGracefulCloseFlag(arguments.iter().skip(1)) {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.emit("request-close", ());
+                    }
+                    return;
+                }
+                let state = app.state::<PendingState>();
+                if let Ok(mut pendingPaths) = state.pendingPaths.lock() {
+                    pendingPaths.extend(argumentPaths(
+                        arguments.into_iter().skip(1),
+                        Path::new(&workingDirectory),
+                    ));
+                }
+                let _ = app.emit("open-files", ());
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            },
+        ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
+            if gracefulCloseRequested {
+                app.handle().exit(0);
+                return Ok(());
+            }
             let dataDirectory = if isPortable {
                 executableDir.join("portable-data")
             } else {
@@ -993,12 +1176,28 @@ fn main() {
                 isPortable,
                 executablePath: executablePath.clone(),
             });
-            tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-                .title("Markdown BBCode")
-                .inner_size(1120.0, 800.0)
-                .min_inner_size(720.0, 480.0)
-                .data_directory(dataDirectory.join("webview"))
-                .build()?;
+            let windowStatePath = dataDirectory.join("window-state.json");
+            app.handle().plugin(
+                tauri_plugin_window_state::Builder::default()
+                    .with_filename(windowStatePath.to_string_lossy().into_owned())
+                    .with_state_flags(windowStateFlags())
+                    .skip_initial_state("main")
+                    .build(),
+            )?;
+            let window = tauri::WebviewWindowBuilder::new(
+                app,
+                "main",
+                tauri::WebviewUrl::App("index.html".into()),
+            )
+            .title("Markdown BBCode")
+            .inner_size(1120.0, 800.0)
+            .min_inner_size(720.0, 480.0)
+            .visible(false)
+            .data_directory(dataDirectory.join("webview"))
+            .build()?;
+            let _ = window.restore_state(windowStateFlags());
+            rescueWindowIfOffScreen(&window);
+            let _ = window.show();
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1260,5 +1459,194 @@ mod tests {
             writer.finish().unwrap();
         }
         assert!(extractZipSafely(&evilZip, extractDir.path()).is_err());
+    }
+
+    #[test]
+    fn resolves_offscreen_and_taskbar_window_rescue() {
+        let primary = WindowRect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1040,
+        };
+        let leftMonitor = WindowRect {
+            x: -1920,
+            y: 0,
+            width: 1920,
+            height: 1040,
+        };
+
+        assert_eq!(
+            resolveRescuedWindowRect(
+                WindowRect {
+                    x: 100,
+                    y: 80,
+                    width: 1120,
+                    height: 800,
+                },
+                &[primary],
+                Some(primary),
+            ),
+            None
+        );
+
+        assert_eq!(
+            resolveRescuedWindowRect(
+                WindowRect {
+                    x: -1700,
+                    y: 60,
+                    width: 1120,
+                    height: 800,
+                },
+                &[primary, leftMonitor],
+                Some(primary),
+            ),
+            None
+        );
+
+        // Aero-snapped half with invisible DWM shadow overhang remains untouched.
+        assert_eq!(
+            resolveRescuedWindowRect(
+                WindowRect {
+                    x: -7,
+                    y: 0,
+                    width: 974,
+                    height: 1047,
+                },
+                &[primary],
+                Some(primary),
+            ),
+            None
+        );
+
+        // Disconnected secondary monitor falls back centered onto the primary monitor.
+        assert_eq!(
+            resolveRescuedWindowRect(
+                WindowRect {
+                    x: 2500,
+                    y: 120,
+                    width: 1120,
+                    height: 800,
+                },
+                &[primary],
+                Some(primary),
+            ),
+            Some(WindowRect {
+                x: 400,
+                y: 120,
+                width: 1120,
+                height: 800,
+            })
+        );
+
+        // Title bar dragged off top edge clamps back inside work area.
+        assert_eq!(
+            resolveRescuedWindowRect(
+                WindowRect {
+                    x: 200,
+                    y: -35,
+                    width: 1120,
+                    height: 800,
+                },
+                &[primary],
+                Some(primary),
+            ),
+            Some(WindowRect {
+                x: 200,
+                y: 0,
+                width: 1120,
+                height: 800,
+            })
+        );
+
+        // Title bar pushed behind bottom taskbar clamps upward cleanly.
+        assert_eq!(
+            resolveRescuedWindowRect(
+                WindowRect {
+                    x: 200,
+                    y: 1025,
+                    width: 1120,
+                    height: 800,
+                },
+                &[primary],
+                Some(primary),
+            ),
+            Some(WindowRect {
+                x: 200,
+                y: 240,
+                width: 1120,
+                height: 800,
+            })
+        );
+
+        // Barely protruding left sliver rescues inside right monitor boundary.
+        assert_eq!(
+            resolveRescuedWindowRect(
+                WindowRect {
+                    x: 1880,
+                    y: 100,
+                    width: 1120,
+                    height: 800,
+                },
+                &[primary],
+                Some(primary),
+            ),
+            Some(WindowRect {
+                x: 800,
+                y: 100,
+                width: 1120,
+                height: 800,
+            })
+        );
+
+        // Oversized window on smaller display shrinks to fit cleanly inside work area.
+        let laptop = WindowRect {
+            x: 0,
+            y: 0,
+            width: 1366,
+            height: 728,
+        };
+        assert_eq!(
+            resolveRescuedWindowRect(
+                WindowRect {
+                    x: 50,
+                    y: 50,
+                    width: 1920,
+                    height: 1080,
+                },
+                &[laptop],
+                Some(laptop),
+            ),
+            Some(laptop)
+        );
+
+        assert_eq!(
+            resolveRescuedWindowRect(
+                WindowRect {
+                    x: 2500,
+                    y: 120,
+                    width: 1120,
+                    height: 800,
+                },
+                &[],
+                None,
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn detects_graceful_close_flag_and_ignores_it_as_path() {
+        assert!(hasGracefulCloseFlag(["--graceful-close"]));
+        assert!(hasGracefulCloseFlag(["notes.md", "--graceful-close"]));
+        assert!(!hasGracefulCloseFlag(["notes.md", "--other-flag"]));
+
+        let args = vec![
+            "--graceful-close".to_owned(),
+            "doc.md".to_owned(),
+            "-x".to_owned(),
+        ];
+        let paths = argumentPaths(args.into_iter(), Path::new(r"C:\Workspace"));
+        assert_eq!(paths, vec![r"C:\Workspace\doc.md".to_owned()]);
     }
 }

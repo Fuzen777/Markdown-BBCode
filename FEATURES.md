@@ -4,12 +4,12 @@
 
 | Feature | Behaviour |
 | --- | --- |
-| Local Markdown | Default .md; .markdown, .mdbbcode and auto-detected non-BBCode .txt files supported directly in tabs. |
+| Local Markdown | Default .md; .markdown, .mdbbcode and auto-detected non-BBCode .txt files supported directly in tabs (supporting middle-click `auxclick` to close tabs safely). |
 | Autosave | Saves only Markdown; existing BBCode companions are untouched. |
 | Optional YAML | Arbitrary frontmatter retained; legacy export target dropdown remains available. |
 | On-Demand BBCode | Copy or explicit Export with single-newline Nexus block spacing (preserving extra intentional blank lines), loss review, replacement confirmation and revision checks. |
 | One-Time Import | Auto-detects BBCode tags in opened `.txt` files (alongside `.bbcode` files), reviews unsupported formatting and protects originals. |
-| Recovery | Open tabs, unnamed drafts, preferences and legacy imports persist in `portable-data` (portable) or `%APPDATA%\Markdown BBCode` (installed). |
+| Recovery | Open tabs, unnamed drafts, preferences, window bounds (with off-screen startup rescue) and legacy imports persist in `portable-data` (portable) or `%APPDATA%\Markdown BBCode` (installed). |
 | Auto-Updater | Silent startup check plus footer manual check and one-click header `Update` button for both NSIS installed and signed portable builds, flushing clean files and blocking on unresolved conflicts before restarting or swapping. |
 | Conflict Protection | External source changes require review; failed saves prevent closing. |
 

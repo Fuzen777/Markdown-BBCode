@@ -1,6 +1,6 @@
 [package]
 name = "markdown-bbcode"
-version = "0.2.10"
+version = "0.2.11"
 description = "Markdown editor with optional Nexus BBCode export"
 edition = "2021"
 
@@ -12,6 +12,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-updater = "2"
+tauri-plugin-window-state = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 minisign-verify = "0.2"
 semver = "1"
