@@ -50,10 +50,21 @@ for (const [name, source] of [
   assert.throws(() => documentToBBCode(source, 'Page.mdbbcode'));
 });
 
-test('unsupported legacy targets remain editable but cannot generate Nexus output', () => {
-  const source = withDocumentMetadata('Body', 'steam');
-  assert.equal(readDocumentSource(source).target, 'steam');
-  assert.throws(() => documentToBBCode(source), /Unsupported Target: steam/);
+test('legacy targets export Steam or Nexus and unsupported targets remain editable', () => {
+  const steamSource = withDocumentMetadata('# Title\n\nBody', 'steam');
+  assert.equal(readDocumentSource(steamSource).target, 'steam');
+  assert.equal(documentToBBCode(steamSource), '[h1]Title[/h1]\nBody');
+
+  const unsupportedSource = withDocumentMetadata('Body', 'forum');
+  assert.equal(readDocumentSource(unsupportedSource).target, 'forum');
+  assert.throws(() => documentToBBCode(unsupportedSource), /Unsupported Target: forum/);
+});
+
+test('ordinary Markdown exports using the requested default dialect without modifying frontmatter', () => {
+  const source = '---\ntitle: Guide\n---\n\n# Heading\n\nBody';
+  assert.equal(documentToBBCode(source, 'Page.md', 'steam'), '[h1]Heading[/h1]\nBody');
+  assert.equal(documentToBBCode(source, 'Page.md', 'nexus'), '[size=6][b]Heading[/b][/size]\n\nBody');
+  assert.equal(readDocumentSource(source).prefix + readDocumentSource(source).body, source);
 });
 
 test('leading thematic breaks are not mistaken for required YAML', () => {

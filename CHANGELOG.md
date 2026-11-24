@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.12 — 2026-11-24
+
+1. Aligned the dark theme palette and CSS tokens strictly with the workspace shared `DESIGN.md`: zero-chroma neutral ladder (`#111111` page, `#171717` surface, `#262626` control, `#404040` active/border, `#a1a1a1` accent/secondary, `#f5f5f5` text, `#737373` muted), sparing Warm Amber signature (`#b45309` primary fill / `#f4b570` signature text), shared status tokens, Surface+Border tooltips, 60% black modal backdrops, tabular numerals, and 4 px thin neutral scrollbars, while keeping matching zero-chroma Light Mode.
+2. Updated the `[M↓]` app icon card background and border (`#171717` / `#404040`) and glyph strokes (`#f5f5f5`) to remove slate chroma tinting.
+3. Added the formal `App Declarations` and `Color System` specifications to the project `DESIGN.md`.
+4. Fixed Nexus BBCode spacing to retain blank lines (`\n\n`) between regular paragraphs and between titles/headings and paragraphs while omitting blank lines (`\n`) before and after lists (including inside callouts/containers and extra blank line alignment).
+5. Added Steam guide BBCode export, live preview, `.bbcode`/`.txt` file export and Steam BBCode import (`[h1]`–`[h3]`, `[strike]`, `[olist]`, `› ` flattened nested lists, `[table]`, `[hr][/hr]`, `[noparse]`, bare YouTube/Steam store/Workshop embeds and glued `[code]`) modeled on `Steam Markdown`, controlled by a persisted header `Nexus | Steam` switcher and enabled in legacy `.mdbbcode` Target properties.
+6. Hardened `scripts/package.mjs` to detect elevated or path-hidden `Markdown BBCode.exe` instances locking the portable destination folder and abort cleanly with an actionable message instead of failing mid-copy with `EPERM`.
+
 ## 0.2.11 — 2026-11-24
 
 1. Added middle-mouse-button (`auxclick`) tab closing (canceling cleanly if dragged off before release, ignoring right-clicks, preventing middle-click auto-scroll, and preserving draft recovery and the single-tab invariant).

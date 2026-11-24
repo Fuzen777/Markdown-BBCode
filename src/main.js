@@ -2,7 +2,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { DocumentStore, documentName, pathKey, outputPath, normalizeViewportWidth } from './documents.js';
+import { DocumentStore, documentName, pathKey, outputPath, normalizeViewportWidth, normalizeBBCodeTarget } from './documents.js';
 import { MarkdownEditor } from './visual-editor.js';
 import { documentToBBCodeWithWarnings, hasDocumentContent, readDocumentSource } from './document-format.js';
 import { importBBCode } from './bbcode-import.js';
@@ -53,7 +53,7 @@ let safetyNotice = '';
 let closingWindow = false;
 let actionQueue = Promise.resolve();
 let startupComplete = false;
-let runtimeInfo = { version: '0.2.11', isPortable: true, executablePath: '' };
+let runtimeInfo = { version: '0.2.12', isPortable: true, executablePath: '' };
 let availableUpdate = null;
 let checkingUpdate = false;
 let installingUpdate = false;
@@ -87,7 +87,7 @@ function updateBBCodePreview() {
   elements['preview-bbcode'].setAttribute('aria-pressed', String(previewOpen));
   if (!previewOpen || !store.active) return;
   try {
-    const result = documentToBBCodeWithWarnings(store.active.content, store.active.path);
+    const result = documentToBBCodeWithWarnings(store.active.content, store.active.path, normalizeBBCodeTarget(store.bbcodeTarget));
     elements['bbcode-preview-output'].value = result.bbcode;
     elements['bbcode-preview-notes'].textContent = result.warnings.join('\n');
     elements['bbcode-preview-notes'].hidden = result.warnings.length === 0;
@@ -225,7 +225,7 @@ function renderFormatting() {
 function renderUpdater() {
   const versionButton = elements['app-version'];
   if (versionButton) {
-    const version = runtimeInfo?.version || '0.2.11';
+    const version = runtimeInfo?.version || '0.2.12';
     if (checkingUpdate) versionButton.textContent = 'Checking For Updates…';
     else if (installingUpdate) versionButton.textContent = 'Updating…';
     else if (availableUpdate?.available) versionButton.textContent = `v${version} · Update v${availableUpdate.latestVersion}`;
@@ -252,6 +252,26 @@ function renderUpdater() {
         ? 'Download And Install Portable Update'
         : 'Download And Install App Update'
     );
+  }
+}
+
+function activeBBCodeTarget() {
+  const activeDocument = store.active;
+  if (activeDocument) {
+    try {
+      const parsed = readDocumentSource(activeDocument.content, /\.mdbbcode$/i.test(activeDocument.path || ''));
+      if (parsed.explicitTarget) return parsed.target;
+    } catch { /* fall back to global target on invalid YAML */ }
+  }
+  return normalizeBBCodeTarget(store.bbcodeTarget);
+}
+
+function renderBBCodeTarget() {
+  const target = activeBBCodeTarget();
+  elements['target-nexus']?.setAttribute('aria-pressed', String(target === 'nexus'));
+  elements['target-steam']?.setAttribute('aria-pressed', String(target === 'steam'));
+  if (elements['bbcode-preview-title']) {
+    elements['bbcode-preview-title'].textContent = target === 'steam' ? 'Steam BBCode Preview' : 'Nexus BBCode Preview';
   }
 }
 
@@ -310,7 +330,11 @@ function render() {
     elements['unknown-target'].hidden = knownTarget;
     elements['unknown-target'].textContent = knownTarget ? 'Unsupported Target' : target + ' (Unsupported)';
     elements['document-target'].value = knownTarget ? target : 'unknown';
-    elements['target-note'].textContent = target === 'nexus' ? 'Generates Nexus Mods BBCode' : 'Unsupported Target — Choose Nexus Mods To Generate BBCode';
+    elements['target-note'].textContent = target === 'nexus'
+      ? 'Generates Nexus Mods BBCode'
+      : target === 'steam'
+        ? 'Generates Steam BBCode'
+        : 'Unsupported Target — Choose Nexus Mods Or Steam To Generate BBCode';
   }
   renderFormatting();
   const error = activeDocument?.error;
@@ -323,6 +347,7 @@ function render() {
   elements['save-status'].textContent = error || globalError ? 'Needs Attention' : !activeDocument?.path ? 'Draft Recovery On' : changed ? 'Saving…' : 'Markdown Saved';
   const words = activeDocument ? countWords(activeDocument.content) : 0;
   elements['document-stats'].textContent = activeDocument ? `${words.toLocaleString()} ${words === 1 ? 'Word' : 'Words'} · ${activeDocument.content.length.toLocaleString()} Characters` : '';
+  renderBBCodeTarget();
   updateBBCodePreview();
   documentOutline?.refresh();
   folderBrowser?.syncOpenDocuments();
@@ -387,6 +412,16 @@ async function setViewportWidth(mode) {
   store.viewportWidth = next;
   renderViewportWidth();
   requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  await persist();
+}
+
+async function setBBCodeTarget(target) {
+  const next = normalizeBBCodeTarget(target);
+  store.bbcodeTarget = next;
+  if (!editor.sourceMode() && editor.documentSource?.legacyMetadata) {
+    editor.setTarget(next);
+  }
+  render();
   await persist();
 }
 
@@ -672,7 +707,7 @@ function keyboardShortcut(event) {
 
 async function prepareExport() {
   capture();
-  const result = documentToBBCodeWithWarnings(store.active.content, store.active.path);
+  const result = documentToBBCodeWithWarnings(store.active.content, store.active.path, normalizeBBCodeTarget(store.bbcodeTarget));
   globalError = '';
   render();
   if (result.warnings.length) {
@@ -693,9 +728,15 @@ async function exportBBCode() {
   const documentRecord = store.active;
   const bbcode = await prepareExport();
   if (bbcode === null) return;
-  const selectedPath = await save({ defaultPath: documentRecord.path ? outputPath(documentRecord.path).replace(/^\\\\\?\\/, '') : documentName(documentRecord) + '.bbcode', filters: [{ name: 'BBCode Documents', extensions: ['bbcode'] }] });
+  const selectedPath = await save({
+    defaultPath: documentRecord.path ? outputPath(documentRecord.path).replace(/^\\\\\?\\/, '') : documentName(documentRecord) + '.bbcode',
+    filters: [
+      { name: 'BBCode Documents', extensions: ['bbcode'] },
+      { name: 'Text Documents', extensions: ['txt'] },
+    ],
+  });
   if (!selectedPath) return;
-  const targetPath = /\.bbcode$/i.test(selectedPath) ? selectedPath : selectedPath + '.bbcode';
+  const targetPath = /\.(bbcode|txt)$/i.test(selectedPath) ? selectedPath : selectedPath + '.bbcode';
   if (store.documents.some(other => pathKey(other.path) === pathKey(targetPath)) || pathKey(documentRecord.importedFrom) === pathKey(targetPath)) throw new Error('Choose a different filename to preserve the original document.');
   let revision = null;
   try {
@@ -976,6 +1017,8 @@ async function initialize() {
   elements.hybrid.onclick = () => runAction(() => changeMode('hybrid'));
   elements.visual.onclick = () => runAction(() => changeMode('visual'));
   elements.source.onclick = () => runAction(() => changeMode('source'));
+  if (elements['target-nexus']) elements['target-nexus'].onclick = () => runAction(() => setBBCodeTarget('nexus'));
+  if (elements['target-steam']) elements['target-steam'].onclick = () => runAction(() => setBBCodeTarget('steam'));
   if (elements['viewport-page']) elements['viewport-page'].onclick = () => runAction(() => setViewportWidth('page'));
   if (elements['viewport-full']) elements['viewport-full'].onclick = () => runAction(() => setViewportWidth('full'));
   elements.resolve.onclick = () => runAction(() => resolveConflict());

@@ -8,8 +8,8 @@ test.beforeEach(async ({ page }) => {
     const callbacks = {};
     const eventHandlers = {};
     window.testDesktop = { files: {}, pendingPaths: [], openedUrls: [], session: JSON.parse(localStorage.getItem('seedSession') || 'null'), openPaths: null, savePath: null, closed: false, failSave: false, failOutput: false,
-      runtimeInfo: { version: '0.2.11', isPortable: true, executablePath: '' },
-      updateCheckResult: { available: false, currentVersion: '0.2.11', latestVersion: '0.2.11', notes: '', isPortable: true },
+      runtimeInfo: { version: '0.2.12', isPortable: true, executablePath: '' },
+      updateCheckResult: { available: false, currentVersion: '0.2.12', latestVersion: '0.2.12', notes: '', isPortable: true },
       failUpdateCheck: false,
       updateInstalls: 0,
       emit(name, payload = null) { callbacks[eventHandlers[name]]?.({ event: name, payload }); },
@@ -219,14 +219,20 @@ test('new documents default to ordinary Markdown without app metadata', async ({
 });
 
 test('legacy export target is editable and validated only on export', async ({ page }) => {
-  const source = '---\nformat: mdbbcode\nversion: 1\ntarget: steam\n# Retain this\nauthor: Someone\n---\n\n**Original**';
+  const source = '---\nformat: mdbbcode\nversion: 1\ntarget: forum\n# Retain this\nauthor: Someone\n---\n\n# Heading\n\n**Original**';
   await setSource(page, source);
   await saveDraft(page, 'C:\\Page.mdbbcode');
   await expect(page.locator('#save-status')).toHaveText('Markdown Saved');
   await page.getByRole('button', { name: 'Copy BBCode', exact: true }).click();
   await expect(page.locator('#notice')).toContainText('Unsupported Target');
   await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.getByLabel('Target', { exact: true }).selectOption('steam');
+  await page.getByRole('button', { name: 'Preview BBCode', exact: true }).click();
+  await expect(page.locator('#bbcode-preview-title')).toHaveText('Steam BBCode Preview');
+  await expect(page.getByLabel('Generated BBCode', { exact: true })).toHaveValue('[h1]Heading[/h1]\n[b]Original[/b]');
   await page.getByLabel('Target', { exact: true }).selectOption('nexus');
+  await expect(page.locator('#bbcode-preview-title')).toHaveText('Nexus BBCode Preview');
+  await expect(page.getByLabel('Generated BBCode', { exact: true })).toHaveValue('[size=6][b]Heading[/b][/size]\n\n[b]Original[/b]');
   await page.getByRole('button', { name: 'Source', exact: true }).click();
   await expect(page.locator('#markdown-source')).toHaveValue(/target: nexus[\s\S]*author: Someone/);
 });
@@ -868,17 +874,17 @@ test('Windows virtual-key shortcuts respect split Ctrl layouts like BEPO azerty-
 test('updater checks for updates, blocks install on conflict errors, and flushes clean documents before updating', async ({ page }) => {
   const versionButton = page.locator('#app-version');
   const updateButton = page.locator('#update-app');
-  await expect(versionButton).toHaveText('v0.2.11');
+  await expect(versionButton).toHaveText('v0.2.12');
   await expect(updateButton).toBeHidden();
 
   await versionButton.click();
-  await expect(versionButton).toHaveText('v0.2.11 · Up To Date');
+  await expect(versionButton).toHaveText('v0.2.12 · Up To Date');
   await expect(updateButton).toBeHidden();
 
   await page.evaluate(() => {
     window.testDesktop.updateCheckResult = {
       available: true,
-      currentVersion: '0.2.11',
+      currentVersion: '0.2.12',
       latestVersion: '0.3.0',
       notes: 'Release notes',
       isPortable: true,
@@ -887,7 +893,7 @@ test('updater checks for updates, blocks install on conflict errors, and flushes
   await versionButton.click();
   await expect(updateButton).toBeVisible();
   await expect(updateButton).toHaveText('Update v0.3.0');
-  await expect(versionButton).toHaveText('v0.2.11 · Update v0.3.0');
+  await expect(versionButton).toHaveText('v0.2.12 · Update v0.3.0');
 
   await setSource(page, 'Initial content');
   await saveDraft(page, 'C:\\Mod.md');
@@ -1010,4 +1016,84 @@ test('middle mouse button closes tabs on auxclick release while ignoring drag-aw
   // Middle-clicking the last open tab replaces it cleanly with a fresh tab.
   await page.getByRole('tab', { name: /Untitled 1/ }).click({ button: 'middle' });
   await expect(page.getByRole('tab')).toHaveCount(1);
+});
+
+test('dark and light modes follow shared zero-chroma neutral and Warm Amber signature tokens', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 800 });
+  await setSource(page, [
+    '# Theme Showcase',
+    '',
+    'Read [Markdown BBCode](https://github.com/Fuzen777/Markdown-BBCode) with ||inline spoiler|| and `inline code`.',
+    '',
+    '> [!warning] Load Order Note',
+    '> Check conflicts before exporting.',
+    '',
+    '> [!tip] Quick Check',
+    '> Neutral chrome keeps prose readable.',
+    '',
+    '> [!info] Formats',
+    '> Standard Markdown stays on disk.',
+  ].join('\n'));
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.getByRole('button', { name: 'Preview BBCode', exact: true }).click();
+
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(17, 17, 17)');
+  await expect(page.locator('header')).toHaveCSS('background-color', 'rgb(23, 23, 23)');
+  await expect(page.locator('#copy')).toHaveCSS('background-color', 'rgb(180, 83, 9)');
+  await expect(page.locator('#copy')).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await expect(page.locator('.brand-mark')).toHaveCSS('color', 'rgb(244, 181, 112)');
+  await expect(page.locator('#visual')).toHaveCSS('background-color', 'rgb(64, 64, 64)');
+  await expect(page.locator('#visual')).toHaveCSS('color', 'rgb(245, 245, 245)');
+  await expect(page.locator('#new')).toHaveCSS('background-color', 'rgb(38, 38, 38)');
+  await page.screenshot({ path: 'test-results/theme-dark-design.png' });
+
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(page.locator('body')).toHaveCSS('background-color', 'rgb(245, 245, 245)');
+  await expect(page.locator('header')).toHaveCSS('background-color', 'rgb(255, 255, 255)');
+  await expect(page.locator('#copy')).toHaveCSS('background-color', 'rgb(180, 83, 9)');
+  await expect(page.locator('#visual')).toHaveCSS('background-color', 'rgb(220, 220, 220)');
+  await page.screenshot({ path: 'test-results/theme-light-design.png' });
+});
+
+test('header Nexus | Steam dialect switch updates preview, persists across reload, exports Steam BBCode and fits narrow view', async ({ page }) => {
+  const nexusButton = page.getByRole('button', { name: 'Nexus', exact: true });
+  const steamButton = page.getByRole('button', { name: 'Steam', exact: true });
+  await expect(nexusButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(steamButton).toHaveAttribute('aria-pressed', 'false');
+
+  const markdown = '# Guide Title\n\nIntro paragraph.\n\n- Bullet one\n\nClosing paragraph.';
+  await setSource(page, markdown);
+  await saveDraft(page, 'C:\\Guide.md');
+  await page.getByRole('button', { name: 'Preview BBCode', exact: true }).click();
+
+  await expect(page.locator('#bbcode-preview-title')).toHaveText('Nexus BBCode Preview');
+  await expect(page.getByLabel('Generated BBCode', { exact: true })).toHaveValue(
+    '[size=6][b]Guide Title[/b][/size]\n\nIntro paragraph.\n[list]\n[*]Bullet one\n[/list]\nClosing paragraph.',
+  );
+
+  await steamButton.click();
+  await expect(steamButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(nexusButton).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#bbcode-preview-title')).toHaveText('Steam BBCode Preview');
+  await expect(page.getByLabel('Generated BBCode', { exact: true })).toHaveValue(
+    '[h1]Guide Title[/h1]\nIntro paragraph.\n[list][*]Bullet one[/list]\nClosing paragraph.',
+  );
+
+  await page.evaluate(() => { window.testDesktop.savePath = 'C:\\Guide.txt'; });
+  await page.getByRole('button', { name: 'Export BBCode…', exact: true }).click();
+  await expect(page.locator('#save-status')).toHaveText('BBCode Exported');
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Guide.txt'].content)).toBe(
+    '[h1]Guide Title[/h1]\nIntro paragraph.\n[list][*]Bullet one[/list]\nClosing paragraph.',
+  );
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Guide.md'].content)).toBe(markdown);
+
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.bbcodeTarget)).toBe('steam');
+  await page.evaluate(() => localStorage.setItem('seedSession', JSON.stringify(window.testDesktop.session)));
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-ready', 'true');
+  await expect(page.getByRole('button', { name: 'Steam', exact: true })).toHaveAttribute('aria-pressed', 'true');
+
+  await page.setViewportSize({ width: 720, height: 480 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });

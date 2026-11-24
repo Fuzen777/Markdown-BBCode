@@ -2,6 +2,7 @@
 import { colorPreferences } from './colors.js';
 import { folderBrowserState } from './folder-browser-model.js';
 export function normalizeViewportWidth(value) { return value === 'full' ? 'full' : 'page'; }
+export function normalizeBBCodeTarget(value) { return value === 'steam' ? 'steam' : 'nexus'; }
 export function pathKey(path) { return path?.replace(/^\\\\\?\\/, '').replaceAll('/', '\\').toLowerCase(); }
 export function outputPath(path) { return path.replace(/\.(mdbbcode|md|markdown|txt)$/i, '.bbcode'); }
 export function documentName(documentRecord) { return documentRecord.path?.split(/[\\/]/).at(-1) || documentRecord.name || 'Untitled'; }
@@ -18,6 +19,7 @@ export class DocumentStore {
     this.pendingImports = [];
     this.preferences = colorPreferences();
     this.viewportWidth = 'page';
+    this.bbcodeTarget = 'nexus';
     this.folderBrowser = folderBrowserState();
     this.activeId = null;
     this.sessionQueue = Promise.resolve();
@@ -34,6 +36,7 @@ export class DocumentStore {
     }
     this.preferences = colorPreferences(session.preferences);
     this.viewportWidth = normalizeViewportWidth(session.viewportWidth);
+    this.bbcodeTarget = normalizeBBCodeTarget(session.bbcodeTarget);
     this.folderBrowser = folderBrowserState(session.folderBrowser);
     this.pendingImports = session.pendingImports || [];
     this.documents = session.documents.map(documentRecord => {
@@ -53,7 +56,7 @@ export class DocumentStore {
     this.activeId = this.documents.find(documentRecord => documentRecord.id === session.activeId && documentRecord.open)?.id || this.documents.find(documentRecord => documentRecord.open)?.id || null;
   }
   snapshot() {
-    return { version: 2, preferences: { ...this.preferences }, viewportWidth: this.viewportWidth, folderBrowser: structuredClone(this.folderBrowser), activeId: this.activeId, pendingImports: structuredClone(this.pendingImports), documents: this.documents.map(documentRecord => ({ ...documentRecord, error: null })) };
+    return { version: 2, preferences: { ...this.preferences }, viewportWidth: this.viewportWidth, bbcodeTarget: this.bbcodeTarget, folderBrowser: structuredClone(this.folderBrowser), activeId: this.activeId, pendingImports: structuredClone(this.pendingImports), documents: this.documents.map(documentRecord => ({ ...documentRecord, error: null })) };
   }
   persist() {
     const snapshot = this.snapshot();

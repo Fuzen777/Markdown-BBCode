@@ -121,7 +121,7 @@ export function detectTextFormat(content) {
     .replace(/^[ \t]*(?:[-*+]|\d+\.)[ \t]+\[[ xX]\]/gm, '')
     .replace(/!?\[[^\]]*\]\([^)]*\)/g, '');
 
-  const bbcodePattern = /(?<!\\)\[(?:\/(?:b|i|u|s|url|img|size|color|font|center|spoiler|quote|code|list|heading|youtube)|(?:b|i|u|s|url|img|center|spoiler|quote|code|list|heading|hr|youtube)|(?:url|size|color|font|img|quote|list)=[^\]\r\n]+)\]/i;
+  const bbcodePattern = /(?<!\\)\[(?:\/(?:b|i|u|s|strike|url|img|size|color|font|center|spoiler|quote|code|list|olist|h1|h2|h3|table|tr|th|td|hr|noparse|heading|youtube)|(?:b|i|u|s|strike|url|img|center|spoiler|quote|code|list|olist|h1|h2|h3|table|tr|th|td|hr|noparse|heading|youtube)|(?:url|size|color|font|img|quote|list)=[^\]\r\n]+)\]/i;
   if (bbcodePattern.test(stripped)) return 'bbcode';
 
   const markdownPattern = /(?:^[ \t]*#{1,6}[ \t]+\S|^[ \t]*>[ \t]+\S|^[ \t]*(?:[-*+]|\d+\.)[ \t]+\S|^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$|^[ \t]*(`{3,}|~{3,})|\*\*[^*\n]+\*\*|~~[^~\n]+~~|\|\|[^|\n]+\|\||!?\[[^\]]+\]\([^)]+\))/m;

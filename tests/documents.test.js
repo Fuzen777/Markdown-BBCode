@@ -1,7 +1,7 @@
 // ==> Section 1 - Markdown Persistence Tests <==
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DocumentStore, pathKey, outputPath, normalizeViewportWidth } from '../src/documents.js';
+import { DocumentStore, pathKey, outputPath, normalizeViewportWidth, normalizeBBCodeTarget } from '../src/documents.js';
 import { backendFixture } from './backend.js';
 
 test('opening and saving preserve untouched Markdown without creating an export', async () => {
@@ -185,4 +185,31 @@ test('viewport width defaults to page, persists globally, and rejects invalid va
   const fallbackStore = new DocumentStore(backend);
   await fallbackStore.restore();
   assert.equal(fallbackStore.viewportWidth, 'page');
+});
+
+test('bbcodeTarget defaults to nexus, persists globally, and rejects invalid values without altering preferences', async () => {
+  assert.equal(normalizeBBCodeTarget(undefined), 'nexus');
+  assert.equal(normalizeBBCodeTarget('invalid'), 'nexus');
+  assert.equal(normalizeBBCodeTarget('steam'), 'steam');
+
+  const backend = backendFixture();
+  const store = new DocumentStore(backend);
+  assert.equal(store.bbcodeTarget, 'nexus');
+  const initialPrefs = { ...store.preferences };
+
+  store.bbcodeTarget = normalizeBBCodeTarget('steam');
+  await store.persist();
+  const saved = await backend.loadSession();
+  assert.equal(saved.bbcodeTarget, 'steam');
+  assert.deepEqual(saved.preferences, initialPrefs);
+
+  const restored = new DocumentStore(backend);
+  await restored.restore();
+  assert.equal(restored.bbcodeTarget, 'steam');
+  assert.deepEqual(restored.preferences, initialPrefs);
+
+  await backend.saveSession({ ...saved, bbcodeTarget: 'bogus' });
+  const fallbackStore = new DocumentStore(backend);
+  await fallbackStore.restore();
+  assert.equal(fallbackStore.bbcodeTarget, 'nexus');
 });

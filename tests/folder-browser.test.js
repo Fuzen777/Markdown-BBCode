@@ -20,6 +20,7 @@ import { backendFixture } from './backend.js';
 test('detectTextFormat distinguishes BBCode from Markdown and plain text safely', () => {
   assert.equal(detectTextFormat('[b]Hello[/b] [url=https://example.com]Link[/url]'), 'bbcode');
   assert.equal(detectTextFormat('[color=#ff0000]Red[/color]\n[list][*]One[/list]'), 'bbcode');
+  assert.equal(detectTextFormat('[h1]Guide[/h1]\n[olist][*]First[/olist]\n[table][tr][th]Col[/th][/tr][/table]\n[strike]old[/strike]\n[hr][/hr]'), 'bbcode');
   assert.equal(detectTextFormat('# Title\n\n- [ ] Task\n- [x] Done\n\n> [!note] Note\n> Details'), 'markdown');
   assert.equal(detectTextFormat('See [Nexus](https://nexusmods.com) and `inline [b]tag[/b]`'), 'markdown');
   assert.equal(detectTextFormat('```bbcode\n[b]Literal inside code fence[/b]\n```'), 'markdown');

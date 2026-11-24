@@ -105,7 +105,7 @@ export class MarkdownEditor {
   }
   val() { return this.mode === 'source' ? this.sourceElement.value : this.mode === 'hybrid' ? this.documentSource.prefix + this.hybridView.val() : this.documentSource.prefix + (this.visualChanged ? serializeMarkdown(this.editor.getJSON()) : this.documentSource.body); }
   setTarget(target) {
-    if (this.readonly || this.sourceMode() || target !== 'nexus') return;
+    if (this.readonly || this.sourceMode() || !['nexus', 'steam'].includes(target)) return;
     const source = withDocumentMetadata(this.val(), target);
     this.load(source, this.mode, this.path);
     this.onChange();

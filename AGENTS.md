@@ -2,7 +2,7 @@
 
 ## Scope
 
-Windows Markdown editor built with Tauri 2, Rust, vanilla JavaScript, Tiptap 3 and CodeMirror 6. Read DESIGN.md before changing behaviour. Ordinary .md is the default. Nexus BBCode is optional on-demand output; Steam is deferred. Supports both Portable mode (beside executable via `Portable.txt` or `portable-data`) and Installed NSIS mode (`AppData`).
+Windows Markdown editor built with Tauri 2, Rust, vanilla JavaScript, Tiptap 3 and CodeMirror 6. Read DESIGN.md before changing behaviour. Ordinary .md is the default. Nexus and Steam guide BBCode are optional on-demand outputs (Steam modeled on `C:\Google Drive\Coding\Apps\Steam Markdown`). Supports both Portable mode (beside executable via `Portable.txt` or `portable-data`) and Installed NSIS mode (`AppData`).
 
 ## Development
 
@@ -14,7 +14,7 @@ src/documents.js saves authoritative Markdown only. Never create, check or delet
 
 ## Editing And Conversion
 
-src/markdown.js owns schema, Markdown conversion, block segmentation and Nexus output; src/callout.js owns Obsidian callouts. src/bbcode-import.js owns one-time imports. src/document-format.js owns frontmatter and legacy target-aware export. Use documentToBBCodeWithWarnings for complete document export, not the body-only converter.
+src/markdown.js owns schema, Markdown conversion, block segmentation and Nexus output (retaining `\n\n` blank lines between regular paragraphs and between titles/headings and paragraphs while using `\n` around lists); src/steam-bbcode.js owns Steam guide BBCode conversion; src/callout.js owns Obsidian callouts. src/bbcode-import.js owns one-time imports across Nexus and Steam tags. src/document-format.js owns frontmatter and target-aware export (`defaultTarget` overridable globally via `DocumentStore.bbcodeTarget` or explicitly via legacy `.mdbbcode` YAML). Use documentToBBCodeWithWarnings for complete document export, not the body-only converter.
 
 src/visual-editor.js coordinates Visual, Hybrid and Source. src/block-controls.js owns Visual block menus and dragging. src/hybrid-editor.js replaces only the active enclosing block span and preserves untouched source; src/source-formatting.js shares source formatting operations. Markdown may merge adjacent compatible lists. Visual serialization can normalize an edited document. Editors are recreated on mode/tab changes, resetting undo.
 

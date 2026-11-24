@@ -1,11 +1,14 @@
 // ==> Section 1 - Portable Distribution And Live Hot-Swap <==
-import { cp, mkdir, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { cp, mkdir, open, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { dirname, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
 const execFileAsync = promisify(execFile);
+
+const TARGET_EXE_NAMES = ['Markdown BBCode.exe', 'BBCode Editor.exe'];
+const TARGET_EXE_NAME_SET = new Set(TARGET_EXE_NAMES.map(name => name.toLowerCase()));
 
 export async function copyPackageLicenses(destinationDir, lockfilePath = 'package-lock.json') {
   await mkdir(`${destinationDir}/licenses`, { recursive: true });
@@ -23,7 +26,17 @@ export async function copyPackageLicenses(destinationDir, lockfilePath = 'packag
 export async function stagePortableFiles({ destinationDir, exeSource }) {
   await mkdir(destinationDir, { recursive: true });
   const destExe = join(destinationDir, 'Markdown BBCode.exe');
-  await cp(exeSource, destExe, { force: true });
+  try {
+    await cp(exeSource, destExe, { force: true });
+  } catch (error) {
+    if (error?.code === 'EPERM' || error?.code === 'EBUSY' || error?.code === 'EACCES') {
+      throw new Error(
+        `Cannot replace "${destExe}" (${error.code}). Close any running Markdown BBCode window (including elevated instances) and retry.`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
   await rm(join(destinationDir, 'BBCode Editor.exe'), { force: true }).catch(() => {});
   await cp('README.md', join(destinationDir, 'README.md'), { force: true });
   await copyPackageLicenses(destinationDir);
@@ -35,61 +48,163 @@ export async function stagePortableFiles({ destinationDir, exeSource }) {
   return destExe;
 }
 
-async function listProcessesInDir(targetDir) {
-  if (process.platform !== 'win32') return [];
+/** Checks whether a target executable path is locked against write replacement. */
+export async function isFileLockedForWrite(filePath) {
+  let handle;
+  try {
+    handle = await open(filePath, 'r+');
+    return false;
+  } catch (error) {
+    return error?.code === 'EBUSY' || error?.code === 'EPERM' || error?.code === 'EACCES';
+  } finally {
+    await handle?.close().catch(() => {});
+  }
+}
+
+/** Splits queried Windows process rows into path-matched PIDs and path-hidden elevated lock PIDs. */
+export function classifyTargetProcesses(rows, targetDir, lockedExeNames = new Set()) {
   const prefix = resolve(targetDir).toLowerCase() + '\\';
+  const lockedSet = new Set(Array.from(lockedExeNames, name => String(name).trim().toLowerCase()));
+  const matchedPids = new Set();
+  const elevatedPids = new Set();
+
+  for (const row of rows) {
+    const pid = Number(row?.ProcessId);
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+
+    const exePath = String(row?.ExecutablePath || '').trim();
+    if (exePath) {
+      if (exePath.toLowerCase().startsWith(prefix)) {
+        matchedPids.add(pid);
+      }
+      continue;
+    }
+
+    const exeName = String(row?.Name || '').trim().toLowerCase();
+    if (TARGET_EXE_NAME_SET.has(exeName) && lockedSet.has(exeName)) {
+      elevatedPids.add(pid);
+    }
+  }
+
+  return {
+    matchedPids: [...matchedPids],
+    elevatedPids: [...elevatedPids],
+  };
+}
+
+async function queryWindowsProcesses() {
   const script = `
     try {
       Get-CimInstance Win32_Process -ErrorAction Stop |
-        Where-Object { $_.ExecutablePath } |
-        Select-Object ProcessId, ExecutablePath |
+        Where-Object { $_.ExecutablePath -or $_.Name -in @('Markdown BBCode.exe', 'BBCode Editor.exe') } |
+        Select-Object ProcessId, Name, ExecutablePath |
         ConvertTo-Json -Compress
     } catch {
       try {
         Get-Process -ErrorAction Stop |
-          Where-Object { $_.Path } |
-          Select-Object @{ Name = 'ProcessId'; Expression = { $_.Id } }, @{ Name = 'ExecutablePath'; Expression = { $_.Path } } |
+          Where-Object { $_.Path -or $_.ProcessName -in @('Markdown BBCode', 'BBCode Editor') } |
+          Select-Object @{ Name = 'ProcessId'; Expression = { $_.Id } }, @{ Name = 'Name'; Expression = { $_.ProcessName + '.exe' } }, @{ Name = 'ExecutablePath'; Expression = { $_.Path } } |
           ConvertTo-Json -Compress
       } catch {}
     }
   `;
   let stdout = '';
   try {
-    ({ stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-Command', script], { timeout: 10_000 }));
+    ({ stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-Command', script], {
+      timeout: 10_000,
+      maxBuffer: 4 * 1024 * 1024,
+    }));
   } catch {
     return [];
   }
   const trimmed = stdout.trim();
   if (!trimmed) return [];
-  const parsed = JSON.parse(trimmed);
-  const rows = Array.isArray(parsed) ? parsed : [parsed];
-  return rows
-    .filter(row => String(row.ExecutablePath || '').toLowerCase().startsWith(prefix))
-    .map(row => Number(row.ProcessId))
-    .filter(pid => Number.isInteger(pid) && pid > 0);
+  try {
+    const parsed = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return [];
+  }
 }
 
-async function closeRunningProcessesGracefully(targetDir, exeSource, timeoutMs = 10_000) {
-  const running = await listProcessesInDir(targetDir);
-  if (!running.length) return false;
-  await execFileAsync(exeSource, ['--graceful-close'], { timeout: 5000 }).catch(() => {});
-  for (const pid of running) {
-    await execFileAsync('powershell.exe', [
-      '-NoProfile',
-      '-Command',
-      `try { $p = Get-Process -Id ${pid} -ErrorAction Stop; $null = $p.CloseMainWindow() } catch {}`,
-    ], { timeout: 5000 }).catch(() => {});
+async function inspectTargetProcesses(targetDir) {
+  if (process.platform !== 'win32') return { matchedPids: [], elevatedPids: [] };
+  const rows = await queryWindowsProcesses();
+  const hasHiddenTarget = rows.some(row => {
+    const exePath = String(row?.ExecutablePath || '').trim();
+    if (exePath) return false;
+    return TARGET_EXE_NAME_SET.has(String(row?.Name || '').trim().toLowerCase());
+  });
+  const lockedExeNames = new Set();
+  if (hasHiddenTarget) {
+    for (const exeName of TARGET_EXE_NAMES) {
+      if (await isFileLockedForWrite(join(targetDir, exeName))) {
+        lockedExeNames.add(exeName.toLowerCase());
+      }
+    }
   }
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const remaining = await listProcessesInDir(targetDir);
-    if (!remaining.length) {
-      await new Promise(resolveWait => setTimeout(resolveWait, 350));
+  return classifyTargetProcesses(rows, targetDir, lockedExeNames);
+}
+
+async function defaultRequestGracefulClose(exeSource) {
+  await execFileAsync(exeSource, ['--graceful-close'], { timeout: 5000 }).catch(() => {});
+}
+
+async function defaultRequestCloseMainWindow(pid) {
+  await execFileAsync('powershell.exe', [
+    '-NoProfile',
+    '-Command',
+    `try { $p = Get-Process -Id ${pid} -ErrorAction Stop; $null = $p.CloseMainWindow() } catch {}`,
+  ], { timeout: 5000 }).catch(() => {});
+}
+
+/** Requests running portable instances in targetDir to exit gracefully before swapping files. */
+export async function closeRunningProcessesGracefully(targetDir, exeSource, options = {}) {
+  const {
+    timeoutMs = 10_000,
+    elevatedTimeoutMs = 1500,
+    pollIntervalMs = 250,
+    settleMs = 350,
+    inspectProcesses = inspectTargetProcesses,
+    requestGracefulClose = defaultRequestGracefulClose,
+    requestCloseMainWindow = defaultRequestCloseMainWindow,
+  } = options;
+
+  const initial = await inspectProcesses(targetDir);
+  if (!initial.matchedPids.length && !initial.elevatedPids.length) return false;
+
+  await requestGracefulClose(exeSource);
+  for (const pid of initial.matchedPids) {
+    await requestCloseMainWindow(pid);
+  }
+
+  const waitBudgetMs = initial.matchedPids.length > 0 ? timeoutMs : elevatedTimeoutMs;
+  const deadline = Date.now() + waitBudgetMs;
+  while (true) {
+    const latest = await inspectProcesses(targetDir);
+    if (!latest.matchedPids.length && !latest.elevatedPids.length) {
+      if (settleMs > 0) {
+        await new Promise(resolveWait => setTimeout(resolveWait, settleMs));
+      }
       return true;
     }
-    await new Promise(resolveWait => setTimeout(resolveWait, 250));
+    if (Date.now() >= deadline) {
+      if (latest.elevatedPids.length && !latest.matchedPids.length) {
+        throw new Error(
+          `Running elevated Markdown BBCode instance (PID ${latest.elevatedPids.join(', ')}) is locking "${targetDir}". Windows blocks non-elevated scripts from closing elevated apps (e.g. launched from Everything). Close Markdown BBCode manually and retry.`,
+        );
+      }
+      if (latest.elevatedPids.length) {
+        throw new Error(
+          `Running Markdown BBCode instances in "${targetDir}" did not exit (including elevated PID ${latest.elevatedPids.join(', ')}). Close Markdown BBCode manually and retry.`,
+        );
+      }
+      throw new Error(
+        `Running Markdown BBCode instance in "${targetDir}" did not exit within ${timeoutMs / 1000}s (save/conflict dialog may be open). Aborting hot-swap cleanly.`,
+      );
+    }
+    await new Promise(resolveWait => setTimeout(resolveWait, pollIntervalMs));
   }
-  throw new Error(`Running Markdown BBCode instance in "${targetDir}" did not exit within ${timeoutMs / 1000}s (save/conflict dialog may be open). Aborting hot-swap cleanly.`);
 }
 
 async function createZipFromStaging(stagingDir, outputZipPath) {

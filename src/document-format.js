@@ -4,7 +4,7 @@ import { markdownToBBCodeWithWarnings } from './markdown.js';
 
 export function isMdbbcode(path) { return /\.mdbbcode$/i.test(path || ''); }
 export function readDocumentSource(source, legacy = false) {
-  const plainDocument = { prefix: '', body: source, target: 'nexus', yaml: null, legacyMetadata: false };
+  const plainDocument = { prefix: '', body: source, target: 'nexus', yaml: null, legacyMetadata: false, explicitTarget: false };
   const opening = source.match(/^\uFEFF?---[ \t]*\r?\n/);
   if (!opening) return plainDocument;
   const remaining = source.slice(opening[0].length);
@@ -19,10 +19,11 @@ export function readDocumentSource(source, legacy = false) {
   if (yaml.errors.length || yaml.warnings.length) throw new Error(`Invalid YAML: ${(yaml.errors[0] || yaml.warnings[0]).message}`);
   if (!isMap(yaml.contents)) throw new Error('Document properties must be a YAML mapping. Correct the header in Source.');
   const legacyMetadata = legacy || yaml.get('format') === 'mdbbcode';
+  const explicitTarget = Boolean(legacyMetadata && yaml.has('target'));
   const storedTarget = legacyMetadata ? yaml.get('target') : undefined;
-  const target = typeof storedTarget === 'string' && storedTarget.trim() ? storedTarget : 'nexus';
+  const target = typeof storedTarget === 'string' && storedTarget.trim() ? storedTarget.trim() : 'nexus';
   const end = opening[0].length + closing.index + closing[0].length;
-  return { prefix: source.slice(0, end), body: source.slice(end), target, yaml, legacyMetadata };
+  return { prefix: source.slice(0, end), body: source.slice(end), target, yaml, legacyMetadata, explicitTarget };
 }
 
 export function withDocumentMetadata(source, target) {
@@ -42,7 +43,7 @@ export function hasDocumentContent(source) {
 }
 
 // ==> Section 2 - On-Demand BBCode Export <==
-export function documentToBBCodeWithWarnings(source, path) {
+export function documentToBBCodeWithWarnings(source, path, defaultTarget = 'nexus') {
   const documentSource = readDocumentSource(source, isMdbbcode(path));
   if (documentSource.legacyMetadata && documentSource.yaml) {
     const format = documentSource.yaml.get('format');
@@ -50,12 +51,13 @@ export function documentToBBCodeWithWarnings(source, path) {
     const target = documentSource.yaml.get('target');
     if (format !== undefined && format !== 'mdbbcode') throw new Error('Unsupported document format for BBCode export. Expected format: mdbbcode.');
     if (version !== undefined && version !== 1) throw new Error('Unsupported document version for BBCode export. Expected version: 1.');
-    if (target !== undefined && (typeof target !== 'string' || !target.trim())) throw new Error('Invalid BBCode target. Set target: nexus in Source.');
+    if (target !== undefined && (typeof target !== 'string' || !target.trim())) throw new Error('Invalid BBCode target. Set target: nexus or target: steam in Source.');
   }
-  if (documentSource.target !== 'nexus') throw new Error(`Unsupported Target: ${documentSource.target}. Steam export is not available yet.`);
-  return markdownToBBCodeWithWarnings(documentSource.body);
+  const effectiveTarget = documentSource.explicitTarget ? documentSource.target : defaultTarget;
+  if (!['nexus', 'steam'].includes(effectiveTarget)) throw new Error(`Unsupported Target: ${effectiveTarget}. Supported targets are nexus and steam.`);
+  return markdownToBBCodeWithWarnings(documentSource.body, effectiveTarget);
 }
 
-export function documentToBBCode(source, path) {
-  return documentToBBCodeWithWarnings(source, path).bbcode;
+export function documentToBBCode(source, path, defaultTarget = 'nexus') {
+  return documentToBBCodeWithWarnings(source, path, defaultTarget).bbcode;
 }

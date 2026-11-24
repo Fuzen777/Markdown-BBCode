@@ -8,6 +8,7 @@ import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
 import { Callout, calloutTitle } from './callout.js';
 import { SearchHighlight } from './find-replace.js';
+import { steamDocumentToBBCodeParts } from './steam-bbcode.js';
 import { MarkdownManager } from '@tiptap/markdown';
 import { Marked } from 'marked';
 
@@ -317,6 +318,24 @@ function safeUrl(value) {
   return value;
 }
 
+function isListBlock(node) {
+  return node?.type === 'bulletList' || node?.type === 'orderedList' || node?.type === 'taskList';
+}
+
+function nexusSeparatorNewlines(previousNode, nextNode) {
+  return isListBlock(previousNode) || isListBlock(nextNode) ? 1 : 2;
+}
+
+function joinNexusBlocks(nodes) {
+  const list = nodes || [];
+  let result = '';
+  for (let index = 0; index < list.length; index++) {
+    if (index > 0) result += '\n'.repeat(nexusSeparatorNewlines(list[index - 1], list[index]));
+    result += bbcodeNode(list[index]);
+  }
+  return result;
+}
+
 function bbcodeNode(node) {
   if (node.type === 'text') {
     let content = node.text;
@@ -331,7 +350,7 @@ function bbcodeNode(node) {
     return content;
   }
   const inline = () => (node.content || []).map(bbcodeNode).join('');
-  const blocks = () => (node.content || []).map(bbcodeNode).join('\n');
+  const blocks = () => joinNexusBlocks(node.content);
   switch (node.type) {
     case 'doc': return blocks();
     case 'paragraph': return inline();
@@ -359,16 +378,18 @@ function bbcodeNode(node) {
     case 'tableHeader': return `[b]${blocks()}[/b]`;
     case 'tableCell': return blocks();
     case 'callout': {
-      const body = blocks();
-      const content = `[b]${calloutTitle(node.attrs)}[/b]${body ? '\n' + body : ''}`;
+      const children = node.content || [];
+      const body = joinNexusBlocks(children);
+      const titleGap = children.length ? '\n'.repeat(nexusSeparatorNewlines({ type: 'heading' }, children[0])) : '';
+      const content = `[b]${calloutTitle(node.attrs)}[/b]${body ? titleGap + body : ''}`;
       return `[quote]${node.attrs.fold ? '[spoiler]' + content + '[/spoiler]' : content}[/quote]`;
     }
     default: throw new Error(`Unsupported document element: ${node.type}`);
   }
 }
 
-export function markdownToBBCode(source) {
-  return markdownToBBCodeWithWarnings(source).bbcode;
+export function markdownToBBCode(source, target = 'nexus') {
+  return markdownToBBCodeWithWarnings(source, target).bbcode;
 }
 
 
@@ -431,7 +452,7 @@ export function segmentMarkdown(source) {
   });
 }
 
-function extractTopLevelExtraBlanks(source, content) {
+function extractTopLevelExtraBlanks(source, content, separatorNewlines) {
   const gapCount = Math.max(0, content.length - 1);
   const defaultExtras = Array(gapCount).fill(0);
   if (!gapCount) return defaultExtras;
@@ -446,14 +467,16 @@ function extractTopLevelExtraBlanks(source, content) {
   const segments = segmentMarkdown(source);
   const spaceCounts = [];
   let seenContent = false;
+  let prevEndedWithNewline = true;
   let spaces = 0;
   for (const segment of segments) {
     if (segment.type === 'space') {
       if (seenContent) spaces++;
       continue;
     }
-    if (seenContent) spaceCounts.push(spaces);
+    if (seenContent) spaceCounts.push(prevEndedWithNewline ? spaces : Math.max(0, spaces - 1));
     seenContent = true;
+    prevEndedWithNewline = /\n$/.test(segment.raw);
     spaces = 0;
   }
   if (spaceCounts.length !== nonEmptyIndices.length - 1) return defaultExtras;
@@ -462,15 +485,46 @@ function extractTopLevelExtraBlanks(source, content) {
   for (let index = 0; index < spaceCounts.length; index++) {
     const startIdx = nonEmptyIndices[index];
     const endIdx = nonEmptyIndices[index + 1];
-    const baseNewlines = endIdx - startIdx;
-    const wantedNewlines = Math.max(baseNewlines, spaceCounts[index]);
-    extras[startIdx] += wantedNewlines - baseNewlines;
+    const baseBetweenNonEmpty = separatorNewlines(startIdx, endIdx);
+    const extraIntentional = Math.max(0, spaceCounts[index] - 1);
+    const wantedTotal = baseBetweenNonEmpty + extraIntentional;
+    let actualBaseSum = 0;
+    for (let gap = startIdx; gap < endIdx; gap++) actualBaseSum += separatorNewlines(gap, gap + 1);
+    extras[startIdx] += Math.max(0, wantedTotal - actualBaseSum);
   }
   return extras;
 }
 
-export function markdownToBBCodeWithWarnings(source) {
+function assembleBBCodeOutput(source, content, chunks, warnings, separatorNewlines) {
+  const extraBlanks = extractTopLevelExtraBlanks(source, content, separatorNewlines);
+  const blockOffsets = [];
+  let currentLine = 0;
+  let bbcode = '';
+  for (let index = 0; index < content.length; index++) {
+    const text = chunks[index];
+    const lineCount = text ? text.split('\n').length : 1;
+    blockOffsets.push({ startLine: currentLine, endLine: currentLine + lineCount });
+    bbcode += text;
+    if (index < content.length - 1) {
+      const sep = separatorNewlines(index, index + 1) + extraBlanks[index];
+      bbcode += '\n'.repeat(sep);
+      currentLine += (lineCount - 1) + sep;
+    }
+  }
+  const totalLines = bbcode ? bbcode.split('\n').length : 1;
+  return { bbcode, warnings: [...warnings], blockOffsets, totalLines };
+}
+
+export function markdownToBBCodeWithWarnings(source, target = 'nexus') {
+  if (!['nexus', 'steam'].includes(target)) {
+    throw new Error(`Unsupported Target: ${target}. Supported targets are nexus and steam.`);
+  }
   const documentModel = parseMarkdown(source);
+  const content = documentModel.content || [];
+  if (target === 'steam') {
+    const steam = steamDocumentToBBCodeParts(documentModel);
+    return assembleBBCodeOutput(source, content, steam.chunks, steam.warnings, steam.separatorNewlines);
+  }
   const warnings = new Set();
   const inspect = node => {
     if (node.type === 'table') warnings.add('Tables are exported as text rows; column alignment is not retained.');
@@ -479,23 +533,7 @@ export function markdownToBBCodeWithWarnings(source) {
     node.content?.forEach(inspect);
   };
   inspect(documentModel);
-  const content = documentModel.content || [];
-  const extraBlanks = extractTopLevelExtraBlanks(source, content);
-  const chunks = [];
-  const blockOffsets = [];
-  let currentLine = 0;
-  for (let index = 0; index < content.length; index++) {
-    const text = bbcodeNode(content[index]);
-    const lineCount = text ? text.split('\n').length : 1;
-    blockOffsets.push({ startLine: currentLine, endLine: currentLine + lineCount });
-    chunks.push(text);
-    currentLine += lineCount + (index < content.length - 1 ? extraBlanks[index] : 0);
-  }
-  let bbcode = '';
-  for (let index = 0; index < chunks.length; index++) {
-    if (index > 0) bbcode += '\n'.repeat(1 + extraBlanks[index - 1]);
-    bbcode += chunks[index];
-  }
-  const totalLines = bbcode ? bbcode.split('\n').length : 1;
-  return { bbcode, warnings: [...warnings], blockOffsets, totalLines };
+  const chunks = content.map(bbcodeNode);
+  const separatorNewlines = (prevIdx, nextIdx) => nexusSeparatorNewlines(content[prevIdx], content[nextIdx]);
+  return assembleBBCodeOutput(source, content, chunks, warnings, separatorNewlines);
 }

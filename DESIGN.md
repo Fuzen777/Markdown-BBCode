@@ -1,8 +1,23 @@
 # Markdown BBCode Design
 
+## App Declarations
+
+| Declaration | Choice |
+| --- | --- |
+| Signature color | Warm Amber (`#b45309` fill, `#ffffff` on-fill, `#f4b570` dark text, `#9a3412` light text) |
+| Density | Compact |
+| Icon set | Material Symbols Rounded |
+| Touch support | No |
+| Themes | Dark and Light (`prefers-color-scheme`) |
+| Deviations | Retains OS-matched Light Mode with matching zero-chroma neutral roles; adds blue info callouts (`#60a5fa`) and subtle amber spoiler tints for document semantics |
+
+## Color System
+
+Dark Mode maps directly onto the workspace shared [DESIGN](../../DESIGN.md) zero-chroma neutral ladder (`--page: #111111`, `--surface: #171717`, `--control: #262626`, `--active-fill` / `--border: #404040`, `--accent` / `--text-secondary: #a1a1a1`, `--text: #f5f5f5`, `--muted: #737373`) alongside shared status tones (`#ff6467` error, `#ffb900` warning, `#05df72` success), Surface+Border tooltips, `60%` black modal backdrops, tabular counters, and `4 px` neutral scrollbars. Hover and toggled/active controls stay strictly neutral (`--control` / `--active-fill`); Warm Amber appears sparingly only on primary actions (`.primary`, `.update-pill`), `:focus-visible` rings, the `[M↓]` monogram, prose links, active folder open-file dots, update badges, and task checkbox accents.
+
 ## Purpose
 
-A fast Windows Markdown editor with optional Nexus BBCode export, built with Tauri 2 and Tiptap 3 in both Portable (`portable-data` beside `Markdown BBCode.exe`) and Installed (`%APPDATA%\Markdown BBCode`) modes. Ordinary .md files are the default; .markdown and existing .mdbbcode documents remain supported. Steam export is deferred.
+A fast Windows Markdown editor with optional Nexus Mods and Steam guide BBCode export, built with Tauri 2 and Tiptap 3 in both Portable (`portable-data` beside `Markdown BBCode.exe`) and Installed (`%APPDATA%\Markdown BBCode`) modes. Ordinary .md files are the default; .markdown and existing .mdbbcode documents remain supported.
 
 ## Documents And Saving
 
@@ -12,7 +27,7 @@ New documents and one-time imports default to .md without mandatory metadata. Pr
 
 ## BBCode Export
 
-Copy BBCode converts the current document on demand. Export BBCode chooses a destination and writes once, with explicit revision-checked replacement for an existing file. Never replace the editable source or an original BBCode import. Collapse standard Markdown block separators (`\n\n`) and container/callout breaks to single newlines (`\n`) so Nexus Mods does not render double blank lines between paragraphs and headers, while preserving any extra intentional blank lines (`\n\n\n` -> `\n\n`) and keeping scroll-sync offsets aligned. Show conversion problems only when exporting. Ask before applying lossy fallbacks: callouts become titled quotes/spoilers; tasks become checklist text; tables become readable text. Do not silently omit content.
+Copy BBCode converts the current document on demand using the header `Nexus | Steam` dialect switcher (persisted globally as `bbcodeTarget` in `session.json`, or overridden by explicit legacy `.mdbbcode` `target:` YAML). Export BBCode chooses a `.bbcode` or `.txt` destination and writes once, with explicit revision-checked replacement for an existing file. Never replace the editable source or an original BBCode import. In Nexus mode, keep standard blank lines (`\n\n`) between regular paragraphs and between titles/headings and paragraphs, while collapsing separations adjacent to lists (`\n`) so lists sit tight against surrounding headings and paragraphs, preserving any extra intentional blank lines and keeping scroll-sync offsets aligned; callouts become titled quotes/spoilers, tasks become checklist text, and tables become readable text. In Steam mode (modeled on `Steam Markdown`), emit Steam guide BBCode (`[h1]`–`[h3]` with no trailing blank line and `h4`–`h6` downgrade warnings, `[b]`/`[i]`/`[strike]`/`[spoiler]`, `[code]...[/code]` glued directly to following text/blocks, bare YouTube/Steam store/Workshop URLs for standalone embeds, flattened lists with `› ` prefixes inside `[list]`/`[olist]`, `[quote]`, native `[table][tr][th]/[td]`, `[hr][/hr]`, `[noparse][[/noparse]` escaping, and warnings for unsupported color/center/callout/task/math/footnote/start-number constructs). Show conversion problems only when exporting and ask before applying lossy fallbacks without silently omitting content.
 
 ## Visual Blocks
 
@@ -26,11 +41,11 @@ Offer Visual, Hybrid and Source. Visual remains the default. In Hybrid, only the
 
 ## Interface And Preferences
 
-Keep light/dark appearance, standard file shortcuts, middle-mouse-button tab closing (`auxclick` release to allow drag-away cancellation), source-conflict handling and selection-aware formatting controls. Retain the split Color button, last-applied color and Hex/RGB/HSL preferences across launches, plus the global document-bar `Width [Page | Full]` segmented toggle (`800px` centered column across Visual, Hybrid and Source by default, or full editor width) and window size/position persistence via `tauri-plugin-window-state` (`window-state.json`) with startup off-screen and taskbar rescue. Property settings are optional and shown only for explicit legacy document metadata. No automatic system file associations.
+Keep light/dark appearance, standard file shortcuts, middle-mouse-button tab closing (`auxclick` release to allow drag-away cancellation), source-conflict handling and selection-aware formatting controls. Retain the split Color button, last-applied color and Hex/RGB/HSL preferences across launches, plus the global header `Nexus | Steam` BBCode dialect switch, the global document-bar `Width [Page | Full]` segmented toggle (`800px` centered column across Visual, Hybrid and Source by default, or full editor width) and window size/position persistence via `tauri-plugin-window-state` (`window-state.json`) with startup off-screen and taskbar rescue. Property settings are optional and shown only for explicit legacy document metadata. No automatic system file associations.
 
 ## Validation
 
-Check source-only saving and migration, explicit export replacement and warnings, table/task/callout round trips, block actions and undo, Hybrid source fidelity and navigation, malformed source preservation, color selection/persistence and native startup/restart. Leave live Nexus publishing and Windows association changes to the user.
+Check source-only saving and migration, explicit export replacement and warnings, Nexus and Steam BBCode export/import parity (including paragraph/heading blank lines vs tight list spacing and Steam tag/embed/table/glue rules), table/task/callout round trips, block actions and undo, Hybrid source fidelity and navigation, malformed source preservation, color selection/persistence and native startup/restart. Leave live Nexus/Steam publishing and Windows association changes to the user.
 
 ## Hybrid Spacing And Icons
 
