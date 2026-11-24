@@ -8,7 +8,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::VecDeque,
+    collections::{HashSet, VecDeque},
     fs,
     io::{Cursor, Write},
     path::{Component, Path, PathBuf},
@@ -98,6 +98,7 @@ struct PathKind {
     path: String,
     exists: bool,
     isDir: bool,
+    kind: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -131,8 +132,75 @@ fn revision(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
 
+fn resolveWriteTarget(path: &Path) -> PathBuf {
+    if let Ok(meta) = fs::symlink_metadata(path) {
+        if meta.file_type().is_symlink() {
+            if let Ok(resolved) = path.canonicalize() {
+                return resolved;
+            }
+        }
+    }
+    path.to_path_buf()
+}
+
+#[cfg(target_os = "windows")]
+fn fileLinkCount(path: &Path) -> Option<u32> {
+    use std::os::windows::io::AsRawHandle;
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct FileTime {
+        dwLowDateTime: u32,
+        dwHighDateTime: u32,
+    }
+
+    #[repr(C)]
+    #[derive(Default)]
+    struct ByHandleFileInformation {
+        dwFileAttributes: u32,
+        ftCreationTime: FileTime,
+        ftLastAccessTime: FileTime,
+        ftLastWriteTime: FileTime,
+        dwVolumeSerialNumber: u32,
+        nFileSizeHigh: u32,
+        nFileSizeLow: u32,
+        nNumberOfLinks: u32,
+        nFileIndexHigh: u32,
+        nFileIndexLow: u32,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetFileInformationByHandle(
+            hFile: *mut std::ffi::c_void,
+            lpFileInformation: *mut ByHandleFileInformation,
+        ) -> i32;
+    }
+
+    let file = fs::File::open(path).ok()?;
+    let mut info = ByHandleFileInformation::default();
+    let ok = unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) };
+    (ok != 0).then_some(info.nNumberOfLinks)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn fileLinkCount(_path: &Path) -> Option<u32> {
+    None
+}
+
 fn atomicWrite(path: &Path, bytes: &[u8]) -> Result<(), StorageError> {
-    let parentDirectory = path
+    let writeTarget = resolveWriteTarget(path);
+    if fileLinkCount(&writeTarget).unwrap_or(1) > 1 {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&writeTarget)
+            .map_err(StorageError::io)?;
+        file.write_all(bytes).map_err(StorageError::io)?;
+        file.sync_all().map_err(StorageError::io)?;
+        return Ok(());
+    }
+    let parentDirectory = writeTarget
         .parent()
         .ok_or_else(|| StorageError::io("Invalid file path"))?;
     let mut temporaryFile =
@@ -142,27 +210,36 @@ fn atomicWrite(path: &Path, bytes: &[u8]) -> Result<(), StorageError> {
         .as_file()
         .sync_all()
         .map_err(StorageError::io)?;
-    temporaryFile.persist(path).map_err(StorageError::io)?;
+    temporaryFile
+        .persist(&writeTarget)
+        .map_err(StorageError::io)?;
     Ok(())
 }
 
 fn readSnapshot(path: &Path) -> Result<FileSnapshot, StorageError> {
-    let resolvedPath = path.canonicalize().map_err(|error| {
+    let meta = fs::metadata(path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
-            StorageError {
-                kind: "missing".into(),
-                message: "The file no longer exists.".into(),
-            }
+            StorageError::missing("The file no longer exists.")
         } else {
             StorageError::io(error)
         }
     })?;
-    let bytes = fs::read(&resolvedPath).map_err(StorageError::io)?;
+    if meta.is_dir() {
+        return Err(StorageError::io("Selected path is a folder."));
+    }
+    let logicalPath = normalizeLogicalPath(path)?;
+    let bytes = fs::read(&logicalPath).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            StorageError::missing("The file no longer exists.")
+        } else {
+            StorageError::io(error)
+        }
+    })?;
     let content = String::from_utf8(bytes.clone()).map_err(|_| {
         StorageError::io("This file is not UTF-8 text. Convert a copy to UTF-8 before opening it.")
     })?;
     Ok(FileSnapshot {
-        path: resolvedPath.to_string_lossy().into_owned(),
+        path: normalizeDisplayPath(&logicalPath),
         content,
         revision: revision(&bytes),
     })
@@ -173,7 +250,8 @@ fn writeSnapshot(
     content: &str,
     expectedRevision: Option<&str>,
 ) -> Result<FileSnapshot, StorageError> {
-    match fs::read(path) {
+    let writeTarget = resolveWriteTarget(path);
+    match fs::read(&writeTarget) {
         Ok(bytes) if expectedRevision != Some(revision(&bytes).as_str()) => {
             return Err(StorageError::conflict())
         }
@@ -185,7 +263,7 @@ fn writeSnapshot(
         }
         Err(error) => return Err(StorageError::io(error)),
     }
-    atomicWrite(path, content.as_bytes())?;
+    atomicWrite(&writeTarget, content.as_bytes())?;
     readSnapshot(path)
 }
 
@@ -463,17 +541,7 @@ fn ignoredDirName(name: &str) -> bool {
     }
     matches!(
         name.to_ascii_lowercase().as_str(),
-        ".git"
-            | ".hg"
-            | ".svn"
-            | "node_modules"
-            | "target"
-            | "dist"
-            | "build"
-            | ".vs"
-            | ".vscode"
-            | "__pycache__"
-            | "portable-data"
+        "node_modules" | "target" | "__pycache__" | "portable-data"
     )
 }
 
@@ -507,12 +575,87 @@ fn validateFileNamePart(name: &str) -> Result<(), StorageError> {
     Ok(())
 }
 
-fn dirContainsReadable(dir: &Path, depth: usize, budget: &mut usize) -> bool {
+fn normalizeLogicalPath(path: &Path) -> Result<PathBuf, StorageError> {
+    let cleanDisplay = normalizeDisplayPath(path);
+    let cleanPath = Path::new(&cleanDisplay);
+    let absolute = if cleanPath.is_absolute() {
+        cleanPath.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(StorageError::io)?
+            .join(cleanPath)
+    };
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if matches!(
+                    normalized.components().next_back(),
+                    Some(Component::Normal(_))
+                ) {
+                    normalized.pop();
+                }
+            }
+            Component::Normal(part) => normalized.push(part),
+        }
+    }
+    Ok(normalized)
+}
+
+enum EntryTarget {
+    File { isLink: bool },
+    Dir,
+    Skip,
+}
+
+fn classifyEntry(entryPath: &Path, fileType: fs::FileType) -> EntryTarget {
+    if fileType.is_file() {
+        EntryTarget::File { isLink: false }
+    } else if fileType.is_dir() {
+        EntryTarget::Dir
+    } else if let Ok(meta) = fs::metadata(entryPath) {
+        if meta.is_dir() {
+            EntryTarget::Dir
+        } else if meta.is_file() {
+            EntryTarget::File { isLink: true }
+        } else {
+            EntryTarget::Skip
+        }
+    } else {
+        EntryTarget::Skip
+    }
+}
+
+fn readableFileKind(entryPath: &Path, isLink: bool) -> Option<&'static str> {
+    if let Some(kind) = fileKind(entryPath) {
+        return Some(kind);
+    }
+    if isLink {
+        if let Ok(target) = entryPath.canonicalize() {
+            return fileKind(&target);
+        }
+    }
+    None
+}
+
+fn dirContainsReadable(
+    dir: &Path,
+    depth: usize,
+    budget: &mut usize,
+    visited: &mut HashSet<PathBuf>,
+) -> bool {
     if *budget == 0 {
         return true;
     }
     if depth == 0 {
         return false;
+    }
+    if let Ok(canonical) = dir.canonicalize() {
+        if !visited.insert(canonical) {
+            return false;
+        }
     }
     let Ok(entries) = fs::read_dir(dir) else {
         return false;
@@ -527,19 +670,23 @@ fn dirContainsReadable(dir: &Path, depth: usize, budget: &mut usize) -> bool {
         let Ok(fileType) = entry.file_type() else {
             continue;
         };
-        if fileType.is_dir() {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if !ignoredDirName(&name) {
-                subdirs.push(entryPath);
+        match classifyEntry(&entryPath, fileType) {
+            EntryTarget::Dir => {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if !ignoredDirName(&name) {
+                    subdirs.push(entryPath);
+                }
             }
-        } else if (fileType.is_file() || (fileType.is_symlink() && entryPath.is_file()))
-            && fileKind(&entryPath).is_some()
-        {
-            return true;
+            EntryTarget::File { isLink } => {
+                if readableFileKind(&entryPath, isLink).is_some() {
+                    return true;
+                }
+            }
+            EntryTarget::Skip => {}
         }
     }
     for subdir in subdirs {
-        if dirContainsReadable(&subdir, depth - 1, budget) {
+        if dirContainsReadable(&subdir, depth - 1, budget, visited) {
             return true;
         }
     }
@@ -549,34 +696,46 @@ fn dirContainsReadable(dir: &Path, depth: usize, budget: &mut usize) -> bool {
 fn pathInfoImpl(path: &Path) -> Result<PathKind, StorageError> {
     match fs::metadata(path) {
         Ok(meta) => {
-            let resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            let logical = normalizeLogicalPath(path).unwrap_or_else(|_| path.to_path_buf());
+            let isLink = fs::symlink_metadata(&logical)
+                .map(|symMeta| symMeta.file_type().is_symlink())
+                .unwrap_or(false);
+            let kind = if meta.is_dir() {
+                None
+            } else {
+                readableFileKind(&logical, isLink).map(str::to_owned)
+            };
             Ok(PathKind {
-                path: normalizeDisplayPath(&resolved),
+                path: normalizeDisplayPath(&logical),
                 exists: true,
                 isDir: meta.is_dir(),
+                kind,
             })
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(PathKind {
             path: normalizeDisplayPath(path),
             exists: false,
             isDir: false,
+            kind: None,
         }),
         Err(error) => Err(StorageError::io(error)),
     }
 }
 
 fn listDirectoryImpl(path: &Path, showAll: bool) -> Result<DirectoryListing, StorageError> {
-    let resolved = path.canonicalize().map_err(|error| {
+    let meta = fs::metadata(path).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             StorageError::missing("Folder no longer exists.")
         } else {
             StorageError::io(error)
         }
     })?;
-    if !resolved.is_dir() {
+    if !meta.is_dir() {
         return Err(StorageError::io("Selected path is not a folder."));
     }
-    let readDir = fs::read_dir(&resolved).map_err(StorageError::io)?;
+    let logicalDir = normalizeLogicalPath(path)?;
+    let rootCanonical = logicalDir.canonicalize().ok();
+    let readDir = fs::read_dir(&logicalDir).map_err(StorageError::io)?;
     let mut entries = Vec::new();
     let mut truncated = false;
     for (inspected, item) in readDir.enumerate() {
@@ -592,38 +751,46 @@ fn listDirectoryImpl(path: &Path, showAll: bool) -> Result<DirectoryListing, Sto
             continue;
         };
         let name = entry.file_name().to_string_lossy().into_owned();
-        if fileType.is_dir() || (fileType.is_symlink() && entryPath.is_dir()) {
-            let ignored = ignoredDirName(&name);
-            if ignored && !showAll {
-                continue;
+        match classifyEntry(&entryPath, fileType) {
+            EntryTarget::Dir => {
+                let ignored = ignoredDirName(&name);
+                if ignored && !showAll {
+                    continue;
+                }
+                let hasReadable = if ignored {
+                    false
+                } else {
+                    let mut budget = 2000usize;
+                    let mut visited = HashSet::new();
+                    if let Some(ref canonicalRoot) = rootCanonical {
+                        visited.insert(canonicalRoot.clone());
+                    }
+                    dirContainsReadable(&entryPath, 4, &mut budget, &mut visited)
+                };
+                if !showAll && !hasReadable {
+                    continue;
+                }
+                entries.push(DirectoryEntry {
+                    name,
+                    path: normalizeDisplayPath(&entryPath),
+                    isDir: true,
+                    kind: None,
+                    hasReadable,
+                });
             }
-            let hasReadable = if ignored {
-                false
-            } else {
-                let mut budget = 2000usize;
-                dirContainsReadable(&entryPath, 4, &mut budget)
-            };
-            if !showAll && !hasReadable {
-                continue;
+            EntryTarget::File { isLink } => {
+                let Some(kind) = readableFileKind(&entryPath, isLink) else {
+                    continue;
+                };
+                entries.push(DirectoryEntry {
+                    name,
+                    path: normalizeDisplayPath(&entryPath),
+                    isDir: false,
+                    kind: Some(kind.into()),
+                    hasReadable: true,
+                });
             }
-            entries.push(DirectoryEntry {
-                name,
-                path: normalizeDisplayPath(&entryPath),
-                isDir: true,
-                kind: None,
-                hasReadable,
-            });
-        } else if fileType.is_file() || (fileType.is_symlink() && entryPath.is_file()) {
-            let Some(kind) = fileKind(&entryPath) else {
-                continue;
-            };
-            entries.push(DirectoryEntry {
-                name,
-                path: normalizeDisplayPath(&entryPath),
-                isDir: false,
-                kind: Some(kind.into()),
-                hasReadable: true,
-            });
+            EntryTarget::Skip => {}
         }
     }
     entries.sort_by(|left, right| {
@@ -638,8 +805,8 @@ fn listDirectoryImpl(path: &Path, showAll: bool) -> Result<DirectoryListing, Sto
             .then_with(|| left.name.cmp(&right.name))
     });
     Ok(DirectoryListing {
-        root: normalizeDisplayPath(&resolved),
-        parent: resolved.parent().map(normalizeDisplayPath),
+        root: normalizeDisplayPath(&logicalDir),
+        parent: logicalDir.parent().map(normalizeDisplayPath),
         entries,
         truncated,
     })
@@ -650,13 +817,17 @@ fn searchDirectoryImpl(
     query: &str,
     maxResults: usize,
 ) -> Result<Vec<DirectoryEntry>, StorageError> {
-    let resolved = root.canonicalize().map_err(|error| {
+    let meta = fs::metadata(root).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             StorageError::missing("Folder no longer exists.")
         } else {
             StorageError::io(error)
         }
     })?;
+    if !meta.is_dir() {
+        return Err(StorageError::io("Selected path is not a folder."));
+    }
+    let logicalRoot = normalizeLogicalPath(root)?;
     let trimmedQuery = query.trim().to_ascii_lowercase();
     if trimmedQuery.is_empty() {
         return Ok(Vec::new());
@@ -664,7 +835,11 @@ fn searchDirectoryImpl(
     let limit = maxResults.min(500);
     let mut results = Vec::new();
     let mut budget = 6000usize;
-    let mut queue = VecDeque::from([(resolved.clone(), 0usize)]);
+    let mut visited = HashSet::new();
+    if let Ok(canonicalRoot) = logicalRoot.canonicalize() {
+        visited.insert(canonicalRoot);
+    }
+    let mut queue = VecDeque::from([(logicalRoot.clone(), 0usize)]);
 
     while let Some((dir, depth)) = queue.pop_front() {
         if budget == 0 || results.len() >= limit {
@@ -683,33 +858,43 @@ fn searchDirectoryImpl(
                 continue;
             };
             let name = item.file_name().to_string_lossy().into_owned();
-            if fileType.is_dir() {
-                if depth < 6 && !ignoredDirName(&name) {
-                    queue.push_back((entryPath, depth + 1));
+            match classifyEntry(&entryPath, fileType) {
+                EntryTarget::Dir => {
+                    if depth < 6 && !ignoredDirName(&name) {
+                        let isUnvisited = entryPath
+                            .canonicalize()
+                            .map(|canonical| visited.insert(canonical))
+                            .unwrap_or(true);
+                        if isUnvisited {
+                            queue.push_back((entryPath, depth + 1));
+                        }
+                    }
                 }
-            } else if fileType.is_file() || (fileType.is_symlink() && entryPath.is_file()) {
-                let Some(kind) = fileKind(&entryPath) else {
-                    continue;
-                };
-                let relative = entryPath
-                    .strip_prefix(&resolved)
-                    .map(|rel| {
-                        rel.to_string_lossy()
-                            .replace('\\', "/")
-                            .to_ascii_lowercase()
-                    })
-                    .unwrap_or_else(|_| name.to_ascii_lowercase());
-                if name.to_ascii_lowercase().contains(&trimmedQuery)
-                    || relative.contains(&trimmedQuery)
-                {
-                    results.push(DirectoryEntry {
-                        name,
-                        path: normalizeDisplayPath(&entryPath),
-                        isDir: false,
-                        kind: Some(kind.into()),
-                        hasReadable: true,
-                    });
+                EntryTarget::File { isLink } => {
+                    let Some(kind) = readableFileKind(&entryPath, isLink) else {
+                        continue;
+                    };
+                    let relative = entryPath
+                        .strip_prefix(&logicalRoot)
+                        .map(|rel| {
+                            rel.to_string_lossy()
+                                .replace('\\', "/")
+                                .to_ascii_lowercase()
+                        })
+                        .unwrap_or_else(|_| name.to_ascii_lowercase());
+                    if name.to_ascii_lowercase().contains(&trimmedQuery)
+                        || relative.contains(&trimmedQuery)
+                    {
+                        results.push(DirectoryEntry {
+                            name,
+                            path: normalizeDisplayPath(&entryPath),
+                            isDir: false,
+                            kind: Some(kind.into()),
+                            hasReadable: true,
+                        });
+                    }
                 }
+                EntryTarget::Skip => {}
             }
         }
     }
@@ -752,7 +937,7 @@ fn createFileImpl(target: &Path, content: &str) -> Result<FileSnapshot, StorageE
 }
 
 fn renamePathImpl(oldPath: &Path, newPath: &Path) -> Result<String, StorageError> {
-    if !oldPath.exists() {
+    if fs::symlink_metadata(oldPath).is_err() {
         return Err(StorageError::missing(
             "The item to rename no longer exists.",
         ));
@@ -762,19 +947,22 @@ fn renamePathImpl(oldPath: &Path, newPath: &Path) -> Result<String, StorageError
         .and_then(|value| value.to_str())
         .ok_or_else(|| StorageError::io("Invalid target name."))?;
     validateFileNamePart(newName)?;
-    if newPath.exists() {
-        let sameTarget = oldPath.canonicalize().ok() == newPath.canonicalize().ok();
-        if !sameTarget {
+    let normalizedOld = normalizeLogicalPath(oldPath)?;
+    let normalizedNew = normalizeLogicalPath(newPath)?;
+    if fs::symlink_metadata(&normalizedNew).is_ok() {
+        #[cfg(target_os = "windows")]
+        let sameLogical = normalizeDisplayPath(&normalizedOld)
+            .eq_ignore_ascii_case(&normalizeDisplayPath(&normalizedNew));
+        #[cfg(not(target_os = "windows"))]
+        let sameLogical = normalizedOld == normalizedNew;
+        if !sameLogical {
             return Err(StorageError::exists(
                 "An item with that name already exists.",
             ));
         }
     }
-    fs::rename(oldPath, newPath).map_err(StorageError::io)?;
-    let resolved = newPath
-        .canonicalize()
-        .unwrap_or_else(|_| newPath.to_path_buf());
-    Ok(normalizeDisplayPath(&resolved))
+    fs::rename(&normalizedOld, &normalizedNew).map_err(StorageError::io)?;
+    Ok(normalizeDisplayPath(&normalizedNew))
 }
 
 #[tauri::command]
@@ -819,17 +1007,18 @@ fn rename_path(
 #[tauri::command]
 fn reveal_in_explorer(path: String) -> Result<(), StorageError> {
     let candidate = Path::new(&path);
-    let resolved = candidate.canonicalize().map_err(|error| {
+    let meta = fs::metadata(candidate).map_err(|error| {
         if error.kind() == std::io::ErrorKind::NotFound {
             StorageError::missing("Item no longer exists.")
         } else {
             StorageError::io(error)
         }
     })?;
-    let clean = normalizeDisplayPath(&resolved);
+    let logical = normalizeLogicalPath(candidate)?;
+    let clean = normalizeDisplayPath(&logical);
     #[cfg(target_os = "windows")]
     {
-        if resolved.is_dir() {
+        if meta.is_dir() {
             std::process::Command::new("explorer.exe")
                 .arg(&clean)
                 .spawn()
@@ -842,7 +1031,7 @@ fn reveal_in_explorer(path: String) -> Result<(), StorageError> {
         }
     }
     #[cfg(not(target_os = "windows"))]
-    let _ = (&clean, resolved.is_dir());
+    let _ = (&clean, meta.is_dir());
     Ok(())
 }
 
@@ -1120,6 +1309,163 @@ where
         .any(|arg| arg.as_ref() == "--graceful-close")
 }
 
+struct ContextMenuEntry {
+    name: String,
+    isSeparator: bool,
+}
+
+fn shouldKeepContextMenuEntry(name: &str, isEditable: bool, hasSelection: bool) -> bool {
+    if isEditable {
+        matches!(
+            name.to_ascii_lowercase().as_str(),
+            "cut"
+                | "copy"
+                | "paste"
+                | "pasteandmatchstyle"
+                | "pasteasplaintext"
+                | "selectall"
+                | "undo"
+                | "redo"
+                | "spellcheck"
+                | "spelling"
+                | "checkspelling"
+                | "addtodictionary"
+                | "ignoreall"
+                | "nospellingsuggestions"
+        )
+    } else if hasSelection {
+        name.eq_ignore_ascii_case("copy")
+    } else {
+        false
+    }
+}
+
+fn planContextMenuRemovals(
+    entries: &[ContextMenuEntry],
+    isEditable: bool,
+    hasSelection: bool,
+) -> (Vec<usize>, bool) {
+    if !isEditable && !hasSelection {
+        return ((0..entries.len()).collect(), true);
+    }
+
+    let mut keep = vec![false; entries.len()];
+    let mut lastKeptSeparator: Option<usize> = None;
+    let mut hasActionItem = false;
+
+    for (index, entry) in entries.iter().enumerate() {
+        if entry.isSeparator {
+            if hasActionItem && lastKeptSeparator.is_none() {
+                keep[index] = true;
+                lastKeptSeparator = Some(index);
+            }
+        } else if shouldKeepContextMenuEntry(&entry.name, isEditable, hasSelection) {
+            keep[index] = true;
+            lastKeptSeparator = None;
+            hasActionItem = true;
+        }
+    }
+
+    if let Some(trailingSeparator) = lastKeptSeparator {
+        keep[trailingSeparator] = false;
+    }
+
+    if !hasActionItem {
+        return ((0..entries.len()).collect(), true);
+    }
+
+    let removals = keep
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, kept)| (!kept).then_some(index))
+        .collect();
+    (removals, false)
+}
+
+#[cfg(target_os = "windows")]
+fn configureContextMenuFilter(window: &tauri::WebviewWindow) {
+    use webview2_com::{
+        take_pwstr, ContextMenuRequestedEventHandler,
+        Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2_11, COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND,
+            COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR,
+        },
+    };
+    use windows_core::{Interface, BOOL, PWSTR};
+
+    let _ = window.with_webview(|webview| unsafe {
+        let Ok(coreWebView) = webview.controller().CoreWebView2() else {
+            return;
+        };
+        let Ok(coreWebView11) = coreWebView.cast::<ICoreWebView2_11>() else {
+            return;
+        };
+        let handler = ContextMenuRequestedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else {
+                return Ok(());
+            };
+            let Ok(target) = args.ContextMenuTarget() else {
+                return Ok(());
+            };
+            let mut isEditable = BOOL::default();
+            let mut hasSelection = BOOL::default();
+            let _ = target.IsEditable(&mut isEditable);
+            let _ = target.HasSelection(&mut hasSelection);
+            let editable = isEditable.as_bool();
+            let selected = hasSelection.as_bool();
+            if !editable && !selected {
+                let _ = args.SetHandled(true);
+                return Ok(());
+            }
+
+            let Ok(items) = args.MenuItems() else {
+                return Ok(());
+            };
+            let mut count = 0u32;
+            if items.Count(&mut count).is_err() {
+                return Ok(());
+            }
+            let mut entries = Vec::with_capacity(count as usize);
+            for index in 0..count {
+                let Ok(item) = items.GetValueAtIndex(index) else {
+                    entries.push(ContextMenuEntry {
+                        name: String::new(),
+                        isSeparator: false,
+                    });
+                    continue;
+                };
+                let mut kind = COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND::default();
+                let _ = item.Kind(&mut kind);
+                let mut rawName = PWSTR::null();
+                let name = if item.Name(&mut rawName).is_ok() {
+                    take_pwstr(rawName)
+                } else {
+                    String::new()
+                };
+                entries.push(ContextMenuEntry {
+                    name,
+                    isSeparator: kind == COREWEBVIEW2_CONTEXT_MENU_ITEM_KIND_SEPARATOR,
+                });
+            }
+
+            let (removals, suppressMenu) = planContextMenuRemovals(&entries, editable, selected);
+            if suppressMenu {
+                let _ = args.SetHandled(true);
+                return Ok(());
+            }
+            for index in removals.into_iter().rev() {
+                let _ = items.RemoveValueAtIndex(index as u32);
+            }
+            Ok(())
+        }));
+        let mut token = 0i64;
+        let _ = coreWebView11.add_ContextMenuRequested(&handler, &mut token);
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn configureContextMenuFilter(_window: &tauri::WebviewWindow) {}
+
 fn main() {
     let executablePath = std::env::current_exe().expect("Cannot locate Markdown BBCode");
     let executableDir = executablePath
@@ -1195,6 +1541,7 @@ fn main() {
             .visible(false)
             .data_directory(dataDirectory.join("webview"))
             .build()?;
+            configureContextMenuFilter(&window);
             let _ = window.restore_state(windowStateFlags());
             rescueWindowIfOffScreen(&window);
             let _ = window.show();
@@ -1204,6 +1551,8 @@ fn main() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.emit("request-close", ());
+            } else if let tauri::WindowEvent::Focused(true) = event {
+                let _ = window.emit("window-focused", ());
             } else if let tauri::WindowEvent::DragDrop(dragEvent) = event {
                 match dragEvent {
                     tauri::DragDropEvent::Enter { .. } => {
@@ -1648,5 +1997,380 @@ mod tests {
         ];
         let paths = argumentPaths(args.into_iter(), Path::new(r"C:\Workspace"));
         assert_eq!(paths, vec![r"C:\Workspace\doc.md".to_owned()]);
+    }
+
+    #[test]
+    fn handles_hard_links_and_preserves_link_on_save() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let original = outside.path().join("source.md");
+        fs::write(&original, "Initial hard-linked text").unwrap();
+
+        let subDir = root.path().join("linked-mod");
+        fs::create_dir(&subDir).unwrap();
+        let hardLink = subDir.join("readme.md");
+        if fs::hard_link(&original, &hardLink).is_err() {
+            return;
+        }
+
+        let rootListing = listDirectoryImpl(root.path(), false).unwrap();
+        assert_eq!(rootListing.entries.len(), 1);
+        assert_eq!(rootListing.entries[0].name, "linked-mod");
+        assert!(rootListing.entries[0].isDir);
+        assert!(rootListing.entries[0].hasReadable);
+
+        let subListing = listDirectoryImpl(&subDir, false).unwrap();
+        assert_eq!(subListing.entries.len(), 1);
+        assert_eq!(subListing.entries[0].name, "readme.md");
+        assert_eq!(subListing.entries[0].kind.as_deref(), Some("markdown"));
+
+        let hits = searchDirectoryImpl(root.path(), "readme", 50).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].name, "readme.md");
+
+        let snap = readSnapshot(&hardLink).unwrap();
+        assert_eq!(snap.content, "Initial hard-linked text");
+        let saved =
+            writeSnapshot(&hardLink, "Updated via hard link", Some(&snap.revision)).unwrap();
+        assert_eq!(saved.content, "Updated via hard link");
+        assert_eq!(
+            fs::read_to_string(&original).unwrap(),
+            "Updated via hard link"
+        );
+        #[cfg(target_os = "windows")]
+        assert_eq!(fileLinkCount(&hardLink), Some(2));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn handles_directory_junctions_and_prevents_cycles() {
+        let root = tempfile::tempdir().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        fs::write(external.path().join("guide.md"), "# Junction Guide").unwrap();
+
+        let junction = root.path().join("junction-mod");
+        let status = std::process::Command::new("cmd")
+            .args([
+                "/C",
+                "mklink",
+                "/J",
+                &junction.to_string_lossy(),
+                &external.path().to_string_lossy(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            status.status.success(),
+            "mklink /J failed: {}",
+            String::from_utf8_lossy(&status.stderr)
+        );
+
+        let cycle = external.path().join("back-to-root");
+        let cycleStatus = std::process::Command::new("cmd")
+            .args([
+                "/C",
+                "mklink",
+                "/J",
+                &cycle.to_string_lossy(),
+                &root.path().to_string_lossy(),
+            ])
+            .output()
+            .unwrap();
+        assert!(cycleStatus.status.success());
+
+        let rootListing = listDirectoryImpl(root.path(), false).unwrap();
+        assert!(rootListing
+            .entries
+            .iter()
+            .any(|entry| entry.name == "junction-mod" && entry.isDir && entry.hasReadable));
+
+        let subListing = listDirectoryImpl(&junction, false).unwrap();
+        assert!(subListing.root.ends_with("junction-mod"));
+        assert!(subListing
+            .entries
+            .iter()
+            .any(|entry| entry.name == "guide.md" && entry.kind.as_deref() == Some("markdown")));
+
+        let hits = searchDirectoryImpl(root.path(), "guide", 50).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].name, "guide.md");
+        assert!(hits[0].path.contains("junction-mod"));
+    }
+
+    #[test]
+    fn handles_file_and_directory_symlinks_when_permitted() {
+        let root = tempfile::tempdir().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        let targetMd = external.path().join("target.md");
+        let targetDds = external.path().join("diffuse.dds");
+        let targetSubDir = external.path().join("nested-docs");
+        fs::write(&targetMd, "# Linked Markdown").unwrap();
+        fs::write(&targetDds, "dds").unwrap();
+        fs::create_dir(&targetSubDir).unwrap();
+        fs::write(targetSubDir.join("sub.txt"), "Hello").unwrap();
+
+        let mdLink = root.path().join("notes.md");
+        let otherMdLink = root.path().join("other.md");
+        let aliasLink = root.path().join("README");
+        let ddsAliasLink = root.path().join("texture-alias");
+        let brokenLink = root.path().join("broken.md");
+        let dirLink = root.path().join("docs-link");
+
+        #[cfg(target_os = "windows")]
+        let createFileSym = |link: &Path, target: &Path| -> std::io::Result<()> {
+            std::os::windows::fs::symlink_file(target, link)
+        };
+        #[cfg(not(target_os = "windows"))]
+        let createFileSym = |link: &Path, target: &Path| -> std::io::Result<()> {
+            std::os::unix::fs::symlink(target, link)
+        };
+        #[cfg(target_os = "windows")]
+        let createDirSym = |link: &Path, target: &Path| -> std::io::Result<()> {
+            std::os::windows::fs::symlink_dir(target, link)
+        };
+        #[cfg(not(target_os = "windows"))]
+        let createDirSym = |link: &Path, target: &Path| -> std::io::Result<()> {
+            std::os::unix::fs::symlink(target, link)
+        };
+
+        if let Err(err) = createFileSym(&mdLink, &targetMd) {
+            if err.kind() == std::io::ErrorKind::PermissionDenied {
+                return;
+            }
+            panic!("Unexpected symlink creation error: {err}");
+        }
+        createFileSym(&otherMdLink, &targetMd).unwrap();
+        createFileSym(&aliasLink, &targetMd).unwrap();
+        createFileSym(&ddsAliasLink, &targetDds).unwrap();
+        createFileSym(&brokenLink, &external.path().join("missing.md")).unwrap();
+        createDirSym(&dirLink, &targetSubDir).unwrap();
+
+        let listing = listDirectoryImpl(root.path(), false).unwrap();
+        let names: Vec<&str> = listing
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        assert!(names.contains(&"docs-link"));
+        assert!(names.contains(&"notes.md"));
+        assert!(names.contains(&"README"));
+        assert!(!names.contains(&"texture-alias"));
+        assert!(!names.contains(&"broken.md"));
+
+        let aliasInfo = pathInfoImpl(&aliasLink).unwrap();
+        assert!(aliasInfo.exists);
+        assert!(!aliasInfo.isDir);
+        assert_eq!(aliasInfo.kind.as_deref(), Some("markdown"));
+
+        let snap = readSnapshot(&aliasLink).unwrap();
+        assert!(snap.path.ends_with("README"));
+        assert_eq!(snap.content, "# Linked Markdown");
+
+        let saved = writeSnapshot(&mdLink, "# Edited via Symlink", Some(&snap.revision)).unwrap();
+        assert!(saved.path.ends_with("notes.md"));
+        assert_eq!(
+            fs::read_to_string(&targetMd).unwrap(),
+            "# Edited via Symlink"
+        );
+        assert!(fs::symlink_metadata(&mdLink)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+
+        assert_eq!(
+            renamePathImpl(&mdLink, &otherMdLink).unwrap_err().kind,
+            "exists"
+        );
+        let renamedLink = root.path().join("renamed-notes.md");
+        let renamedPath = renamePathImpl(&mdLink, &renamedLink).unwrap();
+        assert!(renamedPath.ends_with("renamed-notes.md"));
+        assert!(fs::symlink_metadata(&renamedLink)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[test]
+    fn shows_dist_and_build_only_when_containing_readable_files() {
+        let root = tempfile::tempdir().unwrap();
+        let external = tempfile::tempdir().unwrap();
+        let distDir = root.path().join("Dist");
+        let buildDir = root.path().join("Build");
+        let nodeModules = root.path().join("node_modules");
+        let targetDir = root.path().join("target");
+        fs::create_dir_all(&distDir).unwrap();
+        fs::create_dir_all(&buildDir).unwrap();
+        fs::create_dir_all(&nodeModules).unwrap();
+        fs::create_dir_all(&targetDir).unwrap();
+
+        fs::write(distDir.join("notes.mdbbcode"), "# Dist Notes").unwrap();
+        fs::write(distDir.join("cover.png"), "png").unwrap();
+        fs::write(buildDir.join("archive.zip"), "zip").unwrap();
+        fs::write(buildDir.join("preview.png"), "png").unwrap();
+        fs::write(nodeModules.join("readme.md"), "# Ignored").unwrap();
+        fs::write(targetDir.join("notes.md"), "# Ignored").unwrap();
+
+        let externalDesc = external.path().join("Nexus Description.mdbbcode");
+        fs::write(&externalDesc, "# Linked Description").unwrap();
+        let symlinkedDesc = distDir.join("Auto Doors - Nexus Description.mdbbcode");
+        #[cfg(target_os = "windows")]
+        let symResult = std::os::windows::fs::symlink_file(&externalDesc, &symlinkedDesc);
+        #[cfg(not(target_os = "windows"))]
+        let symResult = std::os::unix::fs::symlink(&externalDesc, &symlinkedDesc);
+        let symlinkCreated = match symResult {
+            Ok(()) => true,
+            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => false,
+            Err(err) => panic!("Unexpected symlink creation error: {err}"),
+        };
+
+        let rootListing = listDirectoryImpl(root.path(), false).unwrap();
+        let rootNames: Vec<&str> = rootListing
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        assert!(rootListing
+            .entries
+            .iter()
+            .any(|entry| entry.name == "Dist" && entry.isDir && entry.hasReadable));
+        assert!(!rootNames.contains(&"Build"));
+        assert!(!rootNames.contains(&"node_modules"));
+        assert!(!rootNames.contains(&"target"));
+
+        let distListing = listDirectoryImpl(&distDir, false).unwrap();
+        let distNames: Vec<&str> = distListing
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        assert!(distNames.contains(&"notes.mdbbcode"));
+        assert!(!distNames.contains(&"cover.png"));
+        if symlinkCreated {
+            assert!(distNames.contains(&"Auto Doors - Nexus Description.mdbbcode"));
+        }
+
+        let hits = searchDirectoryImpl(root.path(), "notes", 50).unwrap();
+        let hitPaths: Vec<&str> = hits.iter().map(|entry| entry.path.as_str()).collect();
+        assert!(hits
+            .iter()
+            .any(|entry| entry.name == "notes.mdbbcode" && entry.path.contains("Dist")));
+        assert!(!hitPaths.iter().any(|p| p.contains("target")));
+
+        let allHits = searchDirectoryImpl(root.path(), "readme", 50).unwrap();
+        assert!(allHits.is_empty());
+
+        let allListing = listDirectoryImpl(root.path(), true).unwrap();
+        let allNames: Vec<&str> = allListing
+            .entries
+            .iter()
+            .map(|entry| entry.name.as_str())
+            .collect();
+        assert!(allNames.contains(&"Dist"));
+        assert!(allNames.contains(&"Build"));
+        assert!(allNames.contains(&"node_modules"));
+        assert!(allNames.contains(&"target"));
+    }
+
+    fn menuItem(name: &str) -> ContextMenuEntry {
+        ContextMenuEntry {
+            name: name.into(),
+            isSeparator: false,
+        }
+    }
+
+    fn menuSeparator() -> ContextMenuEntry {
+        ContextMenuEntry {
+            name: "other".into(),
+            isSeparator: true,
+        }
+    }
+
+    #[test]
+    fn context_menu_suppresses_non_editable_without_selection() {
+        let entries = vec![
+            menuItem("back"),
+            menuItem("reload"),
+            menuSeparator(),
+            menuItem("saveAs"),
+            menuItem("print"),
+            menuItem("selectAll"),
+            menuItem("inspectElement"),
+        ];
+        let (removals, suppress) = planContextMenuRemovals(&entries, false, false);
+        assert!(suppress);
+        assert_eq!(removals, vec![0, 1, 2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn context_menu_keeps_only_copy_for_readonly_selection() {
+        let entries = vec![
+            menuItem("copy"),
+            menuItem("copyLink"),
+            menuSeparator(),
+            menuItem("searchWebFor"),
+            menuItem("print"),
+            menuItem("share"),
+            menuItem("webCapture"),
+            menuItem("inspectElement"),
+        ];
+        let (removals, suppress) = planContextMenuRemovals(&entries, false, true);
+        assert!(!suppress);
+        assert_eq!(removals, vec![1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn context_menu_keeps_edit_and_spellcheck_and_normalizes_separators() {
+        let entries = vec![
+            menuSeparator(),
+            menuItem("emoji"),
+            menuItem("spellCheck"),
+            menuItem("spellcheck"),
+            menuItem("addToDictionary"),
+            menuSeparator(),
+            menuItem("writingAssistance"),
+            menuSeparator(),
+            menuItem("undo"),
+            menuItem("redo"),
+            menuItem("cut"),
+            menuItem("copy"),
+            menuItem("paste"),
+            menuItem("pasteAndMatchStyle"),
+            menuItem("pasteAsPlainText"),
+            menuItem("selectAll"),
+            menuSeparator(),
+            menuItem("rewrite"),
+            menuItem("askCopilot"),
+            menuItem("back"),
+            menuItem("reload"),
+            menuItem("saveAs"),
+            menuItem("print"),
+            menuItem("share"),
+            menuItem("webCapture"),
+            menuItem("readAloud"),
+            menuItem("inspectElement"),
+            menuItem("other"),
+            menuItem("extension"),
+            menuSeparator(),
+        ];
+        let (removals, suppress) = planContextMenuRemovals(&entries, true, false);
+        assert!(!suppress);
+        assert_eq!(
+            removals,
+            vec![0, 1, 6, 7, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29]
+        );
+    }
+
+    #[test]
+    fn context_menu_suppresses_when_all_items_are_clutter() {
+        let entries = vec![
+            menuSeparator(),
+            menuItem("reload"),
+            menuItem("print"),
+            menuItem("inspectElement"),
+            menuSeparator(),
+        ];
+        let (removals, suppress) = planContextMenuRemovals(&entries, true, true);
+        assert!(suppress);
+        assert_eq!(removals, vec![0, 1, 2, 3, 4]);
     }
 }

@@ -8,8 +8,9 @@ async function installFilesystemBridge(page, { dirs = [], files = {}, session = 
     const callbacks = {};
     const eventHandlers = {};
     const fileMap = {};
-    for (const [p, content] of Object.entries(files)) {
-      fileMap[p] = { path: p, content, revision: String(++revisionCounter) };
+    for (const [p, raw] of Object.entries(files)) {
+      const entry = typeof raw === 'string' ? { content: raw, kind: null } : raw;
+      fileMap[p] = { path: p, content: entry.content, kind: entry.kind ?? null, revision: String(++revisionCounter) };
     }
     const dirSet = new Set(['C:\\', ...dirs]);
     for (const p of Object.keys(fileMap)) {
@@ -35,19 +36,20 @@ async function installFilesystemBridge(page, { dirs = [], files = {}, session = 
       if (idx < 0) return null;
       return idx === 2 ? c.slice(0, 3) : c.slice(0, idx);
     };
-    const kindOf = p => {
+    const kindOf = (p, explicitKind = null) => {
+      if (explicitKind) return explicitKind;
       const lower = p.toLowerCase();
       if (/\.(md|markdown|mdbbcode)$/.test(lower)) return 'markdown';
       if (lower.endsWith('.txt')) return 'txt';
       if (lower.endsWith('.bbcode')) return 'bbcode';
       return null;
     };
-    const ignored = name => name.startsWith('.') || ['node_modules', 'target', 'dist', 'build', 'portable-data'].includes(name.toLowerCase());
+    const ignored = name => name.startsWith('.') || ['node_modules', 'target', '__pycache__', 'portable-data'].includes(name.toLowerCase());
     const hasReadableDescendant = (dirPath, depth = 4) => {
       if (depth <= 0) return false;
       const dirKey = norm(dirPath).toLowerCase();
       for (const fp of Object.keys(fileMap)) {
-        if (norm(parentOf(fp)).toLowerCase() === dirKey && kindOf(fp)) return true;
+        if (norm(parentOf(fp)).toLowerCase() === dirKey && kindOf(fp, fileMap[fp].kind)) return true;
       }
       for (const dp of dirSet) {
         if (norm(parentOf(dp)).toLowerCase() === dirKey) {
@@ -92,10 +94,10 @@ async function installFilesystemBridge(page, { dirs = [], files = {}, session = 
         if (command === 'path_info') {
           const clean = norm(args.path);
           const fMatch = Object.keys(fileMap).find(k => norm(k).toLowerCase() === clean.toLowerCase());
-          if (fMatch) return { path: fileMap[fMatch].path, exists: true, isDir: false };
+          if (fMatch) return { path: fileMap[fMatch].path, exists: true, isDir: false, kind: kindOf(fileMap[fMatch].path, fileMap[fMatch].kind) };
           const dMatch = [...dirSet].find(d => norm(d).toLowerCase() === clean.toLowerCase());
-          if (dMatch) return { path: dMatch, exists: true, isDir: true };
-          return { path: clean, exists: false, isDir: false };
+          if (dMatch) return { path: dMatch, exists: true, isDir: true, kind: null };
+          return { path: clean, exists: false, isDir: false, kind: null };
         }
         if (command === 'list_directory') {
           const cleanRoot = norm(args.path);
@@ -113,7 +115,7 @@ async function installFilesystemBridge(page, { dirs = [], files = {}, session = 
           }
           for (const fp of Object.keys(fileMap)) {
             if (norm(parentOf(fp)).toLowerCase() === cleanRoot.toLowerCase()) {
-              const kind = kindOf(fp);
+              const kind = kindOf(fp, fileMap[fp].kind);
               if (!kind) continue;
               entries.push({ name: fp.split('\\').at(-1), path: fp, isDir: false, kind, hasReadable: true });
             }
@@ -131,7 +133,7 @@ async function installFilesystemBridge(page, { dirs = [], files = {}, session = 
             if (!lower.startsWith(cleanRoot + '\\')) continue;
             const rel = lower.slice(cleanRoot.length + 1);
             if (rel.split('\\').some(seg => ignored(seg))) continue;
-            const kind = kindOf(fp);
+            const kind = kindOf(fp, fileMap[fp].kind);
             if (!kind) continue;
             const name = fp.split('\\').at(-1);
             if (name.toLowerCase().includes(q) || rel.toLowerCase().includes(q)) {
@@ -351,4 +353,127 @@ test('smart .txt auto-detects BBCode vs Markdown, and Explorer supports New File
   await renameInput.press('Enter');
   await expect(page.getByRole('tab', { name: 'whats-new.md', exact: true })).toBeVisible();
   await expect(page.locator('.folder-tree')).toContainText('whats-new.md');
+});
+
+test('Folder Browser shows linked subfolders and opens extensionless readable symlinks natively', async ({ page }) => {
+  await installFilesystemBridge(page, {
+    dirs: ['C:\\Mods\\Workspace', 'C:\\Mods\\Workspace\\linked-sub'],
+    files: {
+      'C:\\Mods\\Workspace\\notes.md': '# Workspace Root',
+      'C:\\Mods\\Workspace\\linked-sub\\README': { content: '# Symlinked Alias\n\nBody text', kind: 'markdown' },
+    },
+  });
+
+  await page.evaluate(() => {
+    window.fsMock.pendingPaths.push('C:\\Mods\\Workspace');
+    window.fsMock.emit('open-files');
+  });
+  await expect(page.locator('#folder-root-name')).toHaveText('Workspace');
+
+  await page.locator('.folder-tree-row', { hasText: 'linked-sub' }).click();
+  const aliasRow = page.locator('.folder-tree-row', { hasText: 'README' });
+  await expect(aliasRow).toBeVisible();
+  await aliasRow.click();
+
+  await expect(page.getByRole('tab', { name: 'README', exact: true })).toBeVisible();
+  await expect(page.locator('.tiptap h1')).toHaveText('Symlinked Alias');
+  await expect(aliasRow).toHaveClass(/active/);
+  await expect(aliasRow.locator('.folder-open-dot')).toBeVisible();
+  await expect(page.locator('#folder-root-name')).toHaveText('Workspace');
+});
+
+test('Dist/Build folders with readable files appear and window activation refreshes the tree safely', async ({ page }) => {
+  await installFilesystemBridge(page, {
+    dirs: [
+      'C:\\Mods\\Enshrouded',
+      'C:\\Mods\\Enshrouded\\Dist',
+      'C:\\Mods\\Enshrouded\\Build',
+      'C:\\Mods\\Enshrouded\\Sub',
+    ],
+    files: {
+      'C:\\Mods\\Enshrouded\\Dist\\Auto Doors - Nexus Description.mdbbcode': '# Auto Doors',
+      'C:\\Mods\\Enshrouded\\Dist\\cover.png': 'png',
+      'C:\\Mods\\Enshrouded\\Build\\bundle.zip': 'zip',
+      'C:\\Mods\\Enshrouded\\Sub\\initial.md': '# Initial Sub',
+    },
+  });
+
+  await page.evaluate(() => {
+    window.fsMock.pendingPaths.push('C:\\Mods\\Enshrouded');
+    window.fsMock.emit('open-files');
+  });
+  await expect(page.locator('#folder-root-name')).toHaveText('Enshrouded');
+  await expect(page.locator('.folder-tree')).toContainText('Dist');
+  await expect(page.locator('.folder-tree')).toContainText('Sub');
+  await expect(page.locator('.folder-tree')).not.toContainText('Build');
+
+  await page.locator('.folder-tree-row', { hasText: 'Dist' }).click();
+  await expect(page.locator('.folder-tree')).toContainText('Auto Doors - Nexus Description.mdbbcode');
+  await expect(page.locator('.folder-tree')).not.toContainText('cover.png');
+
+  await page.locator('.folder-tree-row', { hasText: 'Sub' }).click();
+  const initialRow = page.locator('.folder-tree-row', { hasText: 'initial.md' });
+  await expect(initialRow).toBeVisible();
+  await expect(initialRow).toHaveAttribute('data-path', 'C:\\Mods\\Enshrouded\\Sub\\initial.md');
+
+  // External file changes + window-focused refresh expanded directories and preserve path casing.
+  await page.waitForTimeout(150);
+  await page.evaluate(() => {
+    window.fsMock.files['C:\\Mods\\Enshrouded\\Dist\\Better Spells - Nexus Description.mdbbcode'] = {
+      path: 'C:\\Mods\\Enshrouded\\Dist\\Better Spells - Nexus Description.mdbbcode',
+      content: '# Better Spells',
+      kind: null,
+      revision: '99',
+    };
+    window.fsMock.files['C:\\Mods\\Enshrouded\\Sub\\added.md'] = {
+      path: 'C:\\Mods\\Enshrouded\\Sub\\added.md',
+      content: '# Added Sub',
+      kind: null,
+      revision: '100',
+    };
+    delete window.fsMock.files['C:\\Mods\\Enshrouded\\Sub\\initial.md'];
+    window.fsMock.emit('window-focused');
+  });
+  await expect(page.locator('.folder-tree')).toContainText('Better Spells - Nexus Description.mdbbcode');
+  const addedRow = page.locator('.folder-tree-row', { hasText: 'added.md' });
+  await expect(addedRow).toBeVisible();
+  await expect(addedRow).toHaveAttribute('data-path', 'C:\\Mods\\Enshrouded\\Sub\\added.md');
+  await expect(page.locator('.folder-tree')).not.toContainText('initial.md');
+
+  // Active inline New File input is preserved when window activation events fire.
+  await page.getByRole('button', { name: 'New File', exact: true }).click();
+  const newFileInput = page.getByLabel('New File Name', { exact: true });
+  await newFileInput.fill('draft-in-progress');
+  await page.waitForTimeout(150);
+  await page.evaluate(() => {
+    window.fsMock.files['C:\\Mods\\Enshrouded\\while-typing.md'] = {
+      path: 'C:\\Mods\\Enshrouded\\while-typing.md',
+      content: '# Added while typing',
+      kind: null,
+      revision: '101',
+    };
+    window.fsMock.emit('window-focused');
+    window.dispatchEvent(new Event('focus'));
+  });
+  await expect(newFileInput).toBeVisible();
+  await expect(newFileInput).toHaveValue('draft-in-progress');
+  await newFileInput.press('Escape');
+
+  // Focusing while collapsed defers refresh until the Folder Browser reopens.
+  await page.getByRole('button', { name: 'Hide Folder Browser', exact: true }).click();
+  await expect(page.locator('#folder-sidebar')).toBeHidden();
+  await page.waitForTimeout(150);
+  await page.evaluate(() => {
+    window.fsMock.files['C:\\Mods\\Enshrouded\\created-while-hidden.md'] = {
+      path: 'C:\\Mods\\Enshrouded\\created-while-hidden.md',
+      content: '# Created while hidden',
+      kind: null,
+      revision: '102',
+    };
+    window.dispatchEvent(new Event('focus'));
+  });
+  await page.keyboard.press('Control+Shift+E');
+  await expect(page.locator('#folder-sidebar')).toBeVisible();
+  await expect(page.locator('.folder-tree')).toContainText('created-while-hidden.md');
+  await expect(page.locator('.folder-tree')).toContainText('while-typing.md');
 });

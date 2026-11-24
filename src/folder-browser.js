@@ -51,6 +51,10 @@ export class FolderBrowser {
     this.inlineAction = null;
     this.contextMenu = null;
     this.resizeDrag = null;
+    this.refreshInFlight = null;
+    this.refreshQueued = false;
+    this.dirtyWhileHidden = false;
+    this.lastFocusRefreshAt = 0;
 
     this.setupIcons();
     this.bindEvents();
@@ -210,6 +214,10 @@ export class FolderBrowser {
     this.closeSwitcherMenu();
     this.closeContextMenu();
     if (persist) void this.saveState();
+    if (state.open && this.dirtyWhileHidden && state.rootPath) {
+      this.dirtyWhileHidden = false;
+      void this.refresh({ background: true });
+    }
   }
 
   toggle() {
@@ -231,6 +239,7 @@ export class FolderBrowser {
     this.expandedPaths.clear();
     this.expandedPaths.add(folderPathKey(clean));
     this.inlineAction = null;
+    this.dirtyWhileHidden = false;
     this.clearNotice();
     if (openSidebar && !state.open) this.setOpen(true, false);
     this.updateHeaderControls();
@@ -338,7 +347,9 @@ export class FolderBrowser {
       const listing = await this.backend.listDirectory(dirPath, this.state().showAllFolders);
       if (isRoot && seq !== this.loadSeq && folderPathKey(this.state().rootPath) !== key) return null;
       const normalizedRoot = normalizeFolderPath(listing.root || dirPath);
-      this.listingCache.set(folderPathKey(normalizedRoot), listing);
+      this.listingCache.set(key, listing);
+      const normalizedKey = folderPathKey(normalizedRoot);
+      if (normalizedKey !== key) this.listingCache.set(normalizedKey, listing);
       if (isRoot) {
         this.state().rootPath = normalizedRoot;
         this.clearNotice();
@@ -353,18 +364,128 @@ export class FolderBrowser {
     }
   }
 
-  async refresh() {
+  async refresh({ background = false } = {}) {
     const root = this.state().rootPath;
-    if (!root) { this.render(); return; }
-    const expanded = [...this.expandedPaths];
-    this.listingCache.clear();
-    await this.loadDirectory(root, true);
-    for (const key of expanded) {
-      if (key === folderPathKey(root)) continue;
-      await this.loadDirectory(key, false);
+    if (!root) {
+      if (!background) this.render();
+      return;
     }
-    if (this.filterQuery.trim()) await this.runSearch();
-    else this.render();
+    if (background && this.inlineAction) return;
+    if (this.refreshInFlight) {
+      this.refreshQueued = true;
+      return this.refreshInFlight;
+    }
+
+    const task = (async () => {
+      const currentRoot = this.state().rootPath;
+      if (!currentRoot) {
+        if (!background) this.render();
+        return;
+      }
+      const currentRootKey = folderPathKey(currentRoot);
+      const showAll = this.state().showAllFolders;
+      const startExpanded = new Set(this.expandedPaths);
+      const nextCache = new Map();
+
+      let rootListing;
+      try {
+        rootListing = await this.backend.listDirectory(currentRoot, showAll);
+      } catch (error) {
+        if (folderPathKey(this.state().rootPath) !== currentRootKey) return;
+        if (background && this.inlineAction) return;
+        this.listingCache.delete(currentRootKey);
+        this.showNotice(error?.message || 'Folder could not be loaded.');
+        this.render();
+        return;
+      }
+
+      if (folderPathKey(this.state().rootPath) !== currentRootKey) return;
+      if (background && this.inlineAction) return;
+
+      const normalizedRoot = normalizeFolderPath(rootListing.root || currentRoot);
+      const normalizedRootKey = folderPathKey(normalizedRoot);
+      nextCache.set(currentRootKey, rootListing);
+      if (normalizedRootKey !== currentRootKey) nextCache.set(normalizedRootKey, rootListing);
+
+      const validExpanded = new Set([currentRootKey, normalizedRootKey]);
+      const visitedKeys = new Set([currentRootKey, normalizedRootKey]);
+      const queue = [];
+      for (const entry of rootListing.entries) {
+        if (!entry.isDir) continue;
+        const entryKey = folderPathKey(entry.path);
+        if (this.expandedPaths.has(entryKey) && !visitedKeys.has(entryKey)) {
+          visitedKeys.add(entryKey);
+          queue.push({ path: entry.path, key: entryKey });
+        }
+      }
+
+      while (queue.length) {
+        if (folderPathKey(this.state().rootPath) !== currentRootKey) return;
+        const { path: dirPath, key: dirKey } = queue.shift();
+        let subListing;
+        try {
+          subListing = await this.backend.listDirectory(dirPath, showAll);
+        } catch {
+          continue;
+        }
+        const normalizedSub = normalizeFolderPath(subListing.root || dirPath);
+        const normalizedSubKey = folderPathKey(normalizedSub);
+        nextCache.set(dirKey, subListing);
+        if (normalizedSubKey !== dirKey) nextCache.set(normalizedSubKey, subListing);
+        validExpanded.add(dirKey);
+        validExpanded.add(normalizedSubKey);
+        for (const child of subListing.entries) {
+          if (!child.isDir) continue;
+          const childKey = folderPathKey(child.path);
+          if (this.expandedPaths.has(childKey) && !visitedKeys.has(childKey)) {
+            visitedKeys.add(childKey);
+            queue.push({ path: child.path, key: childKey });
+          }
+        }
+      }
+
+      if (folderPathKey(this.state().rootPath) !== currentRootKey) return;
+      if (background && this.inlineAction) return;
+
+      for (const key of startExpanded) {
+        if (!validExpanded.has(key)) this.expandedPaths.delete(key);
+      }
+      for (const key of this.expandedPaths) {
+        if (!startExpanded.has(key) && !nextCache.has(key) && this.listingCache.has(key)) {
+          nextCache.set(key, this.listingCache.get(key));
+        }
+      }
+
+      this.listingCache = nextCache;
+      this.state().rootPath = normalizedRoot;
+      this.clearNotice();
+      if (this.filterQuery.trim()) await this.runSearch();
+      else this.render();
+    })().finally(() => {
+      this.refreshInFlight = null;
+      if (this.refreshQueued) {
+        this.refreshQueued = false;
+        void this.refresh({ background: true });
+      }
+    });
+
+    this.refreshInFlight = task;
+    return task;
+  }
+
+  refreshOnWindowFocus() {
+    const state = this.state();
+    if (!state.rootPath) return;
+    if (!state.open) {
+      this.dirtyWhileHidden = true;
+      return;
+    }
+    if (this.inlineAction) return;
+    const now = Date.now();
+    if (now - this.lastFocusRefreshAt < 100) return;
+    this.lastFocusRefreshAt = now;
+    this.dirtyWhileHidden = false;
+    void this.refresh({ background: true });
   }
 
   clearFilter() {
@@ -550,6 +671,7 @@ export class FolderBrowser {
   render() {
     this.updateHeaderControls();
     const state = this.state();
+    const prevScrollTop = this.treeContainer.scrollTop;
     this.treeContainer.replaceChildren();
 
     if (!state.rootPath) {
@@ -559,6 +681,7 @@ export class FolderBrowser {
 
     if (this.filterQuery.trim()) {
       this.renderSearchResults();
+      this.treeContainer.scrollTop = prevScrollTop;
       return;
     }
 
@@ -579,6 +702,7 @@ export class FolderBrowser {
       empty.textContent = 'No readable .md, .txt, or .bbcode files here.';
       this.treeContainer.append(empty);
     }
+    this.treeContainer.scrollTop = prevScrollTop;
   }
 
   syncOpenDocuments() {
@@ -689,7 +813,7 @@ export class FolderBrowser {
       }
       row.onclick = () => {
         this.selectedPath = entry.path;
-        void this.callbacks.onOpenFile?.(entry.path, { forceImport: entry.kind === 'bbcode' });
+        void this.callbacks.onOpenFile?.(entry.path, { forceImport: entry.kind === 'bbcode', knownKind: entry.kind });
       };
       row.oncontextmenu = event => {
         event.preventDefault();
@@ -760,7 +884,7 @@ export class FolderBrowser {
       row.onclick = () => {
         this.selectedPath = entry.path;
         if (entry.isDir) void this.toggleDirectory(entry.path);
-        else void this.callbacks.onOpenFile?.(entry.path, { forceImport: entry.kind === 'bbcode' });
+        else void this.callbacks.onOpenFile?.(entry.path, { forceImport: entry.kind === 'bbcode', knownKind: entry.kind });
       };
       row.oncontextmenu = event => {
         event.preventDefault();
@@ -1008,10 +1132,10 @@ export class FolderBrowser {
       addOption(
         entry.kind === 'bbcode' ? 'file_open' : 'description',
         entry.kind === 'bbcode' ? 'Import BBCode' : 'Open',
-        () => this.callbacks.onOpenFile?.(entry.path, { forceImport: entry.kind === 'bbcode' }),
+        () => this.callbacks.onOpenFile?.(entry.path, { forceImport: entry.kind === 'bbcode', knownKind: entry.kind }),
       );
       if (entry.kind === 'txt') {
-        addOption('file_open', 'Import As BBCode', () => this.callbacks.onOpenFile?.(entry.path, { forceImport: true }));
+        addOption('file_open', 'Import As BBCode', () => this.callbacks.onOpenFile?.(entry.path, { forceImport: true, knownKind: entry.kind }));
       }
       addOption('add', 'New File In Folder', () => this.beginNewFile(parentDirectory(entry.path)));
       addOption('edit', 'Rename', () => this.beginRename(entry));

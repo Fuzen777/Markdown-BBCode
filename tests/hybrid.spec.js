@@ -488,3 +488,34 @@ test('Hybrid supports Enter list/callout continuation, Tab indent, slash filteri
   await page.keyboard.press('Delete');
   expect(await savedSource(page)).not.toContain('> [!note]');
 });
+
+test('Hybrid handles 4-backtick code blocks containing triple backticks and hash comments without breaking live preview', async ({ page }) => {
+  const b3 = '\x60'.repeat(3);
+  const b4 = '\x60'.repeat(4);
+  const doc = [
+    b4,
+    'Code',
+    `${b3}Code inside code${b3}`,
+    b3,
+    '# Not a heading',
+    'More Code',
+    b4,
+    '',
+    '# Real Heading',
+  ].join('\n');
+
+  await openDocument(page, doc);
+  await expect(page.locator('.hybrid-block:not(.blank-block)')).toHaveCount(2);
+  await expect(page.locator('.hybrid-preview pre code')).toContainText(`${b3}Code inside code${b3}`);
+  await expect(page.locator('.hybrid-preview h1')).toHaveText('Real Heading');
+
+  // Activate the 4-backtick code block and verify interior lines stay styled as code, not fences or headings.
+  await activateBlock(page, 1);
+  await expect(activeBlock(page)).toContainText(`${b3}Code inside code${b3}`);
+  await expect(page.locator('.hybrid-line-code')).toHaveCount(7);
+  await expect(page.locator('.hybrid-live-fence')).toHaveCount(1);
+  await expect(page.locator('.hybrid-line-h1')).toHaveCount(0);
+
+  await activeBlock(page).press('Escape');
+  await expect(page.locator('.hybrid-preview pre code')).toContainText('More Code');
+});

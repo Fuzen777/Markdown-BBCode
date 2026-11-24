@@ -1,4 +1,6 @@
 // ==> Section 1 - Path Normalization And Breadcrumbs <==
+import { stripFencedCodeBlocks, matchOpeningFence } from './code-fence.js';
+
 export function normalizeFolderPath(rawPath) {
   if (typeof rawPath !== 'string') return '';
   let clean = rawPath.trim();
@@ -113,10 +115,9 @@ export function validateFileName(rawName, defaultExtension = '.md') {
 
 export function detectTextFormat(content) {
   if (typeof content !== 'string' || !content.trim()) return 'plain';
-  const stripped = content
-    .replace(/\r\n/g, '\n')
-    .replace(/(^|\n)[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|$)/g, '$1')
-    .replace(/`[^`\n]+`/g, '')
+  const normalized = content.replace(/\r\n/g, '\n');
+  const stripped = stripFencedCodeBlocks(normalized)
+    .replace(/(?<!`)(`+)(?!`)([^\n]+?)(?<!`)\1(?!`)/g, '')
     .replace(/^[ \t]*>[ \t]*\[![\w-]+\][+-]?/gm, '')
     .replace(/^[ \t]*(?:[-*+]|\d+\.)[ \t]+\[[ xX]\]/gm, '')
     .replace(/!?\[[^\]]*\]\([^)]*\)/g, '');
@@ -124,8 +125,9 @@ export function detectTextFormat(content) {
   const bbcodePattern = /(?<!\\)\[(?:\/(?:b|i|u|s|strike|url|img|size|color|font|center|spoiler|quote|code|list|olist|h1|h2|h3|table|tr|th|td|hr|noparse|heading|youtube)|(?:b|i|u|s|strike|url|img|center|spoiler|quote|code|list|olist|h1|h2|h3|table|tr|th|td|hr|noparse|heading|youtube)|(?:url|size|color|font|img|quote|list)=[^\]\r\n]+)\]/i;
   if (bbcodePattern.test(stripped)) return 'bbcode';
 
-  const markdownPattern = /(?:^[ \t]*#{1,6}[ \t]+\S|^[ \t]*>[ \t]+\S|^[ \t]*(?:[-*+]|\d+\.)[ \t]+\S|^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$|^[ \t]*(`{3,}|~{3,})|\*\*[^*\n]+\*\*|~~[^~\n]+~~|\|\|[^|\n]+\|\||!?\[[^\]]+\]\([^)]+\))/m;
-  if (markdownPattern.test(content.replace(/\r\n/g, '\n'))) return 'markdown';
+  const hasFencedCode = normalized.split('\n').some(line => Boolean(matchOpeningFence(line)));
+  const markdownPattern = /(?:^[ \t]*#{1,6}[ \t]+\S|^[ \t]*>[ \t]+\S|^[ \t]*(?:[-*+]|\d+\.)[ \t]+\S|^[ \t]*(?:-{3,}|\*{3,}|_{3,})[ \t]*$|\*\*[^*\n]+\*\*|~~[^~\n]+~~|\|\|[^|\n]+\|\||!?\[[^\]]+\]\([^)]+\))/m;
+  if (hasFencedCode || markdownPattern.test(normalized)) return 'markdown';
 
   return 'plain';
 }

@@ -1,7 +1,7 @@
 // ==> Section 1 - Markdown Conversion Tests <==
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseMarkdown, serializeMarkdown, markdownToBBCode, markdownToBBCodeWithWarnings, segmentMarkdown, isHttpUrl } from '../src/markdown.js';
+import { parseMarkdown, serializeMarkdown, parsePastedMarkdown, markdownToBBCode, markdownToBBCodeWithWarnings, segmentMarkdown, isHttpUrl } from '../src/markdown.js';
 import { importBBCode } from '../src/bbcode-import.js';
 
 const fixtures = [
@@ -153,7 +153,7 @@ test('isHttpUrl validates safe external URLs and divider, image alt, code langua
   assert.match(roundTripped, /!\[Banner Alt\]\(https:\/\/example\.com\/banner\.png\)/);
 });
 
-test('Nexus BBCode keeps blank lines between titles and paragraphs and omits them around lists', () => {
+test('Nexus BBCode glues list openings, keeps single newlines around [hr], and preserves extra blank lines', () => {
   const standard = markdownToBBCodeWithWarnings('# Heading\n\nPara 1\n\nPara 2\n\n## Section\n\n- Item A\n- Item B\n\nAfter list\n\n1. First\n\n- [ ] Task\n\nClosing');
   assert.equal(
     standard.bbcode,
@@ -164,17 +164,11 @@ test('Nexus BBCode keeps blank lines between titles and paragraphs and omits the
       '',
       'Para 2',
       '',
-      '[size=5][b]Section[/b][/size]',
-      '[list]',
-      '[*]Item A',
+      '[size=5][b]Section[/b][/size][list][*]Item A',
       '[*]Item B',
       '[/list]',
-      'After list',
-      '[list=1]',
-      '[*]First',
-      '[/list]',
-      '[list]',
-      '[*][ ] Task',
+      'After list[list=1][*]First',
+      '[/list][list][*][ ] Task',
       '[/list]',
       'Closing',
     ].join('\n'),
@@ -184,25 +178,25 @@ test('Nexus BBCode keeps blank lines between titles and paragraphs and omits the
     { startLine: 2, endLine: 3 },
     { startLine: 4, endLine: 5 },
     { startLine: 6, endLine: 7 },
-    { startLine: 7, endLine: 11 },
-    { startLine: 11, endLine: 12 },
-    { startLine: 12, endLine: 15 },
-    { startLine: 15, endLine: 18 },
-    { startLine: 18, endLine: 19 },
+    { startLine: 6, endLine: 9 },
+    { startLine: 9, endLine: 10 },
+    { startLine: 9, endLine: 11 },
+    { startLine: 10, endLine: 12 },
+    { startLine: 12, endLine: 13 },
   ]);
-  assert.equal(standard.totalLines, 19);
+  assert.equal(standard.totalLines, 13);
 
   const spaced = markdownToBBCodeWithWarnings('# Heading\n\n\nPara 1\n\n\n\nPara 2\n\n\n- List Item');
   assert.equal(
     spaced.bbcode,
-    '[size=6][b]Heading[/b][/size]\n\n\nPara 1\n\n\n\nPara 2\n\n[list]\n[*]List Item\n[/list]',
+    '[size=6][b]Heading[/b][/size]\n\n\nPara 1\n\n\n\nPara 2\n[list][*]List Item\n[/list]',
   );
   assert.deepEqual(spaced.blockOffsets[0], { startLine: 0, endLine: 1 });
   assert.deepEqual(spaced.blockOffsets[1], { startLine: 3, endLine: 4 });
   assert.deepEqual(spaced.blockOffsets[2], { startLine: 5, endLine: 6 });
   assert.deepEqual(spaced.blockOffsets[3], { startLine: 7, endLine: 8 });
-  assert.deepEqual(spaced.blockOffsets.at(-1), { startLine: 9, endLine: 12 });
-  assert.equal(spaced.totalLines, 12);
+  assert.deepEqual(spaced.blockOffsets.at(-1), { startLine: 8, endLine: 10 });
+  assert.equal(spaced.totalLines, 10);
 
   assert.equal(
     markdownToBBCode('> [!note] Info\n> Line one\n>\n> Line two'),
@@ -210,8 +204,131 @@ test('Nexus BBCode keeps blank lines between titles and paragraphs and omits the
   );
   assert.equal(
     markdownToBBCode('> [!note] Items\n> - First\n> - Second'),
-    '[quote][b]Items[/b]\n[list]\n[*]First\n[*]Second\n[/list][/quote]',
+    '[quote][b]Items[/b][list][*]First\n[*]Second\n[/list][/quote]',
   );
+});
+
+test('Nexus BBCode matches glued list findings including nested lists and import round-trip', () => {
+  const doorModesSource = [
+    '### Door Modes',
+    '',
+    '- **Everyone** (Default) : Players, Build Camera, Survivors (and Animals if turned on)',
+    '- **Players** : Players, Build Camera',
+    '- Players & Survivors : same as Everyone, Animals excluded.',
+    '- Manual : same as if the mod were off.',
+  ].join('\n');
+  const expectedDoorModes = [
+    '[size=4][b]Door Modes[/b][/size][list][*][b]Everyone[/b] (Default) : Players, Build Camera, Survivors (and Animals if turned on)',
+    '[*][b]Players[/b] : Players, Build Camera',
+    '[*]Players & Survivors : same as Everyone, Animals excluded.',
+    '[*]Manual : same as if the mod were off.',
+    '[/list]',
+  ].join('\n');
+  assert.equal(markdownToBBCode(doorModesSource), expectedDoorModes);
+
+  const nestedBullets = markdownToBBCode('- Parent\n  - Child\n- Second');
+  assert.equal(nestedBullets, '[list][*]Parent[list][*]Child\n[/list]\n[*]Second\n[/list]');
+
+  const nestedOrdered = markdownToBBCode('1. Parent\n   1. Child\n2. Second');
+  assert.equal(nestedOrdered, '[list=1][*]Parent[list=1][*]Child\n[/list]\n[*]Second\n[/list]');
+
+  const imported = importBBCode(expectedDoorModes);
+  assert.match(imported.markdown, /\*\*Door Modes\*\*/);
+  assert.match(imported.markdown, /- \*\*Everyone\*\* \(Default\)/);
+  assert.match(imported.markdown, /- Manual : same as if the mod were off\./);
+});
+
+test('Nexus BBCode keeps single newlines around [hr] across top-level, lists, containers and extra blank lines', () => {
+  const controlsSource = 'There is no on-screen prompt for any of this, so here is everything you can do.\n\n---\n\n## Controls';
+  const controlsExpected = 'There is no on-screen prompt for any of this, so here is everything you can do.\n[hr]\n[size=5][b]Controls[/b][/size]';
+  const controlsResult = markdownToBBCodeWithWarnings(controlsSource);
+  assert.equal(controlsResult.bbcode, controlsExpected);
+  assert.deepEqual(controlsResult.blockOffsets, [
+    { startLine: 0, endLine: 1 },
+    { startLine: 1, endLine: 2 },
+    { startLine: 2, endLine: 3 },
+  ]);
+  assert.equal(controlsResult.totalLines, 3);
+
+  assert.equal(markdownToBBCode('Para\n\n---\n\n- Item'), 'Para\n[hr][list][*]Item\n[/list]');
+  assert.equal(markdownToBBCode('- Item\n\n---\n\nPara'), '[list][*]Item\n[/list]\n[hr]\nPara');
+  assert.equal(markdownToBBCode('> Before\n>\n> ---\n>\n> After'), '[quote]Before\n[hr]\nAfter[/quote]');
+  assert.equal(markdownToBBCode('> [!note] Info\n> Before\n>\n> ---\n>\n> After'), '[quote][b]Info[/b]\n\nBefore\n[hr]\nAfter[/quote]');
+
+  const spacedHr = markdownToBBCodeWithWarnings('Para\n\n\n---\n\n\n## Controls');
+  assert.equal(spacedHr.bbcode, 'Para\n\n[hr]\n\n[size=5][b]Controls[/b][/size]');
+  assert.deepEqual(spacedHr.blockOffsets, [
+    { startLine: 0, endLine: 1 },
+    { startLine: 2, endLine: 3 },
+    { startLine: 4, endLine: 5 },
+  ]);
+  assert.equal(spacedHr.totalLines, 5);
+
+  const imported = importBBCode(controlsExpected);
+  assert.deepEqual(imported.warnings, ['Unsupported [size] formatting was removed; its text was retained.']);
+  assert.match(imported.markdown, /^There is no on-screen prompt/m);
+  assert.match(imported.markdown, /^---$/m);
+  assert.match(imported.markdown, /\*\*Controls\*\*/);
+});
+
+test('Nexus BBCode keeps single newlines around [quote], callouts and [code] blocks across top-level and list internals', () => {
+  const listPatternSource = [
+    'Paragraph',
+    '',
+    '1. S02W — Ordered list with nested bullet',
+    '   - Nested bullet inside ordered item',
+    '   - Second nested bullet inside ordered item',
+    '2. S02X — Second top-level ordered item',
+    '',
+    '- S02Y — Multi-paragraph loose list item (paragraph 1)',
+    '',
+    '  S02Y — Second paragraph inside the same bullet item.',
+    '  > S02Z — Nested Blockquote inside bullet list item.',
+    '  ```',
+    '  S02AA — Nested Code block inside bullet list item',
+    '  ```',
+    '- S02AB — Inline marks in list item: **bold**, *italic*, `inline code`, ||inline spoiler||, <span style="color: #e6a050">warm amber</span>, [Nexus Mods](https://www.nexusmods.com/)',
+  ].join('\n');
+  const listPatternExpected = [
+    'Paragraph[list=1][*]S02W — Ordered list with nested bullet[list][*]Nested bullet inside ordered item',
+    '[*]Second nested bullet inside ordered item',
+    '[/list]',
+    '[*]S02X — Second top-level ordered item',
+    '[/list][list][*]S02Y — Multi-paragraph loose list item (paragraph 1)',
+    '',
+    'S02Y — Second paragraph inside the same bullet item.',
+    '[quote]S02Z — Nested Blockquote inside bullet list item.[/quote]',
+    '[code]S02AA — Nested Code block inside bullet list item[/code]',
+    '[*]S02AB — Inline marks in list item: [b]bold[/b], [i]italic[/i], [code]inline code[/code], [spoiler]inline spoiler[/spoiler], [color=#e6a050]warm amber[/color], [url=https://www.nexusmods.com/]Nexus Mods[/url]',
+    '[/list]',
+  ].join('\n');
+  assert.equal(markdownToBBCode(listPatternSource), listPatternExpected);
+
+  const topLevel = markdownToBBCodeWithWarnings('Para\n\n> Quote\n\n```\ncode\n```\n\n> [!note] Tip\n> Body\n\nAfter');
+  assert.equal(
+    topLevel.bbcode,
+    'Para\n[quote]Quote[/quote]\n[code]code[/code]\n[quote][b]Tip[/b]\n\nBody[/quote]\nAfter',
+  );
+  assert.deepEqual(topLevel.blockOffsets, [
+    { startLine: 0, endLine: 1 },
+    { startLine: 1, endLine: 2 },
+    { startLine: 2, endLine: 3 },
+    { startLine: 3, endLine: 6 },
+    { startLine: 6, endLine: 7 },
+  ]);
+  assert.equal(topLevel.totalLines, 7);
+
+  assert.equal(markdownToBBCode('> [!note] Code\n> ```\n> x\n> ```'), '[quote][b]Code[/b]\n[code]x[/code][/quote]');
+  assert.equal(markdownToBBCode('> [!note] Quoted\n> > Inner'), '[quote][b]Quoted[/b]\n[quote]Inner[/quote][/quote]');
+  assert.equal(markdownToBBCode('> Quote\n\n- Item'), '[quote]Quote[/quote][list][*]Item\n[/list]');
+  assert.equal(markdownToBBCode('```\nx\n```\n\n- Item'), '[code]x[/code][list][*]Item\n[/list]');
+
+  assert.equal(markdownToBBCode('Para\n\n\n> Quote\n\n\nAfter'), 'Para\n\n[quote]Quote[/quote]\n\nAfter');
+  assert.equal(markdownToBBCode('Para\n\n\n```\ncode\n```\n\n\nAfter'), 'Para\n\n[code]code[/code]\n\nAfter');
+
+  const imported = importBBCode('Para\n[quote]Quoted[/quote]\n[code]snippet[/code]\nAfter');
+  assert.deepEqual(imported.warnings, []);
+  assert.match(imported.markdown, /^Para\n\n> Quoted\n\n```\nsnippet\n```\n\nAfter$/);
 });
 
 // ==> Section 3 - Steam BBCode Conversion And Import <==
@@ -303,4 +420,123 @@ test('importBBCode imports Steam BBCode headings, strike, tables, olist, hr, nop
   assert.match(imported.markdown, /\| Name \| Age \|\n\| ---- \| --- \|\n\| John \| 65 {2}\|/);
   assert.match(imported.markdown, /^---$/m);
   assert.match(markdownToBBCode(imported.markdown, 'steam'), /\[noparse\]\[\[\/noparse\]b\]literal\./);
+});
+
+test('parsePastedMarkdown recognizes explicit Markdown while keeping plain text, URLs, rich HTML, and unsafe HTML literal', () => {
+  const richSources = [
+    '# Heading\r\n\r\n**Bold** and *italic*',
+    '- Bullet one\n- Bullet two',
+    '- [x] Done\n- [ ] Pending',
+    '> [!warning] Watch\n> Details',
+    '| A | B |\n| --- | --- |\n| 1 | 2 |',
+    '```js\nconst x = 1;\n```',
+    '---\n\nParagraph',
+    '~~struck~~ and `code` and ||spoiler||',
+    '[Nexus](https://nexusmods.com) and ![Pic](https://example.com/a.png)',
+    '<span style="color: #e6a050">Amber</span>',
+    '<div style="text-align: center">\n\nCentered\n\n</div>',
+    'Literal \\*stars\\* and \\|\\|pipes\\|\\|',
+  ];
+  for (const sample of richSources) {
+    assert.ok(parsePastedMarkdown(sample), `Expected Markdown detection for: ${sample}`);
+  }
+
+  // VS Code / syntax-highlighted wrapper HTML still parses text/plain Markdown cleanly.
+  assert.ok(parsePastedMarkdown('# Title\n\n**Bold**', '<div style="color:#d4d4d4"><span style="color:#569cd6"># Title</span></div>'));
+
+  const literalCases = [
+    ['Plain text only', ''],
+    ['Line 1\nLine 2', ''],
+    ['2 * 3 * 4', ''],
+    ['foo_bar_baz', ''],
+    ['C:\\Users\\Fuzen\\notes.md', ''],
+    ['https://example.com', ''],
+    ['Check https://example.com out', ''],
+    ['user@example.com', ''],
+    ['# Title', '<h1>Title</h1>'],
+    ['**Bold**', '<strong>Bold</strong>'],
+    ['# Copy', '<div data-pm-slice="1 1 []"><h1>Copy</h1></div>'],
+    ['<script>alert(1)</script>', ''],
+    ['   \r\n  ', ''],
+  ];
+  for (const [text, html] of literalCases) {
+    assert.equal(parsePastedMarkdown(text, html), null, `Expected literal fallback for: ${text} / ${html}`);
+  }
+});
+
+test('variable-length fenced code blocks preserve inner backtick runs across parsing, pasting, containers, and BBCode round-trips', () => {
+  const b3 = '\x60'.repeat(3);
+  const b4 = '\x60'.repeat(4);
+  const b5 = '\x60'.repeat(5);
+
+  const fourTick = `${b4}\nCode\n${b3}Code inside code${b3}\nMore Code\n${b4}`;
+  const segments = segmentMarkdown(fourTick);
+  assert.equal(segments.length, 1);
+  assert.equal(segments[0].type, 'code');
+  assert.equal(segments[0].raw, fourTick);
+
+  const parsedFour = parseMarkdown(fourTick);
+  assert.equal(parsedFour.content[0].type, 'codeBlock');
+  assert.equal(parsedFour.content[0].content[0].text, `Code\n${b3}Code inside code${b3}\nMore Code`);
+  const serFour = serializeMarkdown(parsedFour);
+  assert.equal(serFour, fourTick);
+  assert.deepEqual(parseMarkdown(serFour), parsedFour);
+  assert.ok(parsePastedMarkdown(fourTick));
+
+  const fiveTickNested = `${b5}markdown\nOuter\n${b4}\n${b3}js\nconst x = 1;\n${b3}\n${b4}\n${b5}`;
+  const parsedFive = parseMarkdown(fiveTickNested);
+  const serFive = serializeMarkdown(parsedFive);
+  assert.ok(serFive.startsWith(`${b5}markdown\n`));
+  assert.ok(serFive.endsWith(`\n${b5}`));
+  assert.deepEqual(parseMarkdown(serFive), parsedFive);
+
+  const tildeAndIndented = [
+    `~~~~markdown`,
+    `Code`,
+    `${b3}Code inside code${b3}`,
+    `~~~~`,
+    ``,
+    `  ${b4}js`,
+    `  ${b3}nested`,
+    `  ${b3}`,
+    `  ${b4}`,
+  ].join('\n');
+  const parsedMulti = parseMarkdown(tildeAndIndented);
+  assert.equal(parsedMulti.content.length, 2);
+  assert.deepEqual(parseMarkdown(serializeMarkdown(parsedMulti)), parsedMulti);
+
+  const containerDoc = [
+    `||`,
+    ``,
+    b4,
+    `${b3}Code inside code${b3}`,
+    `||`,
+    `</div>`,
+    `${b3}`,
+    `mid ${b4} inline`,
+    b4,
+    ``,
+    `||`,
+    ``,
+    `<div style="text-align: center">`,
+    ``,
+    b4,
+    `# Not heading`,
+    `</div>`,
+    `${b3}`,
+    b4,
+    ``,
+    `</div>`,
+  ].join('\n');
+  const parsedContainers = parseMarkdown(containerDoc);
+  assert.equal(parsedContainers.content[0].type, 'spoilerBlock');
+  assert.equal(parsedContainers.content[1].type, 'centerBlock');
+  assert.deepEqual(parseMarkdown(serializeMarkdown(parsedContainers)), parsedContainers);
+
+  const nexusOut = markdownToBBCode(fourTick, 'nexus');
+  assert.equal(nexusOut, `[code]Code\n${b3}Code inside code${b3}\nMore Code[/code]`);
+  const steamOut = markdownToBBCode(fourTick, 'steam');
+  assert.equal(steamOut, `[code]Code\n${b3}Code inside code${b3}\nMore Code[/code]`);
+  const imported = importBBCode(nexusOut);
+  assert.equal(imported.markdown, fourTick);
 });

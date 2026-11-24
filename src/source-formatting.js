@@ -1,4 +1,6 @@
 // ==> Section 1 - Markdown Selection Formatting <==
+import { codeFenceFor, matchOpeningFence, isClosingFence, unwrapFencedCodeBlock } from './code-fence.js';
+
 const toggleWrappers = {
   bold: '**',
   italic: '*',
@@ -46,7 +48,11 @@ function clearInlineFormatting(text) {
       .replace(/\|\|([^|\n]+)\|\|/g, '$1')
       .replace(/(\*\*|__|~~)([\s\S]*?)\1/g, '$2')
       .replace(/(\*|_)([^\s*_](?:[\s\S]*?[^\s*_])?)\1/g, '$2')
-      .replace(/`([^`\n]+)`/g, '$1')
+      .replace(/(?<!`)(`+)(?!`)([^\n]+?)(?<!`)\1(?!`)/g, (_, _fence, inner) => (
+        inner.length >= 2 && inner.startsWith(' ') && inner.endsWith(' ') && inner.trim().length > 0
+          ? inner.slice(1, -1)
+          : inner
+      ))
       .replace(/(?<!!)\[([^\]]+)\]\([^)]+\)/g, '$1');
   } while (cleaned !== previous);
   return cleaned;
@@ -130,11 +136,12 @@ export function formatMarkdownSelection(source, start, end, command, value) {
     const cleaned = clearInlineFormatting(source.slice(from, to));
     return { from, to, insert: cleaned, start: from, end: from + cleaned.length };
   }
+  const codeFence = codeFenceFor(selected);
   const wrappers = {
     spoiler: ['\n\n||\n\n', '\n\n||\n\n'],
     center: ['\n\n<div style="text-align: center">\n\n', '\n\n</div>\n\n'],
     color: [`<span style="color: ${value}">`, '</span>'],
-    code: ['\n\n```\n', '\n```\n\n'],
+    code: [`\n\n${codeFence}\n`, `\n${codeFence}\n\n`],
     link: ['[', `](${value})`],
     image: ['![', `](${value})`],
   };
@@ -183,22 +190,32 @@ function lineRanges(source) {
 
 function enclosingBlockState(lines, targetIndex) {
   let inCode = false;
-  let fence = '';
+  let fenceChar = '';
+  let fenceLength = 0;
   let inSpoiler = false;
   let centerDepth = 0;
   for (let index = 0; index <= targetIndex; index++) {
-    const trimmed = lines[index].text.trim();
-    const fenceMatch = trimmed.match(/^(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      if (!inCode) { inCode = true; fence = fenceMatch[1][0]; }
-      else if (trimmed.startsWith(fence.repeat(3)) && trimmed.slice(3).trim() === '') { inCode = false; fence = ''; }
-      if (index === targetIndex) return { inCode: true, inSpoiler, inCenter: centerDepth > 0 };
-      continue;
-    }
+    const text = lines[index].text;
+    const trimmed = text.trim();
     if (!inCode) {
+      const openFence = matchOpeningFence(text);
+      if (openFence) {
+        inCode = true;
+        fenceChar = openFence.char;
+        fenceLength = openFence.length;
+        if (index === targetIndex) return { inCode: true, inSpoiler, inCenter: centerDepth > 0 };
+        continue;
+      }
       if (/^\|\|[ \t]*$/.test(trimmed)) inSpoiler = !inSpoiler;
       else if (/^<div\s+style=(['"])\s*text-align:\s*center\s*;?\s*\1\s*>$/i.test(trimmed)) centerDepth++;
       else if (/^<\/div\s*>$/i.test(trimmed) && centerDepth > 0) centerDepth--;
+    } else {
+      if (isClosingFence(text, fenceChar, fenceLength)) {
+        inCode = false;
+        fenceChar = '';
+        fenceLength = 0;
+      }
+      if (index === targetIndex) return { inCode: true, inSpoiler, inCenter: centerDepth > 0 };
     }
   }
   return { inCode, inSpoiler, inCenter: centerDepth > 0 };
@@ -296,7 +313,7 @@ export function inspectMarkdownFormatting(source, start, end) {
   }
   state.heading = styles.size === 1 ? [...styles][0] : 'mixed';
 
-  if (firstIndex === lastIndex) {
+  if (firstIndex === lastIndex && !enclosingBlockState(lines, firstIndex).inCode) {
     const line = lines[firstIndex];
     const relStart = clampedStart - line.start;
     const relEnd = Math.min(clampedEnd - line.start, line.text.length);
@@ -309,7 +326,7 @@ export function inspectMarkdownFormatting(source, start, end) {
     ) state.italic = true;
     if (inlineSpanMatches(text, relStart, relEnd, /~~([^~\n]+?)~~/g).length) state.strike = true;
     if (inlineSpanMatches(text, relStart, relEnd, /\|\|([^|\n]+?)\|\|/g).length) state.spoiler = true;
-    if (inlineSpanMatches(text, relStart, relEnd, /`([^`\n]+?)`/g).length) state.code = true;
+    if (inlineSpanMatches(text, relStart, relEnd, /(?<!`)(`+)(?!`)([^\n]+?)(?<!`)\1(?!`)/g).length) state.code = true;
     if (inlineSpanMatches(text, relStart, relEnd, /(?<!!)\[[^\]]+\]\([^)]+\)/g).length) state.link = true;
     if (inlineSpanMatches(text, relStart, relEnd, /!\[[^\]]*\]\([^)]+\)/g).length) state.image = true;
     const colorMatch = inlineSpanMatches(text, relStart, relEnd, /<span\s+style=(['"])\s*color:\s*(#[\da-f]{3}(?:[\da-f]{3})?)\s*;?\s*\1\s*>[\s\S]*?<\/span>/gi);
@@ -371,8 +388,8 @@ export function moveSourceLines(source, start, end, direction) {
 // ==> Section 4 - Block Type Conversion <==
 function unwrapBlockLines(body, newline) {
   const trimmed = body.trim();
-  const codeMatch = trimmed.match(/^(`{3,}|~{3,})[^\r\n]*\r?\n([\s\S]*?)\r?\n\1[ \t]*$/);
-  if (codeMatch) return codeMatch[2].split(/\r?\n/);
+  const codeLines = unwrapFencedCodeBlock(trimmed);
+  if (codeLines) return codeLines;
 
   const spoilerMatch = trimmed.match(/^\|\|[ \t]*(?:\r?\n){1,2}([\s\S]*?)(?:\r?\n){1,2}[ \t]*\|\|$/);
   if (spoilerMatch) return spoilerMatch[1].split(/\r?\n/);
@@ -418,7 +435,10 @@ export function convertMarkdownBlock(raw, targetType) {
   else if (targetType === 'orderedList') converted = contentLines.map((line, index) => `${index + 1}. ${line}`).join(newline);
   else if (targetType === 'taskList') converted = contentLines.map(line => `- [ ] ${line}`).join(newline);
   else if (targetType === 'blockquote') converted = lines.map(line => line ? `> ${line}` : '>').join(newline);
-  else if (targetType === 'codeBlock') converted = ['```', ...lines, '```'].join(newline);
+  else if (targetType === 'codeBlock') {
+    const fence = codeFenceFor(lines.join(newline));
+    converted = [fence, ...lines, fence].join(newline);
+  }
   else if (targetType === 'callout') converted = ['> [!note]', ...lines.map(line => line ? `> ${line}` : '>')].join(newline);
   else if (targetType === 'spoilerBlock') converted = `||${newline.repeat(2)}${lines.join(newline)}${newline.repeat(2)}||`;
   else if (targetType === 'centerBlock') converted = `<div style="text-align: center">${newline.repeat(2)}${lines.join(newline)}${newline.repeat(2)}</div>`;

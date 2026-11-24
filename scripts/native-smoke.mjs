@@ -93,6 +93,18 @@ try {
   await page.getByRole('button', { name: 'Visual', exact: true }).click();
   await page.locator('.tiptap strong').click();
   await expect(page.getByRole('button', { name: 'Bold', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const contextMenuGuard = await page.evaluate(() => {
+    const isPrevented = target => {
+      const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 });
+      target.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    return {
+      chromePrevented: isPrevented(document.querySelector('#save')),
+      editorPrevented: isPrevented(document.querySelector('.tiptap')),
+    };
+  });
+  expect(contextMenuGuard).toEqual({ chromePrevented: true, editorPrevented: false });
   await page.getByRole('button', { name: 'Choose Text Color', exact: true }).click();
   await page.getByLabel('Hex', { exact: true }).fill('123456');
   await page.getByRole('button', { name: 'Apply Color', exact: true }).click();

@@ -67,3 +67,23 @@ test('convertMarkdownBlock converts between block types and clearColor strips co
   assert.equal(clearedInner.from, 6);
   assert.equal(clearedInner.to, 47);
 });
+
+test('mapRenderedOffsetToRaw and convertMarkdownBlock handle 4+ backtick fences with inner backticks', () => {
+  const b3 = '\x60'.repeat(3);
+  const b4 = '\x60'.repeat(4);
+  const b5 = '\x60'.repeat(5);
+
+  const block = `${b4}\nCode\n${b3}Code inside code${b3}\nMore Code\n${b4}`;
+  const targetIdx = block.indexOf('More Code');
+  const plainTarget = `Code\n${b3}Code inside code${b3}\n`.length;
+  assert.equal(mapRenderedOffsetToRaw(block, plainTarget), targetIdx);
+
+  const unwrappedEqual = convertMarkdownBlock(block, 'paragraph');
+  assert.equal(unwrappedEqual, `Code\n${b3}Code inside code${b3}\nMore Code`);
+
+  const longerClose = `${b4}md\nInner\n${b3}\n${b5}`;
+  assert.equal(convertMarkdownBlock(longerClose, 'paragraph'), `Inner\n${b3}`);
+
+  const rewrapped = convertMarkdownBlock(`Code\n${b3}Code inside code${b3}\nMore Code`, 'codeBlock');
+  assert.equal(rewrapped, block);
+});

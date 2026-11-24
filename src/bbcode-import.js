@@ -1,5 +1,6 @@
 // ==> Section 1 - BBCode Token Tree <==
 import { parseMarkdown, serializeMarkdown, normalizeColor } from './markdown.js';
+import { codeFenceFor } from './code-fence.js';
 
 const INLINE_BLOCK_CONTAINER_TAGS = new Set(['root', 'quote', 'center', 'spoiler', '*', 'li']);
 const BLOCK_ELEMENT_TAGS = new Set(['h1', 'h2', 'h3', 'list', 'olist', 'ul', 'ol', 'quote', 'table', 'hr']);
@@ -145,8 +146,7 @@ export function importBBCode(source) {
         const atLineEnd = index === siblings.length - 1 || isBlockSibling(next) || (typeof next === 'string' && /^[ \t]*(?:\n|$)/.test(next));
         if (INLINE_BLOCK_CONTAINER_TAGS.has(parentTag) && (rawCode.includes('\n') || (atLineStart && atLineEnd))) {
           const code = rawCode.replace(/^\n/, '').replace(/\n$/, '');
-          const longestFence = Math.max(2, ...[...code.matchAll(/`+/g)].map(match => match[0].length));
-          const fence = '`'.repeat(longestFence + 1);
+          const fence = codeFenceFor(code);
           return block(`${fence}\n${code}\n${fence}`);
         }
         const span = inlineCodeSpan(rawCode);

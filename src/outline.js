@@ -1,5 +1,6 @@
 // ==> Section 1 - Dual-Mode Right-Side Document Outline <==
 import { setButtonIcon } from './icons.js';
+import { matchOpeningFence, isClosingFence } from './code-fence.js';
 
 function cleanHeadingTitle(raw) {
   return raw
@@ -31,12 +32,27 @@ export function extractOutlineHeadings(editor) {
     editor.hybridView.blocks.forEach((block, blockIndex) => {
       if (block.type === 'space' || block.type === 'code') return;
       let inCode = false;
+      let fenceChar = '';
+      let fenceLength = 0;
       for (const rawLine of block.raw.split(/\r?\n/)) {
-        const trimmed = rawLine.trim();
-        if (/^(`{3,}|~{3,})/.test(trimmed)) { inCode = !inCode; continue; }
-        if (inCode) continue;
-        const stripped = trimmed.replace(/^(?:>\s*)+/, '');
-        const match = stripped.match(/^(#{1,6})(?:[ \t]+(.*?))?[ \t]*#*$/);
+        const stripped = rawLine.replace(/^(?: {0,3}>[ \t]?)+/, '');
+        if (!inCode) {
+          const openFence = matchOpeningFence(stripped);
+          if (openFence) {
+            inCode = true;
+            fenceChar = openFence.char;
+            fenceLength = openFence.length;
+            continue;
+          }
+        } else {
+          if (isClosingFence(stripped, fenceChar, fenceLength)) {
+            inCode = false;
+            fenceChar = '';
+            fenceLength = 0;
+          }
+          continue;
+        }
+        const match = stripped.trim().match(/^(#{1,6})(?:[ \t]+(.*?))?[ \t]*#*$/);
         if (match) {
           headings.push({
             level: match[1].length,
@@ -56,6 +72,7 @@ export function extractOutlineHeadings(editor) {
     let offset = 0;
     let inFence = false;
     let fenceChar = '';
+    let fenceLength = 0;
     let lineStart = 0;
     if (/^\uFEFF?---\r?$/.test(lines[0] || '')) {
       const closing = lines.slice(1).findIndex(line => /^(?:---|\.\.\.)\r?$/.test(line));
@@ -68,23 +85,29 @@ export function extractOutlineHeadings(editor) {
     for (let i = lineStart; i < lines.length; i++) {
       const line = lines[i];
       const textLine = line.endsWith('\r') ? line.slice(0, -1) : line;
-      const trimmed = textLine.trim();
-      const fenceMatch = trimmed.match(/^(`{3,}|~{3,})/);
-      if (fenceMatch) {
-        if (!inFence) { inFence = true; fenceChar = fenceMatch[1][0]; }
-        else if (trimmed.startsWith(fenceChar.repeat(3))) { inFence = false; fenceChar = ''; }
-      } else if (!inFence) {
-        const match = textLine.match(/^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*#*$/);
-        if (match) {
-          headings.push({
-            level: match[1].length,
-            text: cleanHeadingTitle(match[2] || '') || `Heading ${match[1].length}`,
-            lineIndex: i,
-            totalLines: lines.length,
-            charStart: offset,
-            charEnd: offset + textLine.length,
-          });
+      if (!inFence) {
+        const openFence = matchOpeningFence(textLine);
+        if (openFence) {
+          inFence = true;
+          fenceChar = openFence.char;
+          fenceLength = openFence.length;
+        } else {
+          const match = textLine.match(/^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*#*$/);
+          if (match) {
+            headings.push({
+              level: match[1].length,
+              text: cleanHeadingTitle(match[2] || '') || `Heading ${match[1].length}`,
+              lineIndex: i,
+              totalLines: lines.length,
+              charStart: offset,
+              charEnd: offset + textLine.length,
+            });
+          }
         }
+      } else if (isClosingFence(textLine, fenceChar, fenceLength)) {
+        inFence = false;
+        fenceChar = '';
+        fenceLength = 0;
       }
       offset += line.length + 1;
     }
@@ -94,9 +117,10 @@ export function extractOutlineHeadings(editor) {
 }
 
 export class DocumentOutline {
-  constructor(elements, getEditor) {
+  constructor(elements, getEditor, onModeChange = () => {}) {
     this.elements = elements;
     this.getEditor = getEditor;
+    this.onModeChange = onModeChange;
     this.mode = 'off';
     this.headings = [];
     this.activeIndex = -1;
@@ -107,12 +131,12 @@ export class DocumentOutline {
     setButtonIcon(elements['outline-unpin-float'], 'push_pin', 'Switch To Floating Outline', 'Switch To Floating Outline');
     setButtonIcon(elements['outline-docked-close'], 'close', 'Hide Document Outline', 'Hide Document Outline');
 
-    elements['outline-off'].onclick = () => this.setMode('off');
-    elements['outline-floating'].onclick = () => this.setMode('floating');
-    elements['outline-docked'].onclick = () => this.setMode('docked');
-    elements['outline-pin-dock'].onclick = () => this.setMode('docked');
-    elements['outline-unpin-float'].onclick = () => this.setMode('floating');
-    elements['outline-docked-close'].onclick = () => this.setMode('off');
+    elements['outline-off'].onclick = () => this.setMode('off', true);
+    elements['outline-floating'].onclick = () => this.setMode('floating', true);
+    elements['outline-docked'].onclick = () => this.setMode('docked', true);
+    elements['outline-pin-dock'].onclick = () => this.setMode('docked', true);
+    elements['outline-unpin-float'].onclick = () => this.setMode('floating', true);
+    elements['outline-docked-close'].onclick = () => this.setMode('off', true);
 
     const rail = elements['outline-floating-rail'];
     const ticks = elements['outline-floating-ticks'];
@@ -141,18 +165,21 @@ export class DocumentOutline {
     for (const scroller of [elements['visual-editor'], elements['hybrid-editor'], elements['markdown-source']]) {
       scroller.addEventListener('scroll', () => this.scheduleScrollSync());
     }
-    this.setMode('off');
+    this.setMode('off', false);
   }
 
-  setMode(mode) {
-    this.mode = mode;
-    this.elements['outline-off'].setAttribute('aria-pressed', String(mode === 'off'));
-    this.elements['outline-floating'].setAttribute('aria-pressed', String(mode === 'floating'));
-    this.elements['outline-docked'].setAttribute('aria-pressed', String(mode === 'docked'));
-    this.elements['outline-floating-rail'].hidden = mode !== 'floating';
+  setMode(mode, notify = false) {
+    const next = mode === 'floating' || mode === 'docked' ? mode : 'off';
+    const changed = this.mode !== next;
+    this.mode = next;
+    this.elements['outline-off'].setAttribute('aria-pressed', String(next === 'off'));
+    this.elements['outline-floating'].setAttribute('aria-pressed', String(next === 'floating'));
+    this.elements['outline-docked'].setAttribute('aria-pressed', String(next === 'docked'));
+    this.elements['outline-floating-rail'].hidden = next !== 'floating';
     this.elements['outline-floating-popover'].hidden = true;
-    this.elements['outline-docked-pane'].hidden = mode !== 'docked';
+    this.elements['outline-docked-pane'].hidden = next !== 'docked';
     this.refresh();
+    if (notify && changed) this.onModeChange(next);
   }
 
   scheduleScrollSync() {

@@ -14,9 +14,48 @@ rules:
 
 # Markdown BBCode TODO
 
+## BBCode Findings
+
+*Do not remove this header or its site subheaders. Remove the examples after working on them.*
+
+### Nexus
+
+```
+; Wrong
+
+[size=5][b]Section 1 — Headings (H1 to H6) & Paragraphs[/b][/size]
+
+[size=6][b]S01A — Consecutive H1 before H2[/b][/size]
+
+[size=5][b]S01B — Consecutive H2 before H3[/b][/size]
+
+[size=4][b]S01C — Consecutive H3 before H4[/b][/size]
+
+[size=3][b]S01D — Consecutive H4 before H5[/b][/size]
+
+[size=2][b]S01E — Consecutive H5 before H6[/b][/size]
+
+[size=1][b]S01F — Consecutive H6 before Paragraph[/b][/size]
+
+S01G — First standalone Paragraph before second Paragraph.
+
+; Right
+
+[size=6][b]S01A — Consecutive H1 before H2[/b][/size]
+[size=5][b]S01B — Consecutive H2 before H3[/b][/size]
+[size=4][b]S01C — Consecutive H3 before H4[/b][/size]
+[size=3][b]S01D — Consecutive H4 before H5[/b][/size]
+[size=2][b]S01E — Consecutive H5 before H6[/b][/size]
+[size=1][b]S01F — Consecutive H6 before Paragraph[/b][/size]
+```
+
 ## Quick Wins
 
 ## Features
+
+- [x] Diff view, with auto-accept/sync if the new and old version don’t actually conflict (add only or remove only from lines that don’t intersect.)
+- [x] Remember outline state across launches, global.
+- [x] Use SVGs for Steam and Nexus (Steam.svg and NexusMods.svg added to assets.)
 
 ### Navigation
 
@@ -25,6 +64,8 @@ rules:
 ## Concerns
 
 ## Fixes
+
+- Page mode now shows an orange outline on the edges on each side.
 
 ## Testing
 

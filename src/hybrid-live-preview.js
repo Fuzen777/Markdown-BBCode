@@ -3,6 +3,7 @@ import { syntaxTree, HighlightStyle, syntaxHighlighting } from '@codemirror/lang
 import { tags } from '@lezer/highlight';
 import { EditorView, Decoration, ViewPlugin, WidgetType } from '@codemirror/view';
 import { isHttpUrl } from './markdown.js';
+import { matchOpeningFence, isClosingFence } from './code-fence.js';
 
 const blockPrefixPatterns = [
   /^ {0,3}>[ \t]?\[![\w-]+\][+-]?(?:[ \t]+|$)/,
@@ -14,7 +15,7 @@ const blockPrefixPatterns = [
 
 function stripBlockPrefix(line) {
   const trimmed = line.trim();
-  if (/^(?:`{3,}|~{3,})/.test(trimmed) || trimmed === '||' || /^<div\b/i.test(trimmed) || /^<\/div\s*>$/i.test(trimmed) || /^ {0,3}(?:-{3,}|\*{3,}|_{3,})[ \t]*$/.test(line)) {
+  if (matchOpeningFence(line) || trimmed === '||' || /^<div\b/i.test(trimmed) || /^<\/div\s*>$/i.test(trimmed) || /^ {0,3}(?:-{3,}|\*{3,}|_{3,})[ \t]*$/.test(line)) {
     return line.length;
   }
   for (const pattern of blockPrefixPatterns) {
@@ -97,18 +98,30 @@ export function mapRenderedOffsetToRaw(raw, plainOffset) {
   const lines = raw.split('\n');
   let lineStart = 0;
   let inCode = false;
+  let fenceChar = '';
+  let fenceLength = 0;
   let plainRemaining = plainOffset;
 
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
     const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
-    const trimmed = line.trim();
-    if (/^(`{3,}|~{3,})/.test(trimmed)) {
-      inCode = !inCode;
-      lineStart += rawLine.length + (i < lines.length - 1 ? 1 : 0);
-      continue;
-    }
-    if (inCode) {
+    if (!inCode) {
+      const openFence = matchOpeningFence(line);
+      if (openFence) {
+        inCode = true;
+        fenceChar = openFence.char;
+        fenceLength = openFence.length;
+        lineStart += rawLine.length + (i < lines.length - 1 ? 1 : 0);
+        continue;
+      }
+    } else {
+      if (isClosingFence(line, fenceChar, fenceLength)) {
+        inCode = false;
+        fenceChar = '';
+        fenceLength = 0;
+        lineStart += rawLine.length + (i < lines.length - 1 ? 1 : 0);
+        continue;
+      }
       if (plainRemaining <= line.length) return lineStart + plainRemaining;
       plainRemaining -= line.length + 1;
       lineStart += rawLine.length + (i < lines.length - 1 ? 1 : 0);
@@ -312,7 +325,7 @@ class DividerWidget extends WidgetType {
 }
 
 const inlineRules = [
-  { regex: /`([^`\n]+?)`/g, openLen: 1, closeLen: 1, cls: 'hybrid-live-code' },
+  { regex: /(?<!`)(`+)(?!`)([^\n]+?)(?<!`)\1(?!`)/g, dynamicFence: true, cls: 'hybrid-live-code' },
   { regex: /\*\*([^*\n]+?)\*\*/g, openLen: 2, closeLen: 2, cls: 'hybrid-live-bold' },
   { regex: /~~([^~\n]+?)~~/g, openLen: 2, closeLen: 2, cls: 'hybrid-live-strike' },
   { regex: /\|\|([^|\n]+?)\|\|/g, openLen: 2, closeLen: 2, cls: 'hybrid-live-spoiler' },
@@ -364,10 +377,14 @@ function collectInlineDecorations(lineText, lineFrom, isActive, addMark, addRepl
   }
 
   for (const rule of inlineRules) {
+    const openLen = rule.openLen || 0;
+    const closeLen = rule.closeLen || 0;
     for (const match of lineText.matchAll(rule.regex)) {
       const start = lineFrom + match.index;
-      const innerStart = start + rule.openLen;
-      const innerEnd = start + match[0].length - rule.closeLen;
+      const markerOpenLen = rule.dynamicFence ? match[1].length : openLen;
+      const markerCloseLen = rule.dynamicFence ? match[1].length : closeLen;
+      const innerStart = start + markerOpenLen;
+      const innerEnd = start + match[0].length - markerCloseLen;
       const end = start + match[0].length;
       if (innerStart >= innerEnd) continue;
       if (isActive) {
@@ -412,21 +429,30 @@ function buildLiveDecorations(view, isReadOnly) {
 
   let inCode = false;
   let fenceChar = '';
+  let fenceLength = 0;
   for (let number = 1; number <= view.state.doc.lines; number++) {
     const line = view.state.doc.line(number);
     const clean = line.text.endsWith('\r') ? line.text.slice(0, -1) : line.text;
     const trimmed = clean.trim();
     const isActive = activeLines.has(number);
-    const fenceMatch = trimmed.match(/^(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      if (!inCode) { inCode = true; fenceChar = fenceMatch[1][0]; }
-      else if (trimmed.startsWith(fenceChar.repeat(3)) && trimmed.slice(3).trim() === '') { inCode = false; fenceChar = ''; }
+    if (!inCode) {
+      const openFence = matchOpeningFence(clean);
+      if (openFence) {
+        inCode = true;
+        fenceChar = openFence.char;
+        fenceLength = openFence.length;
+        addLine(line.from, 'hybrid-line-code');
+        addMark(line.from, line.from + clean.length, isActive ? 'hybrid-marker' : 'hybrid-live-fence');
+        continue;
+      }
+    } else {
       addLine(line.from, 'hybrid-line-code');
-      addMark(line.from, line.from + clean.length, isActive ? 'hybrid-marker' : 'hybrid-live-fence');
-      continue;
-    }
-    if (inCode) {
-      addLine(line.from, 'hybrid-line-code');
+      if (isClosingFence(clean, fenceChar, fenceLength)) {
+        inCode = false;
+        fenceChar = '';
+        fenceLength = 0;
+        addMark(line.from, line.from + clean.length, isActive ? 'hybrid-marker' : 'hybrid-live-fence');
+      }
       continue;
     }
 

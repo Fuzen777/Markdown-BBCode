@@ -778,6 +778,34 @@ test('right-side Document Outline toggles Off/Float/Dock, jumps across modes and
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 });
 
+test('global Document Outline mode persists Float, Dock, and Off across launches and tabs', async ({ page }) => {
+  await setSource(page, '# Intro\n\nBody\n\n## Details\n\nMore');
+  await page.getByRole('button', { name: 'Float', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.outlineMode)).toBe('floating');
+
+  await page.evaluate(() => localStorage.setItem('seedSession', JSON.stringify(window.testDesktop.session)));
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-ready', 'true');
+  await expect(page.getByRole('button', { name: 'Float', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#outline-floating-rail')).toBeVisible();
+  await expect(page.locator('.outline-tick')).toHaveCount(2);
+
+  await page.getByRole('button', { name: 'Dock', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.outlineMode)).toBe('docked');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await expect(page.locator('#outline-docked-pane')).toBeVisible();
+
+  await page.evaluate(() => localStorage.setItem('seedSession', JSON.stringify(window.testDesktop.session)));
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-ready', 'true');
+  await expect(page.getByRole('button', { name: 'Dock', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#outline-docked-pane')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Hide Document Outline', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.outlineMode)).toBe('off');
+  await expect(page.locator('#outline-docked-pane')).toBeHidden();
+});
+
 test('Windows virtual-key shortcuts respect split Ctrl layouts like BEPO azerty-ctrl across modes', async ({ page }) => {
   const dispatchCtrl = (selector, key, keyCode, shiftKey = false) => page.evaluate(
     ({ sel, k, code, shift }) => {
@@ -945,13 +973,25 @@ test('viewport width segmented toggle switches between Page (800px) and Full acr
   await paragraph.hover();
   const controlsBox = await page.locator('.block-controls').boundingBox();
   expect(controlsBox.x + controlsBox.width).toBeLessThanOrEqual(paragraphBox.x);
+  await paragraph.click();
+  const visualEditable = page.locator('#visual-editor .tiptap');
+  await expect(visualEditable).toBeFocused();
+  await expect(visualEditable).toHaveCSS('outline-style', 'none');
+  await expect(visualEditable).toHaveCSS('outline-width', '0px');
+  await expect(visualEditable).toHaveCSS('border-left-width', '0px');
+  await expect(visualEditable).toHaveCSS('border-right-width', '0px');
+  await expect(visualEditable).toHaveCSS('box-shadow', 'none');
   await page.screenshot({ path: 'test-results/viewport-page.png' });
 
   await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
   const hybridBox = await page.locator('#hybrid-editor').boundingBox();
-  const hybridBlockPageBox = await page.locator('.hybrid-block:not(.blank-block)').first().boundingBox();
+  const hybridBlockPage = page.locator('.hybrid-block:not(.blank-block)').first();
+  const hybridBlockPageBox = await hybridBlockPage.boundingBox();
   expect(hybridBlockPageBox.width).toBeLessThanOrEqual(805);
   expect(hybridBlockPageBox.x).toBeGreaterThan(hybridBox.x + 115);
+  await hybridBlockPage.click();
+  await expect(page.locator('#hybrid-editor .cm-scroller')).toHaveCSS('outline-style', 'none');
+  await expect(page.locator('#hybrid-editor .cm-content')).toHaveCSS('outline-style', 'none');
 
   await page.getByRole('button', { name: 'Source', exact: true }).click();
   const sourcePagePadding = await page.locator('#markdown-source').evaluate(el => Number.parseFloat(getComputedStyle(el).paddingLeft));
@@ -1056,25 +1096,41 @@ test('dark and light modes follow shared zero-chroma neutral and Warm Amber sign
   await page.screenshot({ path: 'test-results/theme-light-design.png' });
 });
 
-test('header Nexus | Steam dialect switch updates preview, persists across reload, exports Steam BBCode and fits narrow view', async ({ page }) => {
+test('header Nexus | Steam dialect switch renders SVGs, updates preview, persists across reload, exports Steam BBCode and fits narrow view', async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 800 });
   const nexusButton = page.getByRole('button', { name: 'Nexus', exact: true });
   const steamButton = page.getByRole('button', { name: 'Steam', exact: true });
   await expect(nexusButton).toHaveAttribute('aria-pressed', 'true');
   await expect(steamButton).toHaveAttribute('aria-pressed', 'false');
+  await expect(nexusButton).toHaveAttribute('title', 'Generate Nexus Mods BBCode');
+  await expect(steamButton).toHaveAttribute('title', 'Generate Steam BBCode');
+  await expect(nexusButton.locator('svg')).toBeVisible();
+  await expect(steamButton.locator('svg')).toBeVisible();
+  const nexusSvgBox = await nexusButton.locator('svg').boundingBox();
+  const steamSvgBox = await steamButton.locator('svg').boundingBox();
+  expect(nexusSvgBox.width).toBeGreaterThanOrEqual(14);
+  expect(steamSvgBox.width).toBeGreaterThanOrEqual(14);
 
   const markdown = '# Guide Title\n\nIntro paragraph.\n\n- Bullet one\n\nClosing paragraph.';
   await setSource(page, markdown);
   await saveDraft(page, 'C:\\Guide.md');
   await page.getByRole('button', { name: 'Preview BBCode', exact: true }).click();
 
+  await expect(page.locator('#bbcode-preview-icon svg')).toBeVisible();
   await expect(page.locator('#bbcode-preview-title')).toHaveText('Nexus BBCode Preview');
   await expect(page.getByLabel('Generated BBCode', { exact: true })).toHaveValue(
-    '[size=6][b]Guide Title[/b][/size]\n\nIntro paragraph.\n[list]\n[*]Bullet one\n[/list]\nClosing paragraph.',
+    '[size=6][b]Guide Title[/b][/size]\n\nIntro paragraph.[list][*]Bullet one\n[/list]\nClosing paragraph.',
   );
+
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: 'test-results/dialect-icons-dark.png' });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: 'test-results/dialect-icons-light.png' });
 
   await steamButton.click();
   await expect(steamButton).toHaveAttribute('aria-pressed', 'true');
   await expect(nexusButton).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#bbcode-preview-icon svg')).toBeVisible();
   await expect(page.locator('#bbcode-preview-title')).toHaveText('Steam BBCode Preview');
   await expect(page.getByLabel('Generated BBCode', { exact: true })).toHaveValue(
     '[h1]Guide Title[/h1]\nIntro paragraph.\n[list][*]Bullet one[/list]\nClosing paragraph.',
@@ -1096,4 +1152,536 @@ test('header Nexus | Steam dialect switch updates preview, persists across reloa
 
   await page.setViewportSize({ width: 720, height: 480 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test('external non-intersecting changes auto-sync cleanly and support diff review, revert and dismiss', async ({ page }) => {
+  await setSource(page, 'Line 1\nLine 2\nLine 3\nLine 4');
+  await saveDraft(page, 'C:\\SyncDoc.md');
+  await expect(page.locator('#save-status')).toHaveText('Markdown Saved');
+
+  // Clean reload on disk update
+  await page.evaluate(() => {
+    window.testDesktop.files['C:\\SyncDoc.md'] = {
+      path: 'C:\\SyncDoc.md',
+      content: 'Line 1\nLine 2\nLine 3\nLine 4\nDisk line 5',
+      revision: 'sync-rev-1',
+    };
+    window.dispatchEvent(new Event('focus'));
+  });
+
+  await expect(page.locator('#notice')).toHaveClass(/sync-info/);
+  await expect(page.locator('#notice')).toContainText('Reloaded external changes');
+  await expect(page.getByRole('button', { name: 'Resolve Conflict', exact: true })).toBeHidden();
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('Line 1\nLine 2\nLine 3\nLine 4\nDisk line 5');
+
+  await page.getByRole('button', { name: 'View Diff', exact: true }).click();
+  const diffDialog = page.locator('#diff-dialog');
+  await expect(diffDialog).toBeVisible();
+  await expect(diffDialog).toContainText('Disk line 5');
+  await diffDialog.getByRole('button', { name: 'Side By Side', exact: true }).click();
+  await expect(diffDialog.locator('.diff-table-split')).toBeVisible();
+  await diffDialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(diffDialog).not.toBeVisible();
+
+  await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await expect(page.locator('#notice')).toBeHidden();
+
+  // Non-intersecting local add (top) + disk remove (bottom) auto-merges without conflict
+  await page.locator('#markdown-source').fill('Local top\nLine 1\nLine 2\nLine 3\nLine 4\nDisk line 5');
+  await page.evaluate(() => {
+    window.testDesktop.files['C:\\SyncDoc.md'] = {
+      path: 'C:\\SyncDoc.md',
+      content: 'Line 1\nLine 2\nLine 3\nLine 4',
+      revision: 'sync-rev-2',
+    };
+    window.dispatchEvent(new Event('focus'));
+  });
+
+  await expect(page.locator('#notice')).toContainText('Auto-synced external changes');
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('Local top\nLine 1\nLine 2\nLine 3\nLine 4');
+  await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\SyncDoc.md'].content)).toBe('Local top\nLine 1\nLine 2\nLine 3\nLine 4');
+
+  // Review and revert auto-sync
+  await page.getByRole('button', { name: 'View Diff', exact: true }).click();
+  await expect(diffDialog).toBeVisible();
+  await diffDialog.getByRole('button', { name: 'Revert Sync', exact: true }).click();
+  await expect(diffDialog).not.toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('Local top\nLine 1\nLine 2\nLine 3\nLine 4\nDisk line 5');
+});
+
+test('conflicting external changes open Diff View with per-hunk merge, context expansion, light/dark and narrow layout', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const baseLines = [
+    'Line 1',
+    'Conflict A base',
+    'Context 1',
+    'Context 2',
+    'Context 3',
+    'Context 4',
+    'Context 5',
+    'Context 6',
+    'Context 7',
+    'Context 8',
+    'Context 9',
+    'Context 10',
+    'Conflict B base',
+    'Tail line',
+  ];
+  const baseText = baseLines.join('\n');
+  const localText = baseText
+    .replace('Conflict A base', 'Conflict A mine')
+    .replace('Conflict B base', 'Conflict B mine');
+  const diskText = baseText
+    .replace('Conflict A base', 'Conflict A disk')
+    .replace('Conflict B base', 'Conflict B disk');
+
+  await setSource(page, baseText);
+  await saveDraft(page, 'C:\\ConflictDoc.md');
+  await expect(page.locator('#save-status')).toHaveText('Markdown Saved');
+
+  await page.locator('#markdown-source').fill(localText);
+  await page.evaluate(disk => {
+    window.testDesktop.files['C:\\ConflictDoc.md'] = {
+      path: 'C:\\ConflictDoc.md',
+      content: disk,
+      revision: 'conflict-rev-1',
+    };
+    window.dispatchEvent(new Event('focus'));
+  }, diskText);
+
+  const resolveBtn = page.getByRole('button', { name: 'Resolve Conflict', exact: true });
+  await expect(resolveBtn).toBeVisible();
+  await resolveBtn.click();
+
+  const diffDialog = page.locator('#diff-dialog');
+  await expect(diffDialog).toBeVisible();
+  const applyMergedBtn = diffDialog.getByRole('button', { name: 'Apply Merged', exact: true });
+  await expect(applyMergedBtn).toBeDisabled();
+  await expect(diffDialog.locator('.diff-conflict-block')).toHaveCount(2);
+
+  // Collapsed context expander opens middle lines cleanly
+  const expandBtn = diffDialog.getByRole('button', { name: /Show \d+ unchanged lines/ });
+  await expect(expandBtn).toBeVisible();
+  await expandBtn.click();
+  await expect(diffDialog).toContainText('Context 5');
+
+  // Switch to Side By Side and verify light & dark appearance
+  await diffDialog.getByRole('button', { name: 'Side By Side', exact: true }).click();
+  await expect(diffDialog.locator('.diff-table-split')).toBeVisible();
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.screenshot({ path: 'test-results/diff-split-light.png' });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.screenshot({ path: 'test-results/diff-split-dark.png' });
+
+  await diffDialog.getByRole('button', { name: 'Unified', exact: true }).click();
+  await diffDialog.getByRole('button', { name: 'All Lines', exact: true }).click();
+  await expect(diffDialog.getByRole('button', { name: 'All Lines', exact: true })).toHaveAttribute('aria-pressed', 'true');
+
+  // Resolve Conflict 1 = Keep Mine, Conflict 2 = Keep Both
+  const firstGroup = diffDialog.getByRole('group', { name: 'Conflict 1 Resolution' });
+  const secondGroup = diffDialog.getByRole('group', { name: 'Conflict 2 Resolution' });
+  await firstGroup.getByRole('button', { name: 'Keep Mine', exact: true }).click();
+  await expect(applyMergedBtn).toBeDisabled();
+  await secondGroup.getByRole('button', { name: 'Keep Both', exact: true }).click();
+  await expect(applyMergedBtn).toBeEnabled();
+
+  await applyMergedBtn.click();
+  await expect(diffDialog).not.toBeVisible();
+  await expect(resolveBtn).toBeHidden();
+
+  const expectedMerged = baseLines
+    .join('\n')
+    .replace('Conflict A base', 'Conflict A mine')
+    .replace('Conflict B base', 'Conflict B mine\nConflict B disk');
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue(expectedMerged);
+  await expect.poll(() => page.evaluate(() => window.testDesktop.files['C:\\ConflictDoc.md'].content)).toBe(expectedMerged);
+
+  // Trigger another conflict and verify Load Disk Version + narrow layout fit
+  await page.locator('#markdown-source').fill('Local overwrite test');
+  await page.evaluate(() => {
+    window.testDesktop.files['C:\\ConflictDoc.md'] = {
+      path: 'C:\\ConflictDoc.md',
+      content: 'Fresh disk version',
+      revision: 'conflict-rev-2',
+    };
+    window.dispatchEvent(new Event('focus'));
+  });
+  await expect(resolveBtn).toBeVisible();
+  await resolveBtn.click();
+  await expect(diffDialog).toBeVisible();
+
+  await page.setViewportSize({ width: 720, height: 480 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await diffDialog.getByRole('button', { name: 'Load Disk Version', exact: true }).click();
+  await expect(diffDialog).not.toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('Fresh disk version');
+});
+
+test('pasting valid Markdown in Visual mode renders formatted blocks without backslash-escaping markers', async ({ page }) => {
+  const visual = page.getByRole('textbox', { name: 'Visual Markdown Editor' });
+  await visual.click();
+
+  const fullMarkdown = [
+    '# Guide Title',
+    '',
+    '**Bold** and *italic* and ~~struck~~ and ||spoiler||.',
+    '',
+    '- Bullet one',
+    '- Bullet two',
+    '',
+    '> [!warning] Watch Out',
+    '> Keep backups.',
+    '',
+    '| Name | Value |',
+    '| --- | --- |',
+    '| Alpha | Beta |',
+    '',
+    '```js',
+    'const ok = true;',
+    '```',
+  ].join('\n');
+
+  const dispatchPaste = async (text, html = '') => {
+    await visual.evaluate((element, payload) => {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', payload.text);
+      if (payload.html) dt.setData('text/html', payload.html);
+      element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    }, { text, html });
+  };
+
+  await dispatchPaste(fullMarkdown);
+  await expect(page.locator('.tiptap h1')).toHaveText('Guide Title');
+  await expect(page.locator('.tiptap strong')).toHaveText('Bold');
+  await expect(page.locator('.tiptap em')).toHaveText('italic');
+  await expect(page.locator('.tiptap [data-spoiler]')).toHaveText('spoiler');
+  await expect(page.locator('.tiptap ul li')).toHaveCount(2);
+  await expect(page.locator('.tiptap [data-callout="warning"]')).toContainText('Keep backups.');
+  await expect(page.locator('.tiptap table td')).toHaveCount(2);
+  await expect(page.locator('.tiptap pre code')).toHaveText('const ok = true;');
+
+  // Atomic undo removes the entire pasted slice at once
+  await visual.press('Control+z');
+  await expect(page.locator('.tiptap h1')).toHaveCount(0);
+
+  // Re-paste and confirm Source preserves markers without backslash escaping
+  await dispatchPaste(fullMarkdown);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  const sourceValue = await page.getByRole('textbox', { name: 'Markdown Source' }).inputValue();
+  expect(sourceValue).toContain('# Guide Title');
+  expect(sourceValue).toContain('**Bold** and *italic* and ~~struck~~ and ||spoiler||.');
+  expect(sourceValue).toContain('- Bullet one');
+  expect(sourceValue).toContain('> [!warning] Watch Out');
+  expect(sourceValue).not.toMatch(/\\#|\\\*|\\-|\\>|\\\|\\\|/);
+
+  // Mid-heading inline paste keeps heading level and renders inline bold
+  await setSource(page, '# My Title');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.locator('.tiptap h1').evaluate(el => {
+    const textNode = el.firstChild;
+    const range = document.createRange();
+    range.setStart(textNode, 3);
+    range.collapse(true);
+    const sel = window.getSelection();
+    el.closest('.tiptap').focus();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  });
+  await dispatchPaste('**very** ');
+  await expect(page.locator('.tiptap h1')).toHaveText('My very Title');
+  await expect(page.locator('.tiptap h1 strong')).toHaveText('very');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('# My **very** Title');
+
+  // VS Code style wrapper HTML + Markdown plain text still parses Markdown cleanly
+  await setSource(page, '');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await visual.click();
+  await dispatchPaste(
+    '## From Editor\n\n*Formatted*',
+    '<div style="color:#cccccc"><span style="color:#569cd6">## From Editor</span><br><br><span>*Formatted*</span></div>',
+  );
+  await expect(page.locator('.tiptap h2')).toHaveText('From Editor');
+  await expect(page.locator('.tiptap em')).toHaveText('Formatted');
+  await expect(page.locator('.tiptap h2 span')).toHaveCount(0);
+
+  // Code block paste stays literal without turning into formatting
+  await setSource(page, '```md\ncode\n```');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.locator('.tiptap pre').click();
+  await dispatchPaste('**stay literal**');
+  await expect(page.locator('.tiptap pre code')).toContainText('**stay literal**');
+  await expect(page.locator('.tiptap pre strong')).toHaveCount(0);
+
+  // Unsupported/unsafe HTML stays literal text without executing
+  await setSource(page, '');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await visual.click();
+  await dispatchPaste('<script>alert(1)</script>');
+  await expect(page.locator('.tiptap p')).toHaveText('<script>alert(1)</script>');
+  await expect(page.locator('.tiptap script')).toHaveCount(0);
+});
+
+test('externally deleted clean files can be closed, reviewed, recreated, and allow app exit', async ({ page }) => {
+  await setSource(page, 'Clean doc');
+  await saveDraft(page, 'C:\\GoneClean.md');
+
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await setSource(page, 'Keep doc');
+  await saveDraft(page, 'C:\\KeepMe.md');
+
+  await page.getByRole('tab', { name: /GoneClean\.md/ }).click();
+  await page.evaluate(() => {
+    delete window.testDesktop.files['C:\\GoneClean.md'];
+    window.dispatchEvent(new Event('focus'));
+  });
+
+  await expect(page.locator('#notice')).toContainText('Missing file');
+  const reviewBtn = page.getByRole('button', { name: 'Review Missing File', exact: true });
+  const closeMissingBtn = page.locator('#close-missing');
+  const retryBtn = page.locator('#retry');
+  await expect(reviewBtn).toBeVisible();
+  await expect(closeMissingBtn).toBeVisible();
+  await expect(retryBtn).toBeHidden();
+
+  // Quitting while another tab is active succeeds without jumping to the missing clean tab.
+  await page.getByRole('tab', { name: /KeepMe\.md/ }).click();
+  await page.evaluate(() => window.testDesktop.emit('request-close'));
+  await expect.poll(() => page.evaluate(() => window.testDesktop.closed)).toBe(true);
+  await expect(page.getByRole('tab', { name: /KeepMe\.md/ })).toHaveAttribute('aria-selected', 'true');
+
+  // Reviewing a missing clean file supports recreating it via Keep My Edits.
+  await page.evaluate(() => { window.testDesktop.closed = false; });
+  await page.getByRole('tab', { name: /GoneClean\.md/ }).click();
+  await reviewBtn.click();
+  const diffDialog = page.locator('#diff-dialog');
+  await expect(diffDialog).toBeVisible();
+  await expect(diffDialog).toContainText('File Missing On Disk');
+  await expect(diffDialog.getByRole('button', { name: 'Close Tab', exact: true })).toBeVisible();
+  await diffDialog.getByRole('button', { name: 'Keep My Edits', exact: true }).click();
+  await expect(diffDialog).not.toBeVisible();
+  await expect(page.locator('#notice')).toBeHidden();
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\GoneClean.md']?.content)).toBe('Clean doc');
+
+  // Closing via tab close button removes the tab without recreating the deleted file.
+  await page.evaluate(() => {
+    delete window.testDesktop.files['C:\\GoneClean.md'];
+    window.dispatchEvent(new Event('focus'));
+  });
+  await expect(closeMissingBtn).toBeVisible();
+  await page.getByRole('button', { name: 'Close GoneClean.md', exact: true }).click();
+  await expect(page.getByRole('tab', { name: /GoneClean\.md/ })).toHaveCount(0);
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\GoneClean.md'])).toBeUndefined();
+
+  // Middle-click closes an externally deleted clean tab.
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await setSource(page, 'Middle close doc');
+  await saveDraft(page, 'C:\\GoneMiddle.md');
+  await page.evaluate(() => {
+    delete window.testDesktop.files['C:\\GoneMiddle.md'];
+    window.dispatchEvent(new Event('focus'));
+  });
+  await expect(closeMissingBtn).toBeVisible();
+  await page.getByRole('tab', { name: /GoneMiddle\.md/ }).click({ button: 'middle' });
+  await expect(page.getByRole('tab', { name: /GoneMiddle\.md/ })).toHaveCount(0);
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\GoneMiddle.md'])).toBeUndefined();
+
+  // Ctrl+W closes an externally deleted clean tab.
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await setSource(page, 'Ctrl+W close doc');
+  await saveDraft(page, 'C:\\GoneCtrlW.md');
+  await page.evaluate(() => {
+    delete window.testDesktop.files['C:\\GoneCtrlW.md'];
+    window.dispatchEvent(new Event('focus'));
+  });
+  await expect(closeMissingBtn).toBeVisible();
+  await page.keyboard.press('Control+w');
+  await expect(page.getByRole('tab', { name: /GoneCtrlW\.md/ })).toHaveCount(0);
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\GoneCtrlW.md'])).toBeUndefined();
+
+  // Notice Close Tab button on the last remaining tab replaces it with a fresh Untitled tab.
+  await page.evaluate(() => {
+    delete window.testDesktop.files['C:\\KeepMe.md'];
+    window.dispatchEvent(new Event('focus'));
+  });
+  await expect(closeMissingBtn).toBeVisible();
+  await closeMissingBtn.click();
+  await expect(page.getByRole('tab', { name: /KeepMe\.md/ })).toHaveCount(0);
+  await expect(page.getByRole('tab')).toHaveCount(1);
+  await expect(page.getByRole('tab', { name: /Untitled/ })).toBeVisible();
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\KeepMe.md'])).toBeUndefined();
+});
+
+test('externally deleted dirty files prompt before closing or quitting and recover cleanly', async ({ page }) => {
+  await setSource(page, 'Initial text');
+  await saveDraft(page, 'C:\\GoneDirty.md');
+  await expect(page.locator('#save-status')).toHaveText('Markdown Saved');
+
+  await page.evaluate(() => {
+    delete window.testDesktop.files['C:\\GoneDirty.md'];
+    window.dispatchEvent(new Event('focus'));
+  });
+  await expect(page.locator('#close-missing')).toBeVisible();
+
+  await page.locator('#markdown-source').fill('Unsaved local changes');
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await setSource(page, 'Other tab');
+
+  // Quitting with an inactive dirty deleted file focuses that tab, keeps recovery, and stays open.
+  await page.evaluate(() => window.testDesktop.emit('request-close'));
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.documents?.find(d => d.path === 'C:\\GoneDirty.md')?.content)).toBe('Unsaved local changes');
+  expect(await page.evaluate(() => window.testDesktop.closed)).toBe(false);
+  await expect(page.getByRole('tab', { name: /GoneDirty\.md/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#notice')).toBeVisible();
+
+  // Closing the dirty deleted tab opens File Missing On Disk; Cancel keeps the tab and edits.
+  await page.getByRole('button', { name: 'Close GoneDirty.md', exact: true }).click();
+  const diffDialog = page.locator('#diff-dialog');
+  await expect(diffDialog).toBeVisible();
+  await expect(diffDialog).toContainText('File Missing On Disk');
+  await expect(diffDialog.getByRole('button', { name: 'Keep My Edits', exact: true })).toBeVisible();
+  await expect(diffDialog.getByRole('button', { name: 'Save As', exact: true })).toBeVisible();
+  await expect(diffDialog.getByRole('button', { name: 'Close Without Saving', exact: true })).toBeVisible();
+  await diffDialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(diffDialog).not.toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('Unsaved local changes');
+
+  // Close Without Saving closes the tab without recreating the file and allows subsequent exit.
+  await page.locator('#close-missing').click();
+  await expect(diffDialog).toBeVisible();
+  await diffDialog.getByRole('button', { name: 'Close Without Saving', exact: true }).click();
+  await expect(diffDialog).not.toBeVisible();
+  await expect(page.getByRole('tab', { name: /GoneDirty\.md/ })).toHaveCount(0);
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\GoneDirty.md'])).toBeUndefined();
+
+  await page.evaluate(() => window.testDesktop.emit('request-close'));
+  await expect.poll(() => page.evaluate(() => window.testDesktop.closed)).toBe(true);
+
+  // Closing a dirty deleted file before polling runs catches the missing file and can recreate it.
+  await page.evaluate(() => { window.testDesktop.closed = false; });
+  await setSource(page, 'Before delete');
+  await saveDraft(page, 'C:\\PrePoll.md');
+  await page.locator('#markdown-source').fill('Edited before polling');
+  await page.evaluate(() => { delete window.testDesktop.files['C:\\PrePoll.md']; });
+  await page.getByRole('button', { name: 'Close PrePoll.md', exact: true }).click();
+  await expect(diffDialog).toBeVisible();
+  await expect(diffDialog).toContainText('File Missing On Disk');
+  await diffDialog.getByRole('button', { name: 'Keep My Edits', exact: true }).click();
+  await expect(diffDialog).not.toBeVisible();
+  await expect(page.getByRole('tab', { name: /PrePoll\.md/ })).toHaveCount(0);
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\PrePoll.md']?.content)).toBe('Edited before polling');
+});
+
+test('contextmenu guard blocks UI chrome while allowing editable fields and selected text', async ({ page }) => {
+  await setSource(page, 'Editable paragraph\n\n| Col 1 | Col 2 |\n| --- | --- |\n| Cell A | Cell B |');
+  await page.evaluate(() => {
+    window.__contextEvents = [];
+    window.addEventListener('contextmenu', event => {
+      window.__contextEvents.push({
+        id: event.target?.id || '',
+        tag: event.target?.tagName || '',
+        defaultPrevented: event.defaultPrevented,
+      });
+      event.preventDefault();
+    });
+  });
+
+  const lastContextPrevented = () => page.evaluate(() => window.__contextEvents.at(-1)?.defaultPrevented);
+
+  // UI chrome suppresses native context menu.
+  await page.locator('#save').click({ button: 'right' });
+  expect(await lastContextPrevented()).toBe(true);
+  await page.locator('#tabs').click({ button: 'right' });
+  expect(await lastContextPrevented()).toBe(true);
+  await page.locator('#format-toolbar').click({ button: 'right' });
+  expect(await lastContextPrevented()).toBe(true);
+  await page.locator('footer').click({ button: 'right' });
+  expect(await lastContextPrevented()).toBe(true);
+  await page.locator('#folder-sidebar .folder-sidebar-header').click({ button: 'right' });
+  expect(await lastContextPrevented()).toBe(true);
+
+  // Readonly preview blocks without selection and allows with selection.
+  await page.getByRole('button', { name: 'Preview BBCode', exact: true }).click();
+  await expect(page.locator('#bbcode-preview-output')).toBeVisible();
+  await page.locator('#bbcode-preview-output').click({ button: 'right' });
+  expect(await lastContextPrevented()).toBe(true);
+  await page.evaluate(() => {
+    const out = document.querySelector('#bbcode-preview-output');
+    out.focus();
+    out.setSelectionRange(0, out.value.length);
+    const ev = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 });
+    out.dispatchEvent(ev);
+  });
+  expect(await lastContextPrevented()).toBe(false);
+  await page.getByRole('button', { name: 'Close BBCode Preview', exact: true }).click();
+
+  // Visual paragraph & table cell interior allow native context menu.
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.locator('.tiptap p').first().click({ button: 'right' });
+  expect(await lastContextPrevented()).toBe(false);
+  await page.locator('.tiptap td').first().click({ button: 'right' });
+  expect(await lastContextPrevented()).toBe(false);
+
+  // Hybrid active CodeMirror content allows native context menu.
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  await page.locator('#hybrid-editor .hybrid-block').first().click();
+  await page.locator('#hybrid-editor .cm-content').click({ button: 'right' });
+  expect(await lastContextPrevented()).toBe(false);
+
+  // Source textarea and Find input allow native context menu.
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await page.locator('#markdown-source').click({ button: 'right' });
+  expect(await lastContextPrevented()).toBe(false);
+  await page.locator('#find-toggle').click();
+  await page.locator('#find-input').click({ button: 'right' });
+  expect(await lastContextPrevented()).toBe(false);
+});
+
+test('variable-length fenced code blocks work in Visual paste, input rules, BBCode preview, and Source outline', async ({ page }) => {
+  const b3 = '\x60'.repeat(3);
+  const b4 = '\x60'.repeat(4);
+  const pastedBlock = [
+    b4,
+    'Code',
+    `${b3}Code inside code${b3}`,
+    `${b3}js`,
+    'const x = 1;',
+    b3,
+    'More Code',
+    b4,
+  ].join('\n');
+
+  const visual = page.getByRole('textbox', { name: 'Visual Markdown Editor' });
+  await visual.click();
+  await visual.evaluate((element, text) => {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', text);
+    element.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, pastedBlock);
+
+  await expect(page.locator('.tiptap pre code')).toContainText(`${b3}Code inside code${b3}`);
+  await page.getByRole('button', { name: 'Preview BBCode', exact: true }).click();
+  await expect(page.locator('#bbcode-preview-output')).toHaveValue(`[code]Code\n${b3}Code inside code${b3}\n${b3}js\nconst x = 1;\n${b3}\nMore Code[/code]`);
+  await page.getByRole('button', { name: 'Close BBCode Preview', exact: true }).click();
+
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue(pastedBlock);
+
+  // Typing ```` + Space in Visual mode creates a code block and upgrades fence on inner triple backticks.
+  await setSource(page, '');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await visual.click();
+  await page.keyboard.insertText(`${b4} `);
+  await expect(page.locator('.tiptap pre code')).toHaveCount(1);
+  await page.keyboard.insertText(`Line\n${b3}Code inside code${b3}\nEnd`);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  const typedSource = await page.getByRole('textbox', { name: 'Markdown Source' }).inputValue();
+  expect(typedSource).toBe(`${b4}\nLine\n${b3}Code inside code${b3}\nEnd\n${b4}`);
+
+  // Document Outline in Source mode ignores # comments inside 4-backtick blocks and keeps later headings.
+  await setSource(page, `${b4}\n${b3}Code inside code${b3}\n# Not a heading\n${b4}\n\n# Real Heading`);
+  await page.getByRole('button', { name: 'Dock', exact: true }).click();
+  await expect(page.locator('#outline-docked-list .outline-item')).toHaveCount(1);
+  await expect(page.locator('#outline-docked-list .outline-item')).toHaveText('Real Heading');
+  await page.getByRole('button', { name: 'Hide Document Outline', exact: true }).click();
 });

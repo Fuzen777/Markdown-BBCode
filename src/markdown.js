@@ -1,5 +1,6 @@
 // ==> Section 1 - Markdown Extension Delimiters <==
-import { Mark, Node, Extension, markInputRule, getSchema } from '@tiptap/core';
+import { Mark, Node, Extension, markInputRule, textblockTypeInputRule, getSchema } from '@tiptap/core';
+import { Slice } from '@tiptap/pm/model';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import StarterKit from '@tiptap/starter-kit';
@@ -9,17 +10,58 @@ import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table
 import { Callout, calloutTitle } from './callout.js';
 import { SearchHighlight } from './find-replace.js';
 import { steamDocumentToBBCodeParts } from './steam-bbcode.js';
+import { codeFenceFor, matchOpeningFence, isClosingFence } from './code-fence.js';
 import { MarkdownManager } from '@tiptap/markdown';
 import { Marked } from 'marked';
 
 function closingDelimiter(source, openingLength, closingPattern, openingPattern, lineOnly = false) {
   let depth = 1;
   for (let index = openingLength; index < source.length; index++) {
+    if (index > 0 && source[index - 1] === '\n') {
+      const lineEnd = source.indexOf('\n', index);
+      const line = source.slice(index, lineEnd < 0 ? source.length : lineEnd);
+      const openFence = matchOpeningFence(line);
+      if (openFence) {
+        let cursor = lineEnd < 0 ? source.length : lineEnd + 1;
+        while (cursor < source.length) {
+          const nextEnd = source.indexOf('\n', cursor);
+          const nextLine = source.slice(cursor, nextEnd < 0 ? source.length : nextEnd);
+          if (isClosingFence(nextLine, openFence.char, openFence.length)) {
+            cursor = nextEnd < 0 ? source.length : nextEnd + 1;
+            break;
+          }
+          if (nextEnd < 0) {
+            cursor = source.length;
+            break;
+          }
+          cursor = nextEnd + 1;
+        }
+        index = cursor - 1;
+        continue;
+      }
+    }
     if (source[index] === '\\') { index++; continue; }
-    if (source[index] === '`' || (source[index] === '~' && source.slice(index).startsWith('~~~'))) {
-      const run = source.slice(index).match(/^(`+|~{3,})/)[0];
-      const end = source.indexOf(run, index + run.length);
-      if (end >= 0) { index = end + run.length - 1; continue; }
+    if (source[index] === '`') {
+      let runEnd = index + 1;
+      while (runEnd < source.length && source[runEnd] === '`') runEnd++;
+      const runLen = runEnd - index;
+      let scan = runEnd;
+      let foundEnd = -1;
+      while (scan < source.length) {
+        if (source[scan] === '`') {
+          let closeEnd = scan + 1;
+          while (closeEnd < source.length && source[closeEnd] === '`') closeEnd++;
+          if (closeEnd - scan === runLen) {
+            foundEnd = closeEnd;
+            break;
+          }
+          scan = closeEnd;
+        } else {
+          scan++;
+        }
+      }
+      index = (foundEnd >= 0 ? foundEnd : runEnd) - 1;
+      continue;
     }
     const remaining = source.slice(index);
     const closing = remaining.match(closingPattern);
@@ -244,6 +286,99 @@ const SmartUrlPaste = Extension.create({
   },
 });
 
+function hasRichHtmlMarkup(html) {
+  if (!html) return false;
+  if (/data-pm-slice=/i.test(html)) return true;
+  return /<\/?(?:h[1-6]|ul|ol|li|table|thead|tbody|tr|th|td|blockquote|strong|b|em|i|s|del|img|hr)\b|<a\b[^>]*\bhref=/i.test(html);
+}
+
+function hasExplicitMarkdown(docJson, rawText) {
+  let hasNonLinkFormatting = false;
+  let hasLinkMark = false;
+  const walk = node => {
+    if (!node) return;
+    if (node.type !== 'doc' && node.type !== 'paragraph' && node.type !== 'text') {
+      hasNonLinkFormatting = true;
+    }
+    if (node.marks?.length) {
+      for (const mark of node.marks) {
+        if (mark.type === 'link') hasLinkMark = true;
+        else hasNonLinkFormatting = true;
+      }
+    }
+    node.content?.forEach(walk);
+  };
+  walk(docJson);
+  if (hasNonLinkFormatting) return true;
+  if (hasLinkMark && /\[[^\]]*\]\([^)]+\)|<(?:https?:\/\/|mailto:)/i.test(rawText)) return true;
+  if (/\\[\\`*_{}[\]()#+\-.!|>~]/.test(rawText)) {
+    const normalizedRaw = rawText.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+    const plainText = (docJson.content || []).map(node => (node.content || []).map(child => child.text || '').join('')).join('\n\n');
+    if (plainText !== normalizedRaw) return true;
+  }
+  return false;
+}
+
+export function parsePastedMarkdown(rawText, html = '') {
+  if (!rawText || !rawText.trim() || hasRichHtmlMarkup(html) || isHttpUrl(rawText.trim())) return null;
+  try {
+    const parsed = parseMarkdown(rawText);
+    return hasExplicitMarkdown(parsed, rawText) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isSelectionInCode(state) {
+  const { selection, schema } = state;
+  const { $from, $to } = selection;
+  if ($from.parent.type.name === 'codeBlock' || $to.parent.type.name === 'codeBlock') return true;
+  let inCodeBlock = false;
+  state.doc.nodesBetween(selection.from, selection.to, node => {
+    if (node.type.name === 'codeBlock') inCodeBlock = true;
+  });
+  if (inCodeBlock) return true;
+  const codeMark = schema.marks.code;
+  if (!codeMark) return false;
+  if (selection.empty) {
+    const marks = state.storedMarks || $from.marks();
+    return Boolean(codeMark.isInSet(marks));
+  }
+  return Boolean(codeMark.isInSet($from.marks()) || codeMark.isInSet($to.marks()));
+}
+
+const MarkdownPaste = Extension.create({
+  name: 'markdownPaste',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          handlePaste(view, event) {
+            if (!view.editable || isSelectionInCode(view.state)) return false;
+            const text = event.clipboardData?.getData('text/plain') || '';
+            const html = event.clipboardData?.getData('text/html') || '';
+            const parsed = parsePastedMarkdown(text, html);
+            if (!parsed) return false;
+            const parsedDoc = view.state.schema.nodeFromJSON(parsed);
+            if (!parsedDoc.childCount) return false;
+            const { $from, $to } = view.state.selection;
+            const singleParagraph = parsedDoc.childCount === 1 && parsedDoc.firstChild.type.name === 'paragraph';
+            const openStart = singleParagraph
+              || (parsedDoc.firstChild.type.name === 'paragraph' && $from.parent.content.size > 0 && $from.parentOffset > 0)
+              ? 1 : 0;
+            const openEnd = singleParagraph
+              || (parsedDoc.lastChild.type.name === 'paragraph' && $to.parent.content.size > 0 && $to.parentOffset < $to.parent.content.size)
+              ? 1 : 0;
+            const slice = new Slice(parsedDoc.content, openStart, openEnd);
+            view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView());
+            return true;
+          },
+        },
+      }),
+    ];
+  },
+});
+
 const ListIndentShortcuts = Extension.create({
   name: 'listIndentShortcuts',
   addKeyboardShortcuts() {
@@ -261,10 +396,48 @@ const ListIndentShortcuts = Extension.create({
 });
 
 // ==> Section 2 - Shared Document Model <==
+const EditorStarterKit = StarterKit.extend({
+  addExtensions() {
+    return this.parent().map(extension => {
+      if (extension.name !== 'codeBlock') return extension;
+      return extension.extend({
+        parseMarkdown: (token, helpers) => {
+          if (!/^ {0,3}(?:`{3,}|~{3,})/.test(token.raw || '') && token.codeBlockStyle !== 'indented') return [];
+          return helpers.createNode('codeBlock', { language: token.lang || null }, token.text ? [helpers.createTextNode(token.text)] : []);
+        },
+        renderMarkdown: (node, helpers) => {
+          const language = node.attrs?.language || '';
+          if (!node.content?.length) {
+            const fence = codeFenceFor('', language);
+            return `${fence}${language}\n\n${fence}`;
+          }
+          const body = helpers.renderChildren(node.content);
+          const fence = codeFenceFor(body, language);
+          return [`${fence}${language}`, body, fence].join('\n');
+        },
+        addInputRules() {
+          return [
+            textblockTypeInputRule({
+              find: /^`{3,}([a-z]+)?[\s\n]$/,
+              type: this.type,
+              getAttributes: match => ({ language: match[1] }),
+            }),
+            textblockTypeInputRule({
+              find: /^~{3,}([a-z]+)?[\s\n]$/,
+              type: this.type,
+              getAttributes: match => ({ language: match[1] }),
+            }),
+          ];
+        },
+      });
+    });
+  },
+});
+
 export const editorExtensions = [
-  StarterKit.configure({ underline: false, trailingNode: false, link: { openOnClick: false, autolink: false } }),
+  EditorStarterKit.configure({ underline: false, trailingNode: false, link: { openOnClick: false, autolink: false } }),
   Image.configure({ inline: true, allowBase64: false }), InlineSpoiler, SpoilerBlock, CenterBlock, TextColor, Callout,
-  TaskList, TaskItem.configure({ nested: true }), Table, TableRow, TableCell, TableHeader, SearchHighlight, BlockHighlight, ActivePlaceholder, SmartUrlPaste, ListIndentShortcuts,
+  TaskList, TaskItem.configure({ nested: true }), Table, TableRow, TableCell, TableHeader, SearchHighlight, BlockHighlight, ActivePlaceholder, SmartUrlPaste, MarkdownPaste, ListIndentShortcuts,
 ];
 // The upstream serializer does not know that literal pipes delimit our custom spoiler marks.
 class EditorMarkdownManager extends MarkdownManager {
@@ -322,8 +495,22 @@ function isListBlock(node) {
   return node?.type === 'bulletList' || node?.type === 'orderedList' || node?.type === 'taskList';
 }
 
+function isSingleNewlineBlock(node) {
+  return node?.type === 'horizontalRule'
+    || node?.type === 'blockquote'
+    || node?.type === 'callout'
+    || node?.type === 'codeBlock';
+}
+
 function nexusSeparatorNewlines(previousNode, nextNode) {
-  return isListBlock(previousNode) || isListBlock(nextNode) ? 1 : 2;
+  if (isListBlock(nextNode)) return 0;
+  if (isListBlock(previousNode) || isSingleNewlineBlock(previousNode) || isSingleNewlineBlock(nextNode)) return 1;
+  return 2;
+}
+
+function formatNexusList(tag, items) {
+  const rendered = (items || []).map(bbcodeNode).join('\n');
+  return rendered ? `[${tag}]${rendered}\n[/list]` : `[${tag}][/list]`;
 }
 
 function joinNexusBlocks(nodes) {
@@ -366,12 +553,12 @@ function bbcodeNode(node) {
       if (/\[\/code\]/i.test(text)) throw new Error('Code contains a closing BBCode code tag and cannot be exported safely.');
       return `[code]${text}[/code]`;
     }
-    case 'bulletList': return `[list]\n${(node.content || []).map(bbcodeNode).join('\n')}\n[/list]`;
+    case 'bulletList': return formatNexusList('list', node.content);
     case 'orderedList':
       if (node.attrs?.start && node.attrs.start !== 1) throw new Error('Nexus export supports numbered lists starting at 1.');
-      return `[list=1]\n${(node.content || []).map(bbcodeNode).join('\n')}\n[/list]`;
+      return formatNexusList('list=1', node.content);
     case 'listItem': return `[*]${blocks()}`;
-    case 'taskList': return `[list]\n${(node.content || []).map(bbcodeNode).join('\n')}\n[/list]`;
+    case 'taskList': return formatNexusList('list', node.content);
     case 'taskItem': return `[*][${node.attrs.checked ? 'x' : ' '}] ${blocks()}`;
     case 'table': return (node.content || []).map(bbcodeNode).join('\n');
     case 'tableRow': return (node.content || []).map(bbcodeNode).join(' | ');
