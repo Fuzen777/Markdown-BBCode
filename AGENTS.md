@@ -2,7 +2,7 @@
 
 ## Scope
 
-Windows Markdown editor built with Tauri 2, Rust, vanilla JavaScript, Tiptap 3 and CodeMirror 6. Read DESIGN.md before changing behaviour. Ordinary .md is the default. Nexus and Steam guide BBCode are optional on-demand outputs (Steam modeled on `C:\Google Drive\Coding\Apps\Steam Markdown`). Supports both Portable mode (beside executable via `Portable.txt` or `portable-data`) and Installed NSIS mode (`AppData`).
+Windows Markdown editor built with Tauri 2, Rust, vanilla JavaScript, Tiptap 3 and CodeMirror 6. Read DESIGN.md before changing behaviour. Ordinary .md is the default. Nexus and Steam guide BBCode are optional on-demand outputs (Steam modeled on the sibling project `..\Steam Markdown`). Supports both Portable mode (beside executable via `Portable.txt` or `portable-data`) and Installed NSIS mode (`AppData`).
 
 ## Development
 
