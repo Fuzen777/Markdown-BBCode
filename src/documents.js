@@ -2,6 +2,7 @@
 import { colorPreferences } from './colors.js';
 import { folderBrowserState } from './folder-browser-model.js';
 import { mergeThreeWay } from './diff.js';
+import { normalizeLintSettings, normalizeRightPanelTab } from './lint/lint-config.js';
 export function normalizeViewportWidth(value) { return value === 'full' ? 'full' : 'page'; }
 export function normalizeBBCodeTarget(value) { return value === 'steam' ? 'steam' : 'nexus'; }
 export function normalizeOutlineMode(value) { return value === 'floating' || value === 'docked' ? value : 'off'; }
@@ -24,6 +25,8 @@ export class DocumentStore {
     this.viewportWidth = 'page';
     this.bbcodeTarget = 'nexus';
     this.outlineMode = 'off';
+    this.rightPanelTab = 'outline';
+    this.lint = normalizeLintSettings();
     this.folderBrowser = folderBrowserState();
     this.activeId = null;
     this.sessionQueue = Promise.resolve();
@@ -42,6 +45,8 @@ export class DocumentStore {
     this.viewportWidth = normalizeViewportWidth(session.viewportWidth);
     this.bbcodeTarget = normalizeBBCodeTarget(session.bbcodeTarget);
     this.outlineMode = normalizeOutlineMode(session.outlineMode);
+    this.rightPanelTab = normalizeRightPanelTab(session.rightPanelTab);
+    this.lint = normalizeLintSettings(session.lint);
     this.folderBrowser = folderBrowserState(session.folderBrowser);
     this.pendingImports = session.pendingImports || [];
     this.documents = session.documents.map(documentRecord => {
@@ -83,6 +88,8 @@ export class DocumentStore {
       viewportWidth: this.viewportWidth,
       bbcodeTarget: this.bbcodeTarget,
       outlineMode: this.outlineMode,
+      rightPanelTab: this.rightPanelTab,
+      lint: { ...this.lint },
       folderBrowser: structuredClone(this.folderBrowser),
       activeId: this.activeId,
       pendingImports: structuredClone(this.pendingImports),

@@ -147,13 +147,26 @@
           </div>
           <aside id="outline-docked-pane" aria-label="Document Outline" hidden>
             <div class="outline-docked-header">
-              <strong>Outline</strong>
+              <div class="right-panel-tabs" role="tablist" aria-label="Side Panel">
+                <button id="right-tab-outline" type="button" role="tab" aria-selected="true" aria-controls="outline-docked-list">Outline</button>
+                <button id="right-tab-lint" type="button" role="tab" aria-selected="false" aria-controls="lint-panel" tabindex="-1">Lint<span id="lint-tab-count" class="lint-count" hidden></span></button>
+              </div>
               <div class="outline-docked-actions">
                 <button id="outline-unpin-float" type="button" aria-label="Switch To Floating Outline" title="Switch To Floating Outline"></button>
                 <button id="outline-docked-close" type="button" aria-label="Hide Document Outline" title="Hide Document Outline"></button>
               </div>
             </div>
-            <nav id="outline-docked-list" class="outline-list" aria-label="Document Headings"></nav>
+            <nav id="outline-docked-list" class="outline-list" role="tabpanel" aria-label="Document Headings"></nav>
+            <section id="lint-panel" class="lint-panel" role="tabpanel" aria-label="Lint Problems" hidden>
+              <div class="lint-toolbar">
+                <span id="lint-summary" role="status"></span>
+                <div class="lint-toolbar-actions">
+                  <button id="lint-refresh" type="button" aria-label="Lint Again" title="Lint Again"></button>
+                  <button id="lint-disable" type="button" aria-label="Turn Off Linting" title="Turn Off Linting"></button>
+                </div>
+              </div>
+              <div id="lint-list" class="lint-list"></div>
+            </section>
           </aside>
           <div id="preview-resizer" role="separator" aria-orientation="vertical" aria-label="Resize BBCode Preview" tabindex="0" hidden></div>
           <aside id="bbcode-preview-pane" aria-label="BBCode Preview" hidden>
@@ -173,7 +186,7 @@
         </div>
       </div>
     </main>
-    <footer><span id="save-status" role="status">Starting…</span><span id="document-stats"></span><button id="app-version" class="footer-version" type="button" title="Check For Updates">v0.2.12</button><span>Autosave · Local Markdown</span></footer>
+    <footer><span id="save-status" role="status">Starting…</span><span id="document-stats"></span><button id="lint-status" class="footer-lint" type="button" hidden>Lint…</button><button id="app-version" class="footer-version" type="button" title="Check For Updates">v0.2.12</button><span>Autosave · Local Markdown</span></footer>
     <dialog id="choice-dialog" aria-labelledby="dialog-title"><h2 id="dialog-title"></h2><p id="dialog-message"></p><input id="dialog-input" aria-label="Value" hidden><div id="dialog-actions"></div></dialog>
     <dialog id="diff-dialog" aria-labelledby="diff-dialog-title">
       <div class="diff-dialog-shell">

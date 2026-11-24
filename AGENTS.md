@@ -26,6 +26,10 @@ Ordinary Markdown accepts arbitrary optional YAML; only legacy metadata has app-
 
 src/colors.js owns conversion/validation; src/color-picker.js owns the picker. Session preferences.lastColor and preferences.colorMode are global portable settings. Selection never overwrites lastColor. Save input-mode changes immediately, including cancellation. Preserve editor bookmarks across the picker in every mode.
 
+## Linting
+
+src/lint owns opt-in markdownlint support. markdownlint is only imported by src/lint/lint-worker.js, which runs in a lazily created Web Worker; keep it out of the main bundle so startup and shutdown cost nothing when linting is off. src/lint/lint-controller.js owns debounce/latest-wins scheduling, src/lint/lint-config.js the app rule profile and settings normalization, and src/lint/lint-panel.js the `Outline | Lint` tabs and problem list.
+
 ## Validation And Documentation
 
 Run npm test, npm run test:ui, npm run lint, npm run build, Rust tests, formatting checks and Clippy. After packaging, npm run test:native (scripts/native-smoke.mjs) exercises the actual desktop bridge in an isolated folder; close other app instances first. Test runners enforce hard process-tree timeout limits via scripts/run-with-timeout.mjs (30s unit tests, 120s Playwright UI with a 20s webServer startup limit and maxFailures: 5, and 60s native smoke, terminating hung process trees with exit code 124). Because Playwright and native smoke rely on local loopback connections and Edge or WebView2, run npm run test:ui and npm run test:native outside restrictive network/process sandboxes. Keep DESIGN.md, FEATURES.md, README.md, CHANGELOG.md and VALIDATION.md aligned. Development file watching excludes runtime caches and builds.

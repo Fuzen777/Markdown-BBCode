@@ -10,6 +10,9 @@ import { ColorPicker } from './color-picker.js';
 import { FindReplaceController } from './find-replace.js';
 import { TableGridPicker } from './table-controls.js';
 import { DocumentOutline } from './outline.js';
+import { LintPanel } from './lint/lint-panel.js';
+import { LintController } from './lint/lint-controller.js';
+import { APP_LINT_CONFIG } from './lint/lint-config.js';
 import { FolderBrowser } from './folder-browser.js';
 import { DiffDialog } from './diff-dialog.js';
 import { detectTextFormat, parentDirectory, addRecentFolder } from './folder-browser-model.js';
@@ -41,6 +44,8 @@ let editor;
 let colorPicker;
 let findReplace;
 let documentOutline;
+let lintPanel;
+let lintController;
 let folderBrowser;
 let diffDialog;
 let previewOpen = false;
@@ -408,6 +413,7 @@ function render() {
   renderBBCodeTarget();
   updateBBCodePreview();
   documentOutline?.refresh();
+  updateLint();
   folderBrowser?.syncOpenDocuments();
   renderViewportWidth();
   renderUpdater();
@@ -470,6 +476,47 @@ async function setViewportWidth(mode) {
   store.viewportWidth = next;
   renderViewportWidth();
   requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  await persist();
+}
+
+// ==> Lint Wiring - markdownlint runs in a lazily created worker only while linting is enabled <==
+function createLintWorker() {
+  return new Worker(new URL('./lint/lint-worker.js', import.meta.url), { type: 'module', name: 'markdownlint' });
+}
+
+function updateLint(options = {}) {
+  if (!lintController?.enabled || !store.active) return;
+  lintController.update(store.active.id, store.active.content, options);
+  if (lintPanel.result?.docKey !== store.active.id) lintPanel.showPending(store.active.id);
+}
+
+function handleLintResult(result) {
+  if (!store.active || result.docKey !== store.active.id) return;
+  lintPanel.setResult(result);
+}
+
+async function setLintEnabled(enabled) {
+  const next = Boolean(enabled);
+  if (store.lint.enabled === next) return;
+  store.lint = { ...store.lint, enabled: next };
+  applyLintEnabled();
+  await persist();
+}
+
+function applyLintEnabled() {
+  if (store.lint.enabled) {
+    lintController.enable();
+    lintPanel.setEnabled(true);
+    updateLint();
+  } else {
+    lintController.disable();
+    lintPanel.setEnabled(false);
+  }
+}
+
+async function setRightPanelTab(tab) {
+  if (store.rightPanelTab === tab) return;
+  store.rightPanelTab = tab;
   await persist();
 }
 
@@ -1083,6 +1130,15 @@ async function initialize() {
   findReplace = new FindReplaceController(elements, () => editor, () => { capture(); render(); });
   diffDialog = new DiffDialog(elements);
   documentOutline = new DocumentOutline(elements, () => editor, mode => { void runAction(() => setOutlineMode(mode)); });
+  lintController = new LintController({ createWorker: createLintWorker, config: APP_LINT_CONFIG, onResult: handleLintResult });
+  lintPanel = new LintPanel(elements, {
+    getEditor: () => editor,
+    onEnabledChange: enabled => { void runAction(() => setLintEnabled(enabled)); },
+    onTabChange: tab => { void runAction(() => setRightPanelTab(tab)); },
+    onShowPanel: () => { void runAction(() => setOutlineMode('docked')); },
+    onOpenUrl: url => { void runAction(() => invoke('open_external_url', { url })); },
+    onRefresh: () => { capture(); if (store.active && lintController.enabled) { lintPanel.showPending(store.active.id); lintController.update(store.active.id, store.active.content, { immediate: true, force: true }); } },
+  });
   folderBrowser = new FolderBrowser(elements, backend, {
     getState: () => store.folderBrowser,
     persistState: () => persist(),
@@ -1245,6 +1301,8 @@ async function initialize() {
   runtimeInfo = await backend.runtimeInfo().catch(() => runtimeInfo);
   await store.restore();
   documentOutline.setMode(store.outlineMode, false);
+  lintPanel.setTab(store.rightPanelTab, false);
+  applyLintEnabled();
   if (!store.active) store.add();
   showDocument();
   await folderBrowser.initialize(store.active?.path || null);
