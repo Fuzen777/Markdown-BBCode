@@ -854,6 +854,117 @@ test('Lint tab stays unloaded until enabled, lists markdownlint problems, jumps 
   await expect(page.locator('#lint-list')).toContainText('Markdown linting is off');
 });
 
+test('Settings dialog opens from the gear and Ctrl+, without loading at startup, and General stays in sync with the header', async ({ page }) => {
+  const settingsRequested = () => page.evaluate(() => performance.getEntriesByType('resource').some(entry => /settings-dialog|markdownlint-config-schema|lint-project-config/.test(entry.name)));
+  expect(await settingsRequested()).toBe(false);
+  const dialog = page.locator('#settings-dialog');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('tab', { name: 'General' })).toHaveAttribute('aria-selected', 'true');
+  await dialog.getByRole('group', { name: 'BBCode Dialect' }).getByRole('button', { name: 'Steam' }).click();
+  await dialog.getByRole('group', { name: 'Editor Width' }).getByRole('button', { name: 'Full' }).click();
+  await dialog.getByRole('group', { name: 'Document Outline' }).getByRole('button', { name: 'Dock' }).click();
+  await expect(page.locator('#target-steam')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#viewport-full')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#outline-docked')).toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog.getByRole('group', { name: 'Editor Width' }).getByRole('button', { name: 'Full' })).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => page.evaluate(() => [window.testDesktop.session?.bbcodeTarget, window.testDesktop.session?.viewportWidth, window.testDesktop.session?.outlineMode].join())).toBe('steam,full,docked');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+
+  await page.locator('#target-nexus').click();
+  await page.locator('#viewport-page').click();
+  await page.getByRole('textbox', { name: 'Visual Markdown Editor' }).click();
+  await page.keyboard.press('Control+,');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('group', { name: 'BBCode Dialect' }).getByRole('button', { name: 'Nexus' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(dialog.getByRole('group', { name: 'Editor Width' }).getByRole('button', { name: 'Page' })).toHaveAttribute('aria-pressed', 'true');
+  await dialog.getByRole('button', { name: 'Close Settings' }).click();
+  await expect(dialog).toBeHidden();
+});
+
+test('Linting settings toggle rules, set Error severity, clamp timing, open docs and persist across reload', async ({ page }) => {
+  await setSource(page, '# Title\n\n#Bad heading\n\nText with <span style="color: #ff0000">red</span>.\n\n* one\n- two\n');
+  await page.getByRole('button', { name: 'Dock', exact: true }).click();
+  await page.getByRole('tab', { name: 'Lint' }).click();
+  await page.getByRole('button', { name: 'Enable Linting', exact: true }).click();
+  await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD018', 'MD032', 'MD004']);
+
+  const dialog = page.locator('#settings-dialog');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await dialog.getByRole('tab', { name: 'Linting' }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'Enable Markdown Linting' })).toBeChecked();
+  await dialog.getByRole('searchbox', { name: 'Search Rules' }).fill('no-missing-space-atx');
+  await expect(dialog.locator('.rule-card')).toHaveCount(1);
+  await dialog.getByRole('checkbox', { name: 'Enable MD018' }).uncheck();
+  await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD032', 'MD004']);
+
+  await dialog.getByRole('searchbox', { name: 'Search Rules' }).fill('MD004');
+  await dialog.getByRole('combobox', { name: 'MD004 Severity' }).selectOption('error');
+  await expect(page.locator('#lint-tab-count')).toHaveClass(/has-errors/);
+  await expect(page.locator('#lint-summary')).toHaveText('1 Error · 2 Warnings');
+  await dialog.getByRole('button', { name: 'Open MD004 Documentation' }).click();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.openedUrls.at(-1))).toMatch(/md004\.md$/);
+
+  await dialog.getByRole('searchbox', { name: 'Search Rules' }).fill('');
+  await dialog.getByRole('combobox', { name: 'Category' }).selectOption('Headings');
+  await expect(dialog.locator('.rule-card[data-rule="MD004"]')).toHaveCount(0);
+  await expect(dialog.locator('.rule-card[data-rule="MD001"]')).toHaveCount(1);
+  await dialog.getByRole('combobox', { name: 'Category' }).selectOption('');
+  await dialog.getByRole('checkbox', { name: 'Only Modified' }).check();
+  await expect(dialog.locator('.rule-card')).toHaveCount(2);
+  await expect(dialog.locator('.settings-rule-count')).toHaveText('2 Rules');
+
+  await dialog.getByRole('spinbutton', { name: 'Lint Delay' }).fill('5000');
+  await dialog.getByRole('spinbutton', { name: 'Lint Delay' }).press('Enter');
+  await expect(dialog.getByRole('spinbutton', { name: 'Lint Delay' })).toHaveValue('2000');
+  await expect.poll(() => page.evaluate(() => JSON.stringify(window.testDesktop.session?.lint))).toBe(JSON.stringify({ enabled: true, preset: 'app', rules: { MD018: false, MD004: 'error' }, debounceMs: 2000, largeFileKB: 300 }));
+  await page.screenshot({ path: 'test-results/settings-linting-page.png' });
+  await page.keyboard.press('Escape');
+
+  await page.evaluate(() => localStorage.setItem('seedSession', JSON.stringify(window.testDesktop.session)));
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-ready', 'true');
+  await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD032', 'MD004']);
+  await expect(page.locator('#lint-tab-count')).toHaveClass(/has-errors/);
+
+  await page.keyboard.press('Control+,');
+  await dialog.getByRole('tab', { name: 'Linting' }).click();
+  await dialog.getByRole('searchbox', { name: 'Search Rules' }).fill('MD018');
+  await expect(dialog.getByRole('checkbox', { name: 'Enable MD018' })).not.toBeChecked();
+  await dialog.getByRole('button', { name: 'Reset MD018' }).click();
+  await expect(dialog.getByRole('checkbox', { name: 'Enable MD018' })).toBeChecked();
+  await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD018', 'MD032', 'MD004']);
+  await dialog.getByRole('combobox', { name: 'Preset' }).selectOption('markdownlint');
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.lint?.preset)).toBe('markdownlint');
+});
+
+test('nearest project .markdownlint.jsonc with extends replaces app lint settings and shows read-only', async ({ page }) => {
+  await page.evaluate(() => {
+    const files = window.testDesktop.files;
+    const add = (path, content) => { files[path] = { path, content, revision: '1' }; };
+    add('C:\\Repo\\.markdownlint.jsonc', '{\n  // Project rules\n  "extends": "./base.json",\n  "MD018": false,\n}\n');
+    add('C:\\Repo\\base.json', '{ "default": true, "MD004": "error" }');
+    add('C:\\Repo\\docs\\Page.md', '# Title\n\n#Bad heading\n\n<span>x</span>\n\n* one\n- two\n');
+    window.testDesktop.openPaths = ['C:\\Repo\\docs\\Page.md'];
+  });
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.locator('#document-path')).toHaveText('C:\\Repo\\docs\\Page.md');
+  await page.getByRole('button', { name: 'Dock', exact: true }).click();
+  await page.getByRole('tab', { name: 'Lint' }).click();
+  await page.getByRole('button', { name: 'Enable Linting', exact: true }).click();
+  // Project config: MD018 off, MD033 (inline HTML) on because markdownlint defaults apply, MD004 is an error.
+  await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD033', 'MD032', 'MD004']);
+  await expect(page.locator('#lint-tab-count')).toHaveClass(/has-errors/);
+
+  const dialog = page.locator('#settings-dialog');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await dialog.getByRole('tab', { name: 'Linting' }).click();
+  await expect(dialog.locator('.settings-notice')).toHaveText('Using C:\\Repo\\.markdownlint.jsonc (read-only)');
+  await expect(dialog.getByRole('checkbox', { name: 'Enable MD001' })).toBeDisabled();
+  await expect(dialog.getByRole('combobox', { name: 'Preset' })).toBeDisabled();
+});
+
 test('Windows virtual-key shortcuts respect split Ctrl layouts like BEPO azerty-ctrl across modes', async ({ page }) => {
   const dispatchCtrl = (selector, key, keyCode, shiftKey = false) => page.evaluate(
     ({ sel, k, code, shift }) => {

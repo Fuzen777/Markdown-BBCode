@@ -89,7 +89,7 @@ export class DocumentStore {
       bbcodeTarget: this.bbcodeTarget,
       outlineMode: this.outlineMode,
       rightPanelTab: this.rightPanelTab,
-      lint: { ...this.lint },
+      lint: structuredClone(this.lint),
       folderBrowser: structuredClone(this.folderBrowser),
       activeId: this.activeId,
       pendingImports: structuredClone(this.pendingImports),

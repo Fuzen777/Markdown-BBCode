@@ -27,6 +27,7 @@
       <button id="update-app" class="update-pill" hidden>Update Available</button>
       <button id="export">Export BBCode…</button>
       <button id="copy" class="primary" title="Copy BBCode (Ctrl+Shift+C)">Copy BBCode</button>
+      <button id="settings-open" title="Settings (Ctrl+,)">Settings</button>
     </header>
     <div id="tabs" role="tablist" aria-label="Documents"></div>
     <main>
@@ -188,6 +189,7 @@
     </main>
     <footer><span id="save-status" role="status">Starting…</span><span id="document-stats"></span><button id="lint-status" class="footer-lint" type="button" hidden>Lint…</button><button id="app-version" class="footer-version" type="button" title="Check For Updates">v0.2.12</button><span>Autosave · Local Markdown</span></footer>
     <dialog id="choice-dialog" aria-labelledby="dialog-title"><h2 id="dialog-title"></h2><p id="dialog-message"></p><input id="dialog-input" aria-label="Value" hidden><div id="dialog-actions"></div></dialog>
+    <dialog id="settings-dialog" aria-labelledby="settings-title"></dialog>
     <dialog id="diff-dialog" aria-labelledby="diff-dialog-title">
       <div class="diff-dialog-shell">
         <div class="diff-dialog-header">

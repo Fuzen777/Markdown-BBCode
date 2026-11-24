@@ -28,7 +28,7 @@ src/colors.js owns conversion/validation; src/color-picker.js owns the picker. S
 
 ## Linting
 
-src/lint owns opt-in markdownlint support. markdownlint is only imported by src/lint/lint-worker.js, which runs in a lazily created Web Worker; keep it out of the main bundle so startup and shutdown cost nothing when linting is off. src/lint/lint-controller.js owns debounce/latest-wins scheduling, src/lint/lint-config.js the app rule profile and settings normalization, and src/lint/lint-panel.js the `Outline | Lint` tabs and problem list.
+src/lint owns opt-in markdownlint support. markdownlint is only imported by src/lint/lint-worker.js, which runs in a lazily created Web Worker; keep it out of the main bundle so startup and shutdown cost nothing when linting is off. src/lint/lint-controller.js owns debounce/latest-wins scheduling, src/lint/lint-config.js the app rule profile, presets, `lint` settings normalization and preset/override merging, src/lint/lint-project-config.js the read-only `.markdownlint.jsonc`/`.markdownlint.json` discovery (JSONC, relative `extends`, per-folder cache cleared on window focus), and src/lint/lint-panel.js the `Outline | Lint` tabs and problem list. src/settings/settings-dialog.js (Settings dialog, `Ctrl+,`) and src/settings/lint-rule-catalog.js (rule browser model generated from markdownlint's config schema, aliased in vite.config.js as `markdownlint-config-schema` because the package does not export it) are dynamically imported on first open; lint-project-config.js only once linting is enabled. Keep all three out of the main bundle and check `npm run build` chunk sizes after changes.
 
 ## Validation And Documentation
 

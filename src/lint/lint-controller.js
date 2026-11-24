@@ -16,6 +16,7 @@ export class LintController {
     now = () => Date.now(),
   }) {
     Object.assign(this, { createWorker, config, onResult, debounceMs, maxWaitMs, largeFileBytes, setTimer, clearTimer, now });
+    this.configKey = JSON.stringify(config ?? null);
     this.enabled = false;
     this.worker = null;
     this.timer = null;
@@ -40,9 +41,27 @@ export class LintController {
     this.lastLinted = null;
   }
 
+  // Returns true when the config changed; a lint already in flight is then re-run with it.
   setConfig(config) {
+    const key = JSON.stringify(config ?? null);
+    if (key === this.configKey) return false;
+    this.configKey = key;
     this.config = config;
     this.lastLinted = null;
+    if (this.running) {
+      this.revision++;
+      this.latest = { ...(this.latest || this.running), revision: this.revision };
+      this.dirty = true;
+    }
+    return true;
+  }
+
+  setTiming({ debounceMs = this.debounceMs, largeFileBytes = this.largeFileBytes } = {}) {
+    const changed = debounceMs !== this.debounceMs || largeFileBytes !== this.largeFileBytes;
+    this.debounceMs = debounceMs;
+    this.largeFileBytes = largeFileBytes;
+    if (changed) this.lastLinted = null;
+    return changed;
   }
 
   // Called on every render; cheap when nothing changed.

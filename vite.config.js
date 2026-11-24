@@ -6,6 +6,8 @@ export default defineConfig({
     alias: {
       // micromark (inside the markdownlint worker) would otherwise pick the DOM-based entity decoder, which needs `document`.
       'decode-named-character-reference': fileURLToPath(new URL('./node_modules/decode-named-character-reference/index.js', import.meta.url)),
+      // markdownlint does not export its config schema; the Settings rule browser lazy-loads it through this alias.
+      'markdownlint-config-schema': fileURLToPath(new URL('./node_modules/markdownlint/schema/markdownlint-config-schema.json', import.meta.url)),
     },
   },
   worker: { format: 'es' },

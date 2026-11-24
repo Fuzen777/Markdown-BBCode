@@ -48,9 +48,10 @@ test('groupLintProblems collapses repeated rule hits in first-occurrence order',
 });
 
 test('lint settings and panel tab normalize safely', () => {
-  assert.deepEqual(normalizeLintSettings(undefined), { enabled: false });
-  assert.deepEqual(normalizeLintSettings({ enabled: 'yes' }), { enabled: false });
-  assert.deepEqual(normalizeLintSettings({ enabled: true }), { enabled: true });
+  const defaults = { preset: 'app', rules: {}, debounceMs: 400, largeFileKB: 300 };
+  assert.deepEqual(normalizeLintSettings(undefined), { enabled: false, ...defaults });
+  assert.deepEqual(normalizeLintSettings({ enabled: 'yes' }), { enabled: false, ...defaults });
+  assert.deepEqual(normalizeLintSettings({ enabled: true }), { enabled: true, ...defaults });
   assert.equal(normalizeRightPanelTab('lint'), 'lint');
   assert.equal(normalizeRightPanelTab('other'), 'outline');
 });

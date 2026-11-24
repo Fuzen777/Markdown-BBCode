@@ -38,7 +38,7 @@ export function initializeIcons() {
   const actions = {
     new: 'add', open: 'folder_open', import: 'file_open', save: 'save', 'save-as': 'save_as',
     export: 'file_export', copy: 'content_copy', 'choose-color': 'arrow_drop_down',
-    'files-toggle': 'dock_to_left',
+    'files-toggle': 'dock_to_left', 'settings-open': 'settings',
     'target-nexus': 'NexusMods', 'target-steam': 'Steam',
     'find-toggle': 'search', 'preview-bbcode': 'preview', 'preview-close': 'close',
     'find-prev': 'arrow_upward', 'find-next': 'arrow_downward', 'find-close': 'close',

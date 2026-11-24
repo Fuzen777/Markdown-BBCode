@@ -1,6 +1,10 @@
 # markdownlint Integration Evaluation
 
-Status: evaluation only, nothing implemented. Date: 2026-11-24.
+Status: evaluation written 2026-11-24; implementation status per phase below.
+
+Phase 1 status: shipped (worker, controller, `Outline | Lint` tabs, app profile, master toggle).
+
+Phase 2 status: shipped 2026-11-24. Settings dialog (gear, `Ctrl+,`) with General and Linting pages, schema-generated rule browser, presets, `lint` settings `{ enabled, preset, rules, debounceMs, largeFileKB }`, and read-only `.markdownlint.json(c)` discovery with relative `extends`. Deviations: project configs are read-only (no JSONC editing yet), "Show inline markers" and the Editor page are not built, and the discovery walk stops at the Folder Browser root only when that root is locked, because an unlocked root follows the active file's folder.
 
 ## Recommendation
 

@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open, save } from '@tauri-apps/plugin-dialog';
 import { DocumentStore, documentName, pathKey, outputPath, normalizeViewportWidth, normalizeBBCodeTarget, normalizeOutlineMode } from './documents.js';
+// Settings dialog, rule browser and project config discovery are dynamically imported on demand.
 import { MarkdownEditor } from './visual-editor.js';
 import { documentToBBCodeWithWarnings, hasDocumentContent, readDocumentSource } from './document-format.js';
 import { importBBCode } from './bbcode-import.js';
@@ -12,7 +13,7 @@ import { TableGridPicker } from './table-controls.js';
 import { DocumentOutline } from './outline.js';
 import { LintPanel } from './lint/lint-panel.js';
 import { LintController } from './lint/lint-controller.js';
-import { APP_LINT_CONFIG } from './lint/lint-config.js';
+import { normalizeLintSettings, presetConfigSync, loadPresetConfig, mergeLintConfig } from './lint/lint-config.js';
 import { FolderBrowser } from './folder-browser.js';
 import { DiffDialog } from './diff-dialog.js';
 import { detectTextFormat, parentDirectory, addRecentFolder } from './folder-browser-model.js';
@@ -46,6 +47,10 @@ let findReplace;
 let documentOutline;
 let lintPanel;
 let lintController;
+let settingsDialog = null;
+let projectConfigFinder = null;
+let projectLintState = null;
+let lintConfigToken = 0;
 let folderBrowser;
 let diffDialog;
 let previewOpen = false;
@@ -85,6 +90,7 @@ function anyDialogOpen() {
     || elements['color-dialog']?.open
     || elements['image-dialog']?.open
     || elements['diff-dialog']?.open
+    || elements['settings-dialog']?.open
   );
 }
 
@@ -417,6 +423,7 @@ function render() {
   folderBrowser?.syncOpenDocuments();
   renderViewportWidth();
   renderUpdater();
+  settingsDialog?.sync();
 }
 
 function capture() {
@@ -450,6 +457,7 @@ function showDocument() {
   } finally { loadingDocument = false; }
   render();
   findReplace?.refresh(true);
+  if (store.lint.enabled) void refreshLintConfig();
   if (startupComplete) void folderBrowser?.onActiveFileChanged(store.active?.path || null);
 }
 
@@ -475,6 +483,7 @@ async function setViewportWidth(mode) {
   if (store.viewportWidth === next) return;
   store.viewportWidth = next;
   renderViewportWidth();
+  settingsDialog?.sync();
   requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
   await persist();
 }
@@ -505,13 +514,83 @@ async function setLintEnabled(enabled) {
 
 function applyLintEnabled() {
   if (store.lint.enabled) {
+    lintController.setTiming({ debounceMs: store.lint.debounceMs, largeFileBytes: store.lint.largeFileKB * 1024 });
+    const presetConfig = presetConfigSync(store.lint.preset);
+    if (presetConfig && !projectLintState?.config) lintController.setConfig(mergeLintConfig(presetConfig, store.lint.rules));
     lintController.enable();
     lintPanel.setEnabled(true);
     updateLint();
+    void refreshLintConfig();
   } else {
+    lintConfigToken++;
+    projectLintState = null;
     lintController.disable();
     lintPanel.setEnabled(false);
   }
+  settingsDialog?.sync();
+}
+
+// Effective config: the nearest project .markdownlint.json(c) when one exists, otherwise the
+// chosen preset merged with the rule overrides. Project discovery loads only while linting is on.
+async function refreshLintConfig({ recheck = false } = {}) {
+  if (!store.lint.enabled) return;
+  const token = ++lintConfigToken;
+  const timingChanged = lintController.setTiming({ debounceMs: store.lint.debounceMs, largeFileBytes: store.lint.largeFileKB * 1024 });
+  const presetConfig = await loadPresetConfig(store.lint.preset);
+  let project = null;
+  const documentPath = store.active?.path;
+  if (documentPath) {
+    if (!projectConfigFinder) {
+      const { ProjectConfigFinder } = await import('./lint/lint-project-config.js');
+      projectConfigFinder ??= new ProjectConfigFinder(backend.readFile);
+    }
+    if (recheck) projectConfigFinder.clear();
+    // An unlocked Folder Browser root just follows the active file's folder, so only a locked root bounds the walk.
+    const workspaceRoot = store.folderBrowser?.rootLocked ? store.folderBrowser.rootPath : null;
+    project = await projectConfigFinder.find(documentPath, workspaceRoot)
+      .catch(error => ({ path: documentPath, error: errorMessage(error) }));
+  }
+  if (token !== lintConfigToken || !store.lint.enabled) return;
+  projectLintState = project;
+  const configChanged = lintController.setConfig(project?.config || mergeLintConfig(presetConfig, store.lint.rules));
+  settingsDialog?.sync();
+  if (configChanged || timingChanged) updateLint();
+}
+
+async function updateLintSettings(patch) {
+  store.lint = normalizeLintSettings({ ...store.lint, ...patch });
+  await refreshLintConfig();
+  settingsDialog?.sync();
+  await persist();
+}
+
+// ==> Settings Dialog - loaded on first open so it adds nothing to startup <==
+function settingsHost() {
+  return {
+    getState: () => ({
+      bbcodeTarget: normalizeBBCodeTarget(store.bbcodeTarget),
+      viewportWidth: normalizeViewportWidth(store.viewportWidth),
+      outlineMode: normalizeOutlineMode(store.outlineMode),
+      lint: store.lint,
+      project: store.lint.enabled ? projectLintState : null,
+    }),
+    setBBCodeTarget: target => runAction(() => setBBCodeTarget(target)),
+    setViewportWidth: mode => runAction(() => setViewportWidth(mode)),
+    setOutlineMode: mode => runAction(() => setOutlineMode(mode)),
+    setLintEnabled: enabled => runAction(() => setLintEnabled(enabled)),
+    updateLint: patch => runAction(() => updateLintSettings(patch)),
+    loadPresetConfig: preset => loadPresetConfig(preset),
+    openUrl: url => runAction(() => invoke('open_external_url', { url })),
+  };
+}
+
+async function openSettings(page) {
+  if (!settingsDialog) {
+    const { SettingsDialog } = await import('./settings/settings-dialog.js');
+    settingsDialog ??= new SettingsDialog(elements['settings-dialog'], settingsHost());
+  }
+  capture();
+  await settingsDialog.open(page);
 }
 
 async function setRightPanelTab(tab) {
@@ -525,6 +604,7 @@ async function setOutlineMode(mode) {
   if (store.outlineMode === next) return;
   store.outlineMode = next;
   documentOutline?.setMode(next, false);
+  settingsDialog?.sync();
   requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
   await persist();
 }
@@ -919,6 +999,8 @@ function keyboardShortcut(event) {
     return;
   }
   if (event.altKey) return;
+  // Ctrl+, : the comma character on any layout, or VK_OEM_COMMA for split Ctrl layouts.
+  if (!event.shiftKey && (event.key === ',' || event.keyCode === 188)) { event.preventDefault(); event.stopPropagation(); void runAction(() => openSettings()); return; }
   const key = shortcutKey(event);
   if (key === 'f' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); findReplace.open(false, selectedSearchText()); return; }
   if (key === 'h' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); findReplace.open(true, selectedSearchText()); return; }
@@ -1130,7 +1212,8 @@ async function initialize() {
   findReplace = new FindReplaceController(elements, () => editor, () => { capture(); render(); });
   diffDialog = new DiffDialog(elements);
   documentOutline = new DocumentOutline(elements, () => editor, mode => { void runAction(() => setOutlineMode(mode)); });
-  lintController = new LintController({ createWorker: createLintWorker, config: APP_LINT_CONFIG, onResult: handleLintResult });
+  lintController = new LintController({ createWorker: createLintWorker, config: presetConfigSync('app'), onResult: handleLintResult });
+  elements['settings-open'].onclick = () => runAction(() => openSettings());
   lintPanel = new LintPanel(elements, {
     getEditor: () => editor,
     onEnabledChange: enabled => { void runAction(() => setLintEnabled(enabled)); },
@@ -1319,6 +1402,7 @@ async function initialize() {
     if (!startupComplete || closingWindow || anyDialogOpen()) return;
     runExternalCheck();
     folderBrowser?.refreshOnWindowFocus();
+    if (store.lint.enabled) void refreshLintConfig({ recheck: true });
   };
   await listen('window-focused', handleWindowActivated);
   window.addEventListener('focus', handleWindowActivated);
