@@ -293,6 +293,39 @@ button.table-col-handle.icon-button { width: 22px; height: 14px; padding: 0; cur
 .outline-item:hover { background: var(--control); color: var(--text); border-color: transparent; }
 .outline-item.active { color: var(--text); font-weight: 600; border-left-color: var(--accent); background: var(--active-fill); }
 .outline-empty { padding: 10px 8px; font-size: 12px; color: var(--muted); text-align: center; }
+.right-panel-tabs { display: flex; gap: 2px; min-width: 0; }
+.right-panel-tabs [role="tab"] { display: inline-flex; align-items: center; gap: 5px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); padding: 3px 8px; font-size: 12px; font-weight: 600; }
+.right-panel-tabs [role="tab"]:hover { background: var(--control); color: var(--text); }
+.right-panel-tabs [role="tab"][aria-selected="true"] { background: var(--active-fill); color: var(--text); }
+.lint-count { min-width: 16px; padding: 0 5px; border-radius: 8px; background: var(--warning-fill); color: var(--warning-text); font-size: 10px; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
+.lint-count.has-errors { background: var(--error-fill); color: var(--error-text); }
+#outline-docked-pane.lint-active { flex-basis: 300px; width: 300px; }
+.lint-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.lint-panel[hidden], .outline-list[hidden] { display: none; }
+.lint-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 5px 8px 5px 10px; border-bottom: 1px solid var(--border); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lint-toolbar-actions { display: flex; gap: 2px; }
+#lint-refresh, #lint-disable, .lint-docs { width: 22px; height: 22px; padding: 2px; border-color: transparent; background: transparent; color: var(--muted); }
+#lint-refresh .material-icon, #lint-disable .material-icon, .lint-docs .material-icon { width: 15px; height: 15px; }
+#lint-refresh:hover, #lint-disable:hover, .lint-docs:hover { color: var(--text); background: var(--control); border-color: transparent; }
+.lint-list { flex: 1; min-height: 0; overflow: auto; padding: 6px; display: flex; flex-direction: column; gap: 2px; }
+.lint-group-header { display: flex; align-items: center; gap: 2px; }
+.lint-group-header .lint-docs { opacity: 0; flex: 0 0 auto; }
+.lint-group-header:hover .lint-docs, .lint-docs:focus-visible { opacity: 1; }
+.lint-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; border: 0; border-radius: 4px; background: transparent; padding: 5px 6px; font-size: 12px; color: var(--text-secondary); }
+.lint-row:hover { background: var(--control); color: var(--text); }
+.lint-children { display: flex; flex-direction: column; gap: 1px; padding-left: 14px; }
+.lint-child { color: var(--muted); }
+.lint-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: var(--warning-text); }
+.lint-dot.error { background: var(--error-text); }
+.lint-code { flex: 0 0 auto; font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11px; color: var(--muted); }
+.lint-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lint-meta { flex: 0 0 auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lint-empty { padding: 14px 10px; font-size: 12px; color: var(--muted); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.lint-empty p { margin: 0; line-height: 1.45; }
+.footer-lint { border: 0; background: transparent; padding: 2px 6px; font-size: 12px; color: var(--muted); border-radius: 4px; font-variant-numeric: tabular-nums; }
+.footer-lint:hover { background: var(--control); color: var(--text); }
+.footer-lint.has-problems { color: var(--warning-text); }
+.footer-lint.has-errors { color: var(--error-text); }
 .tiptap ul:not([data-type=taskList]), .tiptap ol { padding-left: 26px; }
 .tiptap table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 14px 0; }
 .tiptap td, .tiptap th { border: 1px solid var(--border); padding: 7px 10px; position: relative; min-width: 60px; vertical-align: top; }

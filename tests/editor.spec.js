@@ -806,6 +806,54 @@ test('global Document Outline mode persists Float, Dock, and Off across launches
   await expect(page.locator('#outline-docked-pane')).toBeHidden();
 });
 
+test('Lint tab stays unloaded until enabled, lists markdownlint problems, jumps across modes and persists', async ({ page }) => {
+  const workerRequested = () => page.evaluate(() => performance.getEntriesByType('resource').some(entry => entry.name.includes('lint-worker')));
+  await setSource(page, '# Title\n\n#Bad heading\n\nText with <span style="color: #ff0000">red</span>.\n\n* one\n- two\n');
+  await page.getByRole('button', { name: 'Dock', exact: true }).click();
+  await expect(page.locator('#lint-status')).toBeHidden();
+  await page.getByRole('tab', { name: 'Lint' }).click();
+  await expect(page.locator('#lint-list')).toContainText('Markdown linting is off');
+  expect(await workerRequested()).toBe(false);
+
+  await page.getByRole('button', { name: 'Enable Linting', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.lint?.enabled)).toBe(true);
+  await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD018', 'MD032', 'MD004']);
+  await expect(page.locator('#lint-tab-count')).toHaveText('4');
+  await expect(page.locator('#lint-status')).toHaveText('4 Lint Problems');
+  await expect(page.locator('#lint-summary')).toHaveText('4 Warnings');
+  await page.locator('#lint-list .lint-row', { hasText: 'MD032' }).click();
+  await expect(page.locator('#lint-list .lint-child')).toHaveCount(2);
+  expect(await workerRequested()).toBe(true);
+
+  await page.locator('#lint-list .lint-row', { hasText: 'MD018' }).click();
+  expect(await page.getByRole('textbox', { name: 'Markdown Source' }).evaluate(textarea => textarea.value.slice(0, textarea.selectionStart).split('\n').length)).toBe(3);
+
+  await page.getByRole('textbox', { name: 'Markdown Source' }).fill('# Title\n\n## Fixed heading\n');
+  await expect(page.locator('#lint-list')).toContainText('No problems in this document.');
+  await expect(page.locator('#lint-status')).toHaveText('No Lint Problems');
+
+  await page.getByRole('textbox', { name: 'Markdown Source' }).fill('# Title\n\nIntro\n\n#Broken\n');
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  await page.locator('#lint-list .lint-row', { hasText: 'MD018' }).click();
+  await expect(page.getByRole('textbox', { name: 'Active Block Markdown', exact: true })).toContainText('#Broken');
+
+  await page.getByRole('tab', { name: 'Outline' }).click();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.rightPanelTab)).toBe('outline');
+  await page.locator('#lint-status').click();
+  await expect(page.getByRole('tab', { name: /Lint/ })).toHaveAttribute('aria-selected', 'true');
+
+  await page.evaluate(() => localStorage.setItem('seedSession', JSON.stringify(window.testDesktop.session)));
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-ready', 'true');
+  await expect(page.getByRole('tab', { name: /Lint/ })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD018']);
+
+  await page.getByRole('button', { name: 'Turn Off Linting', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.lint?.enabled)).toBe(false);
+  await expect(page.locator('#lint-status')).toBeHidden();
+  await expect(page.locator('#lint-list')).toContainText('Markdown linting is off');
+});
+
 test('Windows virtual-key shortcuts respect split Ctrl layouts like BEPO azerty-ctrl across modes', async ({ page }) => {
   const dispatchCtrl = (selector, key, keyCode, shiftKey = false) => page.evaluate(
     ({ sel, k, code, shift }) => {
