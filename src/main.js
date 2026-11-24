@@ -2,7 +2,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { DocumentStore, documentName, pathKey, outputPath, normalizeViewportWidth, normalizeBBCodeTarget } from './documents.js';
+import { DocumentStore, documentName, pathKey, outputPath, normalizeViewportWidth, normalizeBBCodeTarget, normalizeOutlineMode } from './documents.js';
 import { MarkdownEditor } from './visual-editor.js';
 import { documentToBBCodeWithWarnings, hasDocumentContent, readDocumentSource } from './document-format.js';
 import { importBBCode } from './bbcode-import.js';
@@ -11,10 +11,12 @@ import { FindReplaceController } from './find-replace.js';
 import { TableGridPicker } from './table-controls.js';
 import { DocumentOutline } from './outline.js';
 import { FolderBrowser } from './folder-browser.js';
+import { DiffDialog } from './diff-dialog.js';
 import { detectTextFormat, parentDirectory, addRecentFolder } from './folder-browser-model.js';
 import { shortcutKey } from './shortcuts.js';
+import { installContextMenuGuard } from './context-menu.js';
 import './style.css';
-import { initializeIcons, setButtonIcon } from './icons.js';
+import { initializeIcons, setButtonIcon, createIcon } from './icons.js';
 
 initializeIcons();
 
@@ -34,12 +36,13 @@ const backend = {
   checkForUpdate: () => invoke('check_for_update'),
   installUpdate: () => invoke('install_update'),
 };
-const store = new DocumentStore(backend, render);
+const store = new DocumentStore(backend, render, handleExternalSync);
 let editor;
 let colorPicker;
 let findReplace;
 let documentOutline;
 let folderBrowser;
+let diffDialog;
 let previewOpen = false;
 let previewMeta = { blockOffsets: [], totalLines: 1 };
 let scrollSyncSource = null;
@@ -69,6 +72,40 @@ function runAction(action) {
 async function persist() {
   try { await store.persist(); }
   catch (error) { globalError = `Recovery could not be saved: ${errorMessage(error)}`; render(); throw error; }
+}
+
+function anyDialogOpen() {
+  return Boolean(
+    elements['choice-dialog']?.open
+    || elements['color-dialog']?.open
+    || elements['image-dialog']?.open
+    || elements['diff-dialog']?.open
+  );
+}
+
+function handleExternalSync(documentRecord, info) {
+  if (!documentRecord) return;
+  if (documentRecord.id === store.activeId && info.changedLocal) {
+    const scroller = activeEditorScroller();
+    const scrollTop = scroller?.scrollTop ?? 0;
+    const isSource = editor.sourceMode();
+    const selStart = isSource ? elements['markdown-source'].selectionStart : 0;
+    const selEnd = isSource ? elements['markdown-source'].selectionEnd : 0;
+    const wasFocused = isSource && document.activeElement === elements['markdown-source'];
+    showDocument();
+    if (scroller) scroller.scrollTop = scrollTop;
+    if (wasFocused) {
+      const len = elements['markdown-source'].value.length;
+      elements['markdown-source'].focus();
+      elements['markdown-source'].setSelectionRange(Math.min(selStart, len), Math.min(selEnd, len));
+    }
+  }
+  if (info.needsWrite) {
+    void store.flush(documentRecord).then(() => persist()).catch(() => {});
+  } else {
+    void persist().catch(() => {});
+  }
+  render();
 }
 
 // ==> Section 2 - Editor And Tab Rendering <==
@@ -270,6 +307,12 @@ function renderBBCodeTarget() {
   const target = activeBBCodeTarget();
   elements['target-nexus']?.setAttribute('aria-pressed', String(target === 'nexus'));
   elements['target-steam']?.setAttribute('aria-pressed', String(target === 'steam'));
+  if (elements['bbcode-preview-icon']) {
+    const iconName = target === 'steam' ? 'Steam' : 'NexusMods';
+    elements['bbcode-preview-icon'].replaceChildren(createIcon(iconName));
+    elements['bbcode-preview-icon'].classList.toggle('brand-icon-nexus', target !== 'steam');
+    elements['bbcode-preview-icon'].classList.toggle('brand-icon-steam', target === 'steam');
+  }
   if (elements['bbcode-preview-title']) {
     elements['bbcode-preview-title'].textContent = target === 'steam' ? 'Steam BBCode Preview' : 'Nexus BBCode Preview';
   }
@@ -338,11 +381,26 @@ function render() {
   }
   renderFormatting();
   const error = activeDocument?.error;
-  elements['notice-text'].textContent = error ? errorMessage(error) : globalError || safetyNotice;
+  const lastSync = !error && !globalError && !safetyNotice ? activeDocument?.lastSync : null;
+  let syncMessage = '';
+  if (lastSync) {
+    const label = lastSync.kind === 'clean-reload' ? 'Reloaded external changes' : 'Auto-synced external changes';
+    const added = lastSync.stats?.diskAdded ?? lastSync.stats?.added ?? 0;
+    const removed = lastSync.stats?.diskRemoved ?? lastSync.stats?.removed ?? 0;
+    syncMessage = `${label} (+${added} / -${removed} lines) in ${documentName(activeDocument)}.`;
+  }
+  elements['notice-text'].textContent = error ? errorMessage(error) : globalError || safetyNotice || syncMessage;
   elements.notice.hidden = !elements['notice-text'].textContent;
   elements.notice.classList.toggle('error', Boolean(error || globalError));
-  elements.resolve.hidden = error?.kind !== 'conflict';
-  elements.retry.hidden = !error || error.kind === 'conflict';
+  elements.notice.classList.toggle('sync-info', Boolean(lastSync));
+  const isConflict = error?.kind === 'conflict';
+  const isMissing = error?.kind === 'missing';
+  elements.resolve.hidden = !isConflict && !isMissing;
+  elements.resolve.textContent = isMissing ? 'Review Missing File' : 'Resolve Conflict';
+  if (elements['close-missing']) elements['close-missing'].hidden = !isMissing;
+  elements.retry.hidden = !error || isConflict || isMissing;
+  if (elements['view-sync-diff']) elements['view-sync-diff'].hidden = !lastSync;
+  if (elements['dismiss-sync']) elements['dismiss-sync'].hidden = !lastSync;
   const changed = activeDocument && activeDocument.content !== activeDocument.savedContent;
   elements['save-status'].textContent = error || globalError ? 'Needs Attention' : !activeDocument?.path ? 'Draft Recovery On' : changed ? 'Saving…' : 'Markdown Saved';
   const words = activeDocument ? countWords(activeDocument.content) : 0;
@@ -415,6 +473,15 @@ async function setViewportWidth(mode) {
   await persist();
 }
 
+async function setOutlineMode(mode) {
+  const next = normalizeOutlineMode(mode);
+  if (store.outlineMode === next) return;
+  store.outlineMode = next;
+  documentOutline?.setMode(next, false);
+  requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  await persist();
+}
+
 async function setBBCodeTarget(target) {
   const next = normalizeBBCodeTarget(target);
   store.bbcodeTarget = next;
@@ -480,7 +547,9 @@ async function saveDocument(documentRecord = store.active, saveAs = false) {
       await folderBrowser.onActiveFileChanged(documentRecord.path);
     }
   } else {
-    if (documentRecord.error?.kind === 'conflict') return resolveConflict(documentRecord);
+    if (documentRecord.error?.kind === 'conflict' || documentRecord.error?.kind === 'missing') {
+      return (await resolveConflict(documentRecord)) === 'resolved';
+    }
     documentRecord.error = null;
     await store.flush(documentRecord);
   }
@@ -492,33 +561,147 @@ async function saveDocument(documentRecord = store.active, saveAs = false) {
   return true;
 }
 
+function removeClosedTab(documentRecord) {
+  if (!documentRecord.path && hasDocumentContent(documentRecord.content)) documentRecord.open = false;
+  else {
+    store.documents = store.documents.filter(otherDocument => otherDocument.id !== documentRecord.id);
+    store.saveQueues.delete(documentRecord.id);
+  }
+  if (store.activeId === documentRecord.id) {
+    store.activeId = store.documents.find(otherDocument => otherDocument.open)?.id;
+    if (!store.activeId) store.add();
+    showDocument();
+  }
+}
+
 async function resolveConflict(documentRecord = store.active) {
-  const choice = await choose('File Changed Outside The Editor', `Choose which version of ${documentName(documentRecord)} to keep. You can also save your edits to a different file.`, [['reload', 'Load Disk Version'], ['overwrite', 'Keep My Edits'], ['copy', 'Save As'], ['cancel', 'Cancel']]);
-  if (choice === 'cancel') return false;
-  if (choice === 'copy') return saveDocument(documentRecord, true);
+  capture();
+  if (!documentRecord) return 'cancel';
   let snapshot;
-  try { snapshot = await backend.readFile(documentRecord.path); }
-  catch (error) {
-    if (choice !== 'overwrite' || error.kind !== 'missing') throw error;
+  let diskMissing = false;
+  try {
+    snapshot = await backend.readFile(documentRecord.path);
+  } catch (error) {
+    if (error?.kind !== 'missing') throw error;
+    diskMissing = true;
     snapshot = { revision: null, content: null };
   }
-  if (choice === 'reload') {
-    Object.assign(documentRecord, snapshot, { savedContent: snapshot.content, error: null });
+
+  if (!diskMissing && snapshot.content === documentRecord.content) {
+    documentRecord.revision = snapshot.revision;
+    documentRecord.savedContent = snapshot.content;
+    documentRecord.error = null;
+    documentRecord.lastSync = null;
+    await persist();
+    globalError = '';
+    render();
+    return 'resolved';
+  }
+
+  editor.readOnly(true);
+  let resolution;
+  try {
+    resolution = await diffDialog.openConflict({
+      fileName: documentName(documentRecord),
+      base: documentRecord.savedContent ?? '',
+      local: documentRecord.content ?? '',
+      disk: diskMissing ? '' : (snapshot.content ?? ''),
+      diskMissing,
+      hasUnsavedEdits: documentRecord.content !== documentRecord.savedContent,
+    });
+  } finally {
+    editor.readOnly(false);
+  }
+
+  if (resolution.action === 'cancel') return 'cancel';
+  if (resolution.action === 'discard') {
+    removeClosedTab(documentRecord);
+    globalError = '';
+    await persist();
+    render();
+    return 'discard';
+  }
+  if (resolution.action === 'copy') return (await saveDocument(documentRecord, true)) ? 'resolved' : 'cancel';
+
+  if (resolution.action === 'reload') {
+    Object.assign(documentRecord, snapshot, { savedContent: snapshot.content, error: null, lastSync: null });
+    if (store.activeId === documentRecord.id) showDocument();
+  } else if (resolution.action === 'merge') {
+    const prevContent = documentRecord.content;
+    const prevRevision = documentRecord.revision;
+    const prevSavedContent = documentRecord.savedContent;
+    documentRecord.content = resolution.content;
+    documentRecord.revision = snapshot.revision;
+    documentRecord.savedContent = snapshot.content;
+    documentRecord.error = null;
+    documentRecord.lastSync = null;
+    try {
+      await store.flush(documentRecord);
+    } catch (flushError) {
+      documentRecord.content = prevContent;
+      documentRecord.revision = prevRevision;
+      documentRecord.savedContent = prevSavedContent;
+      if (!documentRecord.error) documentRecord.error = flushError;
+      throw flushError;
+    }
     if (store.activeId === documentRecord.id) showDocument();
   } else {
+    const prevRevision = documentRecord.revision;
+    const prevSavedContent = documentRecord.savedContent;
     documentRecord.revision = snapshot.revision;
     documentRecord.error = null;
+    documentRecord.lastSync = null;
     // Force a comparison/write even when only the disk version changed.
     documentRecord.savedContent = snapshot.content;
-    await store.flush(documentRecord);
+    try {
+      await store.flush(documentRecord);
+    } catch (flushError) {
+      documentRecord.revision = prevRevision;
+      documentRecord.savedContent = prevSavedContent;
+      if (!documentRecord.error) documentRecord.error = flushError;
+      throw flushError;
+    }
+    if (folderBrowser && diskMissing && resolution.action === 'overwrite') {
+      const parent = parentDirectory(documentRecord.path);
+      if (parent && store.folderBrowser.rootPath && parent.toLowerCase() === store.folderBrowser.rootPath.toLowerCase()) {
+        await folderBrowser.refresh();
+      }
+      if (store.activeId === documentRecord.id) await folderBrowser.onActiveFileChanged(documentRecord.path);
+    }
   }
   await persist();
   globalError = '';
   render();
-  return true;
+  return 'resolved';
 }
 
-async function openPaths(paths, { forceImport = false } = {}) {
+async function openSyncDiff() {
+  const documentRecord = store.active;
+  const sync = documentRecord?.lastSync;
+  if (!sync) return;
+  editor.readOnly(true);
+  let action;
+  try {
+    action = await diffDialog.openSyncReview({
+      fileName: documentName(documentRecord),
+      kind: sync.kind,
+      before: sync.kind === 'clean-reload' ? sync.base : sync.local,
+      after: sync.merged,
+      stats: sync.stats,
+    });
+  } finally {
+    editor.readOnly(false);
+  }
+  if (action === 'revert') {
+    documentRecord.content = sync.local;
+    documentRecord.lastSync = null;
+    showDocument();
+    scheduleSave();
+    render();
+  }
+}
+
+async function openPaths(paths, { forceImport = false, knownKind = null } = {}) {
   capture();
   const failures = [];
   let openedDir = null;
@@ -531,7 +714,8 @@ async function openPaths(paths, { forceImport = false } = {}) {
         continue;
       }
       const resolvedPath = info?.exists && info.path ? info.path : path;
-      if (forceImport || /\.bbcode$/i.test(resolvedPath)) {
+      const fileKind = info?.kind || knownKind || null;
+      if (forceImport || fileKind === 'bbcode' || /\.bbcode$/i.test(resolvedPath)) {
         const snapshot = await backend.readFile(resolvedPath);
         await importDocument(snapshot);
         const parent = parentDirectory(snapshot.path || resolvedPath);
@@ -539,7 +723,7 @@ async function openPaths(paths, { forceImport = false } = {}) {
           store.folderBrowser.recentFolders = addRecentFolder(store.folderBrowser.recentFolders, parent);
           if (!store.folderBrowser.rootPath && folderBrowser) await folderBrowser.openFolder(parent, { lock: false, openSidebar: false });
         }
-      } else if (/\.txt$/i.test(resolvedPath)) {
+      } else if (fileKind === 'txt' || /\.txt$/i.test(resolvedPath)) {
         const snapshot = await backend.readFile(resolvedPath);
         if (detectTextFormat(snapshot.content) === 'bbcode') {
           await importDocument(snapshot);
@@ -549,10 +733,10 @@ async function openPaths(paths, { forceImport = false } = {}) {
             if (!store.folderBrowser.rootPath && folderBrowser) await folderBrowser.openFolder(parent, { lock: false, openSidebar: false });
           }
         } else {
-          await store.open(resolvedPath);
+          await store.open(resolvedPath, { knownKind: fileKind });
         }
       } else {
-        await store.open(resolvedPath);
+        await store.open(resolvedPath, { knownKind: fileKind });
       }
     }
     catch (error) { failures.push(`${path}: ${errorMessage(error)}`); }
@@ -566,19 +750,26 @@ async function openPaths(paths, { forceImport = false } = {}) {
 
 async function closeTab(documentRecord) {
   capture();
-  if (documentRecord.error) {
-    if (documentRecord.error.kind === 'conflict') {
-      if (!await resolveConflict(documentRecord)) return;
-    } else throw documentRecord.error;
+  if (!documentRecord || !store.documents.includes(documentRecord)) return;
+  const missingClean = documentRecord.error?.kind === 'missing' && documentRecord.content === documentRecord.savedContent;
+  if (!missingClean) {
+    if (documentRecord.error) {
+      if (documentRecord.error.kind === 'conflict' || documentRecord.error.kind === 'missing') {
+        const outcome = await resolveConflict(documentRecord);
+        if (outcome !== 'resolved') return;
+      } else throw documentRecord.error;
+    }
+    try {
+      await store.flush(documentRecord);
+    } catch (error) {
+      if (error?.kind !== 'conflict' && error?.kind !== 'missing') throw error;
+      const outcome = await resolveConflict(documentRecord);
+      if (outcome !== 'resolved') return;
+      await store.flush(documentRecord);
+    }
   }
-  await store.flush(documentRecord);
-  if (!documentRecord.path && hasDocumentContent(documentRecord.content)) documentRecord.open = false;
-  else store.documents = store.documents.filter(otherDocument => otherDocument.id !== documentRecord.id);
-  if (store.activeId === documentRecord.id) {
-    store.activeId = store.documents.find(otherDocument => otherDocument.open)?.id;
-    if (!store.activeId) store.add();
-    showDocument();
-  }
+  removeClosedTab(documentRecord);
+  globalError = '';
   await persist();
   render();
 }
@@ -589,8 +780,21 @@ async function flushDocumentsForShutdown() {
   clearTimeout(autosaveTimer);
   await persist();
   for (const documentRecord of store.documents) {
-    if (documentRecord.error) { store.activeId = documentRecord.id; documentRecord.open = true; showDocument(); throw documentRecord.error; }
-    await store.flush(documentRecord);
+    if (documentRecord.error?.kind === 'missing' && documentRecord.content === documentRecord.savedContent) continue;
+    if (documentRecord.error) {
+      store.activeId = documentRecord.id;
+      documentRecord.open = true;
+      showDocument();
+      throw documentRecord.error;
+    }
+    try {
+      await store.flush(documentRecord);
+    } catch (error) {
+      store.activeId = documentRecord.id;
+      documentRecord.open = true;
+      showDocument();
+      throw error;
+    }
   }
   await persist();
 }
@@ -649,7 +853,7 @@ async function applyAppUpdate() {
 
 // ==> Section 4 - Keyboard And Window Events <==
 function keyboardShortcut(event) {
-  if (elements['choice-dialog'].open || elements['color-dialog'].open || elements['image-dialog']?.open) return;
+  if (anyDialogOpen()) return;
   if (!(event.ctrlKey || event.metaKey)) return;
   const target = event.target instanceof Element ? event.target : null;
   const inPlainInput = Boolean(target && (
@@ -877,7 +1081,8 @@ async function initialize() {
     },
   );
   findReplace = new FindReplaceController(elements, () => editor, () => { capture(); render(); });
-  documentOutline = new DocumentOutline(elements, () => editor);
+  diffDialog = new DiffDialog(elements);
+  documentOutline = new DocumentOutline(elements, () => editor, mode => { void runAction(() => setOutlineMode(mode)); });
   folderBrowser = new FolderBrowser(elements, backend, {
     getState: () => store.folderBrowser,
     persistState: () => persist(),
@@ -894,6 +1099,7 @@ async function initialize() {
     },
   });
   document.addEventListener('keydown', keyboardShortcut, true);
+  installContextMenuGuard(document);
   elements['find-toggle'].onclick = () => findReplace.isOpen() ? findReplace.close() : findReplace.open(false, selectedSearchText());
   elements['preview-bbcode'].onclick = () => toggleBBCodePreview();
   elements['preview-close'].onclick = () => toggleBBCodePreview(false);
@@ -1022,7 +1228,10 @@ async function initialize() {
   if (elements['viewport-page']) elements['viewport-page'].onclick = () => runAction(() => setViewportWidth('page'));
   if (elements['viewport-full']) elements['viewport-full'].onclick = () => runAction(() => setViewportWidth('full'));
   elements.resolve.onclick = () => runAction(() => resolveConflict());
+  if (elements['close-missing']) elements['close-missing'].onclick = () => runAction(() => closeTab(store.active));
   elements.retry.onclick = () => runAction(() => saveDocument());
+  if (elements['view-sync-diff']) elements['view-sync-diff'].onclick = () => runAction(() => openSyncDiff());
+  if (elements['dismiss-sync']) elements['dismiss-sync'].onclick = () => { if (store.active) { store.active.lastSync = null; render(); } };
   elements.drafts.onclick = () => runAction(async () => {
     const drafts = store.documents.filter(documentRecord => !documentRecord.open && !documentRecord.path);
     for (const draft of drafts) draft.open = true;
@@ -1035,6 +1244,7 @@ async function initialize() {
   await listen('open-files', () => { if (startupComplete) void runAction(async () => openPaths(await invoke('take_pending_paths'))); });
   runtimeInfo = await backend.runtimeInfo().catch(() => runtimeInfo);
   await store.restore();
+  documentOutline.setMode(store.outlineMode, false);
   if (!store.active) store.add();
   showDocument();
   await folderBrowser.initialize(store.active?.path || null);
@@ -1042,8 +1252,22 @@ async function initialize() {
   try { await openPaths(await invoke('take_pending_paths')); }
   catch (error) { globalError = errorMessage(error); render(); }
   scheduleSave();
-  window.addEventListener('focus', () => { void store.checkExternal(store.active); });
-  setInterval(() => { if (!closingWindow && !elements['choice-dialog'].open) void store.checkExternal(store.active); }, 3000);
+  const runExternalCheck = () => {
+    if (closingWindow || anyDialogOpen() || !store.active) return;
+    capture();
+    void store.checkExternal(store.active);
+  };
+  const handleWindowActivated = () => {
+    if (!startupComplete || closingWindow || anyDialogOpen()) return;
+    runExternalCheck();
+    folderBrowser?.refreshOnWindowFocus();
+  };
+  await listen('window-focused', handleWindowActivated);
+  window.addEventListener('focus', handleWindowActivated);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') handleWindowActivated();
+  });
+  setInterval(runExternalCheck, 3000);
   document.documentElement.dataset.ready = 'true';
   setTimeout(() => { if (!closingWindow && !installingUpdate) void checkForUpdates(true); }, 3000);
 }

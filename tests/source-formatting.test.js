@@ -136,3 +136,40 @@ test('shortcutKey prioritizes VK_A-VK_Z and flags mismatched Ctrl letter events'
   assert.equal(isMismatchedCtrlLetter({ ctrlKey: true, metaKey: false, altKey: true, key: 'é', keyCode: 50 }), false);
   assert.equal(isMismatchedCtrlLetter({ ctrlKey: true, metaKey: false, altKey: false, key: '!', keyCode: 223 }), false);
 });
+
+test('variable-length fences wrap inner backticks safely and inspect code state accurately', () => {
+  const b3 = '\x60'.repeat(3);
+  const b4 = '\x60'.repeat(4);
+  const b5 = '\x60'.repeat(5);
+
+  const innerTriple = `Code\n${b3}Code inside code${b3}\nMore Code`;
+  const wrapped4 = formatMarkdownSelection(innerTriple, 0, innerTriple.length, 'code');
+  assert.equal(wrapped4.insert, `\n\n${b4}\n${innerTriple}\n${b4}\n\n`);
+
+  const innerQuad = `Line\n${b4}\n${b3}\n${b4}`;
+  const wrapped5 = formatMarkdownSelection(innerQuad, 0, innerQuad.length, 'code');
+  assert.equal(wrapped5.insert, `\n\n${b5}\n${innerQuad}\n${b5}\n\n`);
+
+  const doc = [
+    b4,
+    `Code`,
+    `${b3}Code inside code${b3}`,
+    `${b3}`,
+    `**Not Bold**`,
+    b4,
+    ``,
+    `# Real Heading`,
+  ].join('\n');
+
+  const tripleLineState = inspectMarkdownFormatting(doc, doc.indexOf('Code inside code'), doc.indexOf('Code inside code'));
+  assert.equal(tripleLineState.code, true);
+  assert.equal(tripleLineState.heading, 'other');
+
+  const boldInsideCodeState = inspectMarkdownFormatting(doc, doc.indexOf('Not Bold'), doc.indexOf('Not Bold'));
+  assert.equal(boldInsideCodeState.code, true);
+  assert.equal(boldInsideCodeState.bold, false);
+
+  const afterFenceState = inspectMarkdownFormatting(doc, doc.indexOf('Real Heading'), doc.indexOf('Real Heading'));
+  assert.equal(afterFenceState.code, false);
+  assert.equal(afterFenceState.heading, '1');
+});

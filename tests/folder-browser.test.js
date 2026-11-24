@@ -26,6 +26,11 @@ test('detectTextFormat distinguishes BBCode from Markdown and plain text safely'
   assert.equal(detectTextFormat('```bbcode\n[b]Literal inside code fence[/b]\n```'), 'markdown');
   assert.equal(detectTextFormat('Plain plain notes without formatting.'), 'plain');
   assert.equal(detectTextFormat('   \n  '), 'plain');
+
+  const b3 = '\x60'.repeat(3);
+  const b4 = '\x60'.repeat(4);
+  const b5 = '\x60'.repeat(5);
+  assert.equal(detectTextFormat(`${b4}\n${b3}\n[b]Literal BBCode inside 4-tick fence[/b]\n${b3}\n${b5}`), 'markdown');
 });
 
 test('path normalization, breadcrumbs and containment work across Windows and UNC paths', () => {
@@ -100,4 +105,19 @@ test('recent folders, pinned folders and DocumentStore folderBrowser state persi
   assert.deepEqual(restored.folderBrowser.pinnedFolders, ['C:\\Mods']);
   assert.equal(restored.renameDocumentPath('C:\\Mods\\plain.txt', 'C:\\Mods\\renamed.txt'), true);
   assert.equal(restored.active.path, 'C:\\Mods\\renamed.txt');
+});
+
+test('DocumentStore.open accepts extensionless symlink paths when knownKind is markdown or txt', async () => {
+  const backend = backendFixture();
+  await backend.saveFile('C:\\Mods\\README', '# Linked Readme', null);
+  await backend.saveFile('C:\\Mods\\CHANGELOG', 'Plain text notes', null);
+  await backend.saveFile('C:\\Mods\\archive.zip', 'binary', null);
+
+  const store = new DocumentStore(backend);
+  const mdDoc = await store.open('C:\\Mods\\README', { knownKind: 'markdown' });
+  assert.equal(mdDoc.content, '# Linked Readme');
+  const txtDoc = await store.open('C:\\Mods\\CHANGELOG', { knownKind: 'txt' });
+  assert.equal(txtDoc.content, 'Plain text notes');
+  await assert.rejects(() => store.open('C:\\Mods\\README'), /Markdown or text document/);
+  await assert.rejects(() => store.open('C:\\Mods\\archive.zip', { knownKind: 'bbcode' }), /Markdown or text document/);
 });

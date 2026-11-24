@@ -1,8 +1,10 @@
 // ==> Section 1 - Document Identity <==
 import { colorPreferences } from './colors.js';
 import { folderBrowserState } from './folder-browser-model.js';
+import { mergeThreeWay } from './diff.js';
 export function normalizeViewportWidth(value) { return value === 'full' ? 'full' : 'page'; }
 export function normalizeBBCodeTarget(value) { return value === 'steam' ? 'steam' : 'nexus'; }
+export function normalizeOutlineMode(value) { return value === 'floating' || value === 'docked' ? value : 'off'; }
 export function pathKey(path) { return path?.replace(/^\\\\\?\\/, '').replaceAll('/', '\\').toLowerCase(); }
 export function outputPath(path) { return path.replace(/\.(mdbbcode|md|markdown|txt)$/i, '.bbcode'); }
 export function documentName(documentRecord) { return documentRecord.path?.split(/[\\/]/).at(-1) || documentRecord.name || 'Untitled'; }
@@ -12,14 +14,16 @@ export function createDocument(content = '') {
 
 // ==> Section 2 - Session And Import Recovery <==
 export class DocumentStore {
-  constructor(backend, onChange = () => {}) {
+  constructor(backend, onChange = () => {}, onExternalSync = () => {}) {
     this.backend = backend;
     this.onChange = onChange;
+    this.onExternalSync = onExternalSync;
     this.documents = [];
     this.pendingImports = [];
     this.preferences = colorPreferences();
     this.viewportWidth = 'page';
     this.bbcodeTarget = 'nexus';
+    this.outlineMode = 'off';
     this.folderBrowser = folderBrowserState();
     this.activeId = null;
     this.sessionQueue = Promise.resolve();
@@ -37,6 +41,7 @@ export class DocumentStore {
     this.preferences = colorPreferences(session.preferences);
     this.viewportWidth = normalizeViewportWidth(session.viewportWidth);
     this.bbcodeTarget = normalizeBBCodeTarget(session.bbcodeTarget);
+    this.outlineMode = normalizeOutlineMode(session.outlineMode);
     this.folderBrowser = folderBrowserState(session.folderBrowser);
     this.pendingImports = session.pendingImports || [];
     this.documents = session.documents.map(documentRecord => {
@@ -44,19 +49,49 @@ export class DocumentStore {
       // Old releases tracked automatic BBCode output. Its files are now independent exports.
       delete restored.outputError;
       delete restored.outputSource;
+      delete restored.lastSync;
       return restored;
     });
     for (const documentRecord of this.documents.filter(documentRecord => documentRecord.path)) {
       try {
         const snapshot = await this.backend.readFile(documentRecord.path);
         if (documentRecord.content === documentRecord.savedContent || snapshot.content === documentRecord.content) Object.assign(documentRecord, snapshot, { savedContent: snapshot.content });
-        else if (snapshot.revision !== documentRecord.revision) documentRecord.error = { kind: 'conflict', message: 'Recovered Markdown edits differ from the file on disk.' };
+        else if (snapshot.revision !== documentRecord.revision) {
+          const base = documentRecord.savedContent;
+          const local = documentRecord.content;
+          const merge = mergeThreeWay(base, local, snapshot.content);
+          if (!merge.hasConflict) {
+            documentRecord.content = merge.merged;
+            documentRecord.savedContent = snapshot.content;
+            documentRecord.revision = snapshot.revision;
+            documentRecord.error = null;
+            if (merge.kind === 'auto-merge') {
+              documentRecord.lastSync = { kind: merge.kind, base, local, disk: snapshot.content, merged: merge.merged, stats: merge.stats };
+            }
+          } else {
+            documentRecord.error = { kind: 'conflict', message: 'Recovered Markdown edits conflict with changes on disk. Review diff to resolve.' };
+          }
+        }
       } catch (error) { documentRecord.error = error; }
     }
     this.activeId = this.documents.find(documentRecord => documentRecord.id === session.activeId && documentRecord.open)?.id || this.documents.find(documentRecord => documentRecord.open)?.id || null;
   }
   snapshot() {
-    return { version: 2, preferences: { ...this.preferences }, viewportWidth: this.viewportWidth, bbcodeTarget: this.bbcodeTarget, folderBrowser: structuredClone(this.folderBrowser), activeId: this.activeId, pendingImports: structuredClone(this.pendingImports), documents: this.documents.map(documentRecord => ({ ...documentRecord, error: null })) };
+    return {
+      version: 2,
+      preferences: { ...this.preferences },
+      viewportWidth: this.viewportWidth,
+      bbcodeTarget: this.bbcodeTarget,
+      outlineMode: this.outlineMode,
+      folderBrowser: structuredClone(this.folderBrowser),
+      activeId: this.activeId,
+      pendingImports: structuredClone(this.pendingImports),
+      documents: this.documents.map(documentRecord => {
+        const copy = { ...documentRecord, error: null };
+        delete copy.lastSync;
+        return copy;
+      }),
+    };
   }
   persist() {
     const snapshot = this.snapshot();
@@ -70,8 +105,12 @@ export class DocumentStore {
     this.activeId = documentRecord.id;
     return documentRecord;
   }
-  async open(path) {
-    if (!/\.(mdbbcode|md|markdown|txt)$/i.test(path)) throw new Error('Open a Markdown or text document, or use Import BBCode for an existing BBCode file.');
+  async open(path, { knownKind = null } = {}) {
+    const allowedByExt = /\.(mdbbcode|md|markdown|txt)$/i.test(path);
+    const allowedByKind = knownKind === 'markdown' || knownKind === 'txt';
+    if (!allowedByExt && !allowedByKind) {
+      throw new Error('Open a Markdown or text document, or use Import BBCode for an existing BBCode file.');
+    }
     const snapshot = await this.backend.readFile(path);
     const existing = this.documents.find(documentRecord => pathKey(documentRecord.path) === pathKey(snapshot.path));
     if (existing) { existing.open = true; this.activeId = existing.id; return existing; }
@@ -118,11 +157,45 @@ export class DocumentStore {
       if (documentRecord.error) throw documentRecord.error;
       if (!documentRecord.path) return;
       const source = documentRecord.content;
+      const base = documentRecord.savedContent ?? '';
       try {
         if (source !== documentRecord.savedContent) {
-          const snapshot = await this.backend.saveFile(documentRecord.path, source, documentRecord.revision);
-          documentRecord.revision = snapshot.revision;
-          documentRecord.savedContent = source;
+          try {
+            const snapshot = await this.backend.saveFile(documentRecord.path, source, documentRecord.revision);
+            documentRecord.revision = snapshot.revision;
+            documentRecord.savedContent = source;
+          } catch (saveError) {
+            if (saveError?.kind !== 'conflict') throw saveError;
+            let diskSnapshot;
+            try {
+              diskSnapshot = await this.backend.readFile(documentRecord.path);
+            } catch (readError) {
+              throw readError?.kind === 'missing' ? readError : saveError;
+            }
+            const latestLocal = documentRecord.content;
+            const latestBase = documentRecord.savedContent ?? base;
+            const merge = mergeThreeWay(latestBase, latestLocal, diskSnapshot.content);
+            if (merge.hasConflict) {
+              throw { kind: 'conflict', message: 'The Markdown file changed outside the editor with conflicting edits. Review diff to resolve.' };
+            }
+            const savedSnapshot = merge.merged === diskSnapshot.content
+              ? diskSnapshot
+              : await this.backend.saveFile(documentRecord.path, merge.merged, diskSnapshot.revision);
+            if (documentRecord.content === latestLocal) {
+              documentRecord.content = merge.merged;
+            } else {
+              const postSaveMerge = mergeThreeWay(latestLocal, documentRecord.content, savedSnapshot.content);
+              documentRecord.content = postSaveMerge.hasConflict ? documentRecord.content : postSaveMerge.merged;
+            }
+            documentRecord.revision = savedSnapshot.revision;
+            documentRecord.savedContent = savedSnapshot.content;
+            documentRecord.error = null;
+            const changedLocal = documentRecord.content !== latestLocal;
+            if (changedLocal) {
+              documentRecord.lastSync = { kind: merge.kind, base: latestBase, local: latestLocal, disk: diskSnapshot.content, merged: documentRecord.content, stats: merge.stats };
+            }
+            this.onExternalSync(documentRecord, { status: 'merged', kind: merge.kind, changedLocal, needsWrite: documentRecord.content !== savedSnapshot.content });
+          }
         }
       } catch (error) { documentRecord.error = error; throw error; }
       finally { this.onChange(); }
@@ -135,21 +208,54 @@ export class DocumentStore {
     return this.enqueue(documentRecord, async () => {
       const source = documentRecord.content;
       const snapshot = await this.backend.saveFile(path, source, expectedRevision);
-      Object.assign(documentRecord, { path: snapshot.path, revision: snapshot.revision, savedContent: source, error: null });
+      Object.assign(documentRecord, { path: snapshot.path, revision: snapshot.revision, savedContent: source, error: null, lastSync: null });
       this.onChange();
     });
   }
 
   // ==> Section 4 - External Source Changes <==
   async checkExternal(documentRecord) {
-    if (!documentRecord?.path) return;
-    await (this.saveQueues.get(documentRecord.id) || Promise.resolve()).catch(() => {});
-    if (!documentRecord.error) {
+    if (!documentRecord?.path) return { status: 'unchanged' };
+    let outcome = { status: 'unchanged' };
+    await this.enqueue(documentRecord, async () => {
+      if (documentRecord.error && documentRecord.error.kind !== 'missing') { outcome = { status: 'error' }; return; }
       try {
         const snapshot = await this.backend.readFile(documentRecord.path);
-        if (snapshot.revision !== documentRecord.revision) documentRecord.error = { kind: 'conflict', message: 'The Markdown file changed outside the editor. Resolve this before saving.' };
-      } catch (error) { documentRecord.error = error; }
-    }
+        if (snapshot.revision === documentRecord.revision) {
+          documentRecord.error = null;
+          return;
+        }
+        const base = documentRecord.savedContent ?? '';
+        const local = documentRecord.content;
+        if (snapshot.content === local) {
+          documentRecord.revision = snapshot.revision;
+          documentRecord.savedContent = snapshot.content;
+          documentRecord.error = null;
+          return;
+        }
+        const merge = mergeThreeWay(base, local, snapshot.content);
+        if (!merge.hasConflict) {
+          const changedLocal = merge.merged !== local;
+          const needsWrite = merge.merged !== snapshot.content;
+          documentRecord.content = merge.merged;
+          documentRecord.revision = snapshot.revision;
+          documentRecord.savedContent = snapshot.content;
+          documentRecord.error = null;
+          if (changedLocal) {
+            documentRecord.lastSync = { kind: merge.kind, base, local, disk: snapshot.content, merged: merge.merged, stats: merge.stats };
+          }
+          outcome = { status: 'merged', kind: merge.kind, changedLocal, needsWrite };
+          this.onExternalSync(documentRecord, outcome);
+        } else {
+          documentRecord.error = { kind: 'conflict', message: 'The Markdown file changed outside the editor with conflicting edits. Review diff to resolve.' };
+          outcome = { status: 'conflict' };
+        }
+      } catch (error) {
+        documentRecord.error = error;
+        outcome = { status: 'error', error };
+      }
+    });
     this.onChange();
+    return outcome;
   }
 }

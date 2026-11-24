@@ -2249,6 +2249,8 @@ dependencies = [
  "tauri-plugin-updater",
  "tauri-plugin-window-state",
  "tempfile",
+ "webview2-com",
+ "windows-core",
  "zip 2.6.1",
 ]
 

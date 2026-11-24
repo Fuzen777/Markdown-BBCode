@@ -1,7 +1,7 @@
 // ==> Section 1 - Markdown Persistence Tests <==
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DocumentStore, pathKey, outputPath, normalizeViewportWidth, normalizeBBCodeTarget } from '../src/documents.js';
+import { DocumentStore, pathKey, outputPath, normalizeViewportWidth, normalizeBBCodeTarget, normalizeOutlineMode } from '../src/documents.js';
 import { backendFixture } from './backend.js';
 
 test('opening and saving preserve untouched Markdown without creating an export', async () => {
@@ -212,4 +212,136 @@ test('bbcodeTarget defaults to nexus, persists globally, and rejects invalid val
   const fallbackStore = new DocumentStore(backend);
   await fallbackStore.restore();
   assert.equal(fallbackStore.bbcodeTarget, 'nexus');
+});
+
+test('outlineMode defaults to off, persists globally across restore, and falls back on invalid values', async () => {
+  assert.equal(normalizeOutlineMode(undefined), 'off');
+  assert.equal(normalizeOutlineMode('bogus'), 'off');
+  assert.equal(normalizeOutlineMode('floating'), 'floating');
+  assert.equal(normalizeOutlineMode('docked'), 'docked');
+
+  const backend = backendFixture();
+  const store = new DocumentStore(backend);
+  assert.equal(store.outlineMode, 'off');
+
+  store.outlineMode = normalizeOutlineMode('docked');
+  await store.persist();
+  const saved = await backend.loadSession();
+  assert.equal(saved.outlineMode, 'docked');
+
+  const restored = new DocumentStore(backend);
+  await restored.restore();
+  assert.equal(restored.outlineMode, 'docked');
+
+  await backend.saveSession({ ...saved, outlineMode: 'invalid-mode' });
+  const fallbackStore = new DocumentStore(backend);
+  await fallbackStore.restore();
+  assert.equal(fallbackStore.outlineMode, 'off');
+});
+
+test('checkExternal and flush auto-sync non-intersecting changes and flag conflicts only on intersecting lines', async () => {
+  const backend = backendFixture();
+  const initial = await backend.saveFile('Notes.md', 'Line 1\nLine 2\nLine 3\nLine 4', null);
+  const events = [];
+  const store = new DocumentStore(backend, () => {}, (doc, info) => events.push({ doc, info }));
+  const doc = await store.open('Notes.md');
+
+  // Clean reload
+  const rev2 = await backend.saveFile('Notes.md', 'Line 1\nLine 2\nLine 3\nLine 4\nDisk line 5', initial.revision);
+  const cleanResult = await store.checkExternal(doc);
+  assert.equal(cleanResult.status, 'merged');
+  assert.equal(cleanResult.kind, 'clean-reload');
+  assert.equal(doc.content, 'Line 1\nLine 2\nLine 3\nLine 4\nDisk line 5');
+  assert.equal(doc.error, null);
+  assert.equal(doc.lastSync.kind, 'clean-reload');
+
+  // Non-intersecting local add (top) + disk add (bottom) during checkExternal
+  doc.content = 'Local top\nLine 1\nLine 2\nLine 3\nLine 4\nDisk line 5';
+  await backend.saveFile('Notes.md', 'Line 1\nLine 2\nLine 3\nLine 4\nDisk line 5\nDisk bottom', rev2.revision);
+  const mergeResult = await store.checkExternal(doc);
+  assert.equal(mergeResult.status, 'merged');
+  assert.equal(mergeResult.kind, 'auto-merge');
+  assert.equal(mergeResult.needsWrite, true);
+  assert.equal(doc.content, 'Local top\nLine 1\nLine 2\nLine 3\nLine 4\nDisk line 5\nDisk bottom');
+  assert.equal(doc.error, null);
+  assert.equal(events.length, 2);
+
+  // Persist merged changes to disk cleanly via flush
+  await store.flush(doc);
+  assert.equal(backend.files.get('Notes.md').content, 'Local top\nLine 1\nLine 2\nLine 3\nLine 4\nDisk line 5\nDisk bottom');
+  // Transient lastSync must never be written into session.json
+  assert.equal(store.snapshot().documents[0].lastSync, undefined);
+
+  // Non-intersecting local remove + disk remove auto-merges during flush()
+  const rev4 = backend.files.get('Notes.md').revision;
+  doc.content = 'Line 1\nLine 2\nLine 3\nLine 4\nDisk line 5\nDisk bottom';
+  await backend.saveFile('Notes.md', 'Local top\nLine 1\nLine 2\nLine 3\nLine 4\nDisk line 5', rev4);
+  await store.flush(doc);
+  assert.equal(doc.error, null);
+  assert.equal(doc.content, 'Line 1\nLine 2\nLine 3\nLine 4\nDisk line 5');
+  assert.equal(backend.files.get('Notes.md').content, 'Line 1\nLine 2\nLine 3\nLine 4\nDisk line 5');
+
+  // Intersecting modification triggers real conflict error
+  const rev5 = backend.files.get('Notes.md').revision;
+  doc.content = 'Local line 1\nLine 2\nLine 3\nLine 4\nDisk line 5';
+  await backend.saveFile('Notes.md', 'Disk line 1\nLine 2\nLine 3\nLine 4\nDisk line 5', rev5);
+  const conflictResult = await store.checkExternal(doc);
+  assert.equal(conflictResult.status, 'conflict');
+  assert.equal(doc.error.kind, 'conflict');
+});
+
+test('restore auto-merges non-intersecting recovered edits against external disk updates', async () => {
+  const backend = backendFixture();
+  const initial = await backend.saveFile('Recovered.md', 'One\nTwo\nThree', null);
+  await backend.saveSession({
+    version: 2,
+    activeId: 'doc-1',
+    documents: [{
+      id: 'doc-1',
+      open: true,
+      path: 'Recovered.md',
+      content: 'Zero\nOne\nTwo\nThree',
+      savedContent: 'One\nTwo\nThree',
+      revision: initial.revision,
+    }],
+  });
+  await backend.saveFile('Recovered.md', 'One\nTwo\nThree\nFour', initial.revision);
+
+  const restored = new DocumentStore(backend);
+  await restored.restore();
+  assert.equal(restored.active.error, null);
+  assert.equal(restored.active.content, 'Zero\nOne\nTwo\nThree\nFour');
+  assert.equal(restored.active.lastSync.kind, 'auto-merge');
+});
+
+test('externally deleted files surface missing errors across checkExternal, flush, and restore, and clear when restored', async () => {
+  const backend = backendFixture();
+  const initial = await backend.saveFile('Deleted.md', 'Original content', null);
+  const store = new DocumentStore(backend);
+  const doc = await store.open('Deleted.md');
+
+  // Clean file deleted externally -> checkExternal flags missing
+  backend.files.delete('Deleted.md');
+  const checkOutcome = await store.checkExternal(doc);
+  assert.equal(checkOutcome.status, 'error');
+  assert.equal(doc.error?.kind, 'missing');
+
+  // Restored identically on disk -> checkExternal clears missing error
+  backend.files.set('Deleted.md', structuredClone(initial));
+  await store.checkExternal(doc);
+  assert.equal(doc.error, null);
+
+  // Dirty file deleted before checkExternal -> flush rejects with missing and records missing error
+  doc.content = 'Unsaved local edit';
+  backend.files.delete('Deleted.md');
+  await assert.rejects(store.flush(doc), { kind: 'missing' });
+  assert.equal(doc.error?.kind, 'missing');
+
+  // Persist and restore while still missing -> restore surfaces missing error and retains edits
+  await store.persist();
+  const restored = new DocumentStore(backend);
+  await restored.restore();
+  assert.equal(restored.active.error?.kind, 'missing');
+  assert.equal(restored.active.content, 'Unsaved local edit');
+  assert.equal(restored.active.savedContent, 'Original content');
 });

@@ -16,6 +16,7 @@ export function createIcon(name) {
   symbol.className = 'material-icon';
   symbol.setAttribute('aria-hidden', 'true');
   symbol.innerHTML = symbols[`./assets/icons/${name}.svg`];
+  symbol.querySelector('title')?.remove();
   return symbol;
 }
 
@@ -38,6 +39,7 @@ export function initializeIcons() {
     new: 'add', open: 'folder_open', import: 'file_open', save: 'save', 'save-as': 'save_as',
     export: 'file_export', copy: 'content_copy', 'choose-color': 'arrow_drop_down',
     'files-toggle': 'dock_to_left',
+    'target-nexus': 'NexusMods', 'target-steam': 'Steam',
     'find-toggle': 'search', 'preview-bbcode': 'preview', 'preview-close': 'close',
     'find-prev': 'arrow_upward', 'find-next': 'arrow_downward', 'find-close': 'close',
   };

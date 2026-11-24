@@ -1,0 +1,812 @@
+---
+format: mdbbcode
+version: 1
+target: nexus
+---
+
+# Nexus Mods BBCode Formatting &amp; Adjacency Test
+
+Open this file in Markdown BBCode, click **Copy BBCode** (Nexus target), and paste the output into a Nexus Mods description field. Every block is labeled with an ID and description without square brackets (except task checkboxes and the literal-brackets test in Section 12) so spacing, collapsing, or broken tags stand out immediately.
+
+## Section 1 — Headings (H1 to H6) &amp; Paragraphs
+
+# S01A — Consecutive H1 before H2
+
+## S01B — Consecutive H2 before H3
+
+### S01C — Consecutive H3 before H4
+
+#### S01D — Consecutive H4 before H5
+
+##### S01E — Consecutive H5 before H6
+
+###### S01F — Consecutive H6 before Paragraph
+
+S01G — First standalone Paragraph before second Paragraph.
+
+S01H — Second standalone Paragraph before hard-break Paragraph.
+
+S01I — Paragraph line one (hard break follows)  
+S01I — Paragraph line two after hard break.
+
+S01J — Paragraph before H2.
+
+## S01K — H2 before Paragraph
+
+S01L — Paragraph before H3.
+
+### S01M — H3 before Paragraph
+
+S01N — Paragraph before H4.
+
+#### S01O — H4 before Paragraph
+
+S01P — End of Section 1.
+
+## Section 2 — Lists, Task Lists &amp; Internals
+
+### S02A — H3 before Bullet list
+
+- S02B — Bullet item 1 (after H3, before Paragraph)
+- S02B — Bullet item 2
+
+S02C — Paragraph after Bullet list and before another Bullet list.
+
+- S02D — Bullet item 1 (after Paragraph, before H4)
+- S02D — Bullet item 2
+
+#### S02E — H4 before Ordered list
+
+1. S02F — Ordered item 1 (after H4, before Paragraph)
+2. S02F — Ordered item 2
+
+S02G — Paragraph after Ordered list and before another Ordered list.
+
+1. S02H — Ordered item 1 (after Paragraph, before H4)
+2. S02H — Ordered item 2
+
+#### S02I — H4 before Task list
+
+- [x] S02J — Task checked item (after H4, before Paragraph)
+- [ ] S02J — Task unchecked item
+
+S02K — Paragraph before Bullet-Ordered-Task chain.
+
+- S02L — Bullet list before Ordered list
+- S02L — Second bullet item
+
+1. S02M — Ordered list after Bullet list and before Task list
+2. S02M — Second ordered item
+
+- [x] S02N — Task list after Ordered list and before Paragraph
+- [ ] S02N — Unchecked task item
+
+S02O — Paragraph after Task list and before Ordered-Bullet pair.
+
+1. S02P — Ordered list before Bullet list
+2. S02P — Second ordered item
+
+- S02Q — Bullet list after Ordered list and before Paragraph
+- S02Q — Second bullet item
+
+S02R — Paragraph before single-item Bullet list.
+
+- S02S — Single-item Bullet list
+
+S02T — Paragraph after single-item Bullet list.
+
+- S02U — 3-level nested Bullet list level 1
+  - Level 2 nested bullet
+    - Level 3 nested bullet
+  1. Level 2 ordered list nested inside bullet
+  2. Second nested ordered item
+- S02V — Ordered-inside-bullet peer item
+
+1. S02W — Ordered list with nested bullet
+   - Nested bullet inside ordered item
+   - Second nested bullet inside ordered item
+2. S02X — Second top-level ordered item
+
+- S02Y — Multi-paragraph loose list item (paragraph 1)
+
+  S02Y — Second paragraph inside the same bullet item.
+  > S02Z — Nested Blockquote inside bullet list item.
+  ```
+  S02AA — Nested Code block inside bullet list item
+  ```
+- S02AB — Inline marks in list item: **bold**, *italic*, `inline code`, ||inline spoiler||, <span style="color: #e6a050">warm amber</span>, [Nexus Mods](https://www.nexusmods.com/)
+
+## Section 3 — Horizontal Rules &amp; All Neighbors
+
+S03A — Paragraph before Horizontal Rule.
+
+---
+
+S03B — Paragraph after Horizontal Rule and before HR-to-H3 test.
+
+---
+
+### S03C — H3 after Horizontal Rule (mirrors TODO finding) and before Horizontal Rule
+
+---
+
+S03D — Paragraph after Horizontal Rule.
+
+### S03E — H3 before Horizontal Rule
+
+---
+
+#### S03F — H4 after Horizontal Rule
+
+- S03G — Bullet list before Horizontal Rule
+- Second bullet item
+
+---
+
+- S03H — Bullet list after Horizontal Rule
+- Second bullet item
+
+1. S03I — Ordered list before Horizontal Rule
+2. Second ordered item
+
+---
+
+1. S03J — Ordered list after Horizontal Rule
+2. Second ordered item
+
+> S03K — Blockquote before Horizontal Rule.
+
+---
+
+> S03L — Blockquote after Horizontal Rule.
+
+```
+S03M — Code block before Horizontal Rule
+```
+
+---
+
+```
+S03N — Code block after Horizontal Rule
+```
+
+||
+
+S03O — Spoiler block before Horizontal Rule.
+
+||
+
+---
+
+||
+
+S03P — Spoiler block after Horizontal Rule.
+
+||
+
+<div style="text-align: center">
+
+S07\_03Q — Center block before Horizontal Rule.
+
+</div>
+
+---
+
+<div style="text-align: center">
+
+S07\_03R — Center block after Horizontal Rule.
+
+</div>
+
+S03S — Paragraph before double Horizontal Rule.
+
+---
+
+---
+
+S03T — Paragraph after double Horizontal Rule.
+
+## Section 4 — Blockquotes &amp; Internals
+
+### S04A — H3 before Blockquote
+
+> S04B — Blockquote after H3 and before Paragraph.
+
+S04C — Paragraph before Blockquote.
+
+> S04D — Blockquote after Paragraph and before H4.
+
+#### S04E — H4 after Blockquote
+
+> S04F — First Blockquote before second Blockquote.
+
+> S04G — Second Blockquote after first Blockquote.
+
+- S04H — Bullet list before Blockquote
+- Second bullet
+
+> S04I — Blockquote between Bullet lists.
+
+- S04J — Bullet list after Blockquote
+- Second bullet
+
+1. S04K — Ordered list before Blockquote
+2. Second ordered
+
+> S04L — Blockquote between Ordered lists.
+
+1. S04M — Ordered list after Blockquote
+2. Second ordered
+
+> S04N — Multi-paragraph Blockquote paragraph 1.
+>
+> S04N — Multi-paragraph Blockquote paragraph 2.
+
+> ### S04O — Heading inside Blockquote
+>
+> Paragraph inside Blockquote before list.
+>
+> - Bullet 1 inside Blockquote
+> - Bullet 2 inside Blockquote
+
+> S04P — Outer Blockquote before nested Blockquote.
+>
+> > S04P — Nested inner Blockquote.
+
+> S04Q — Blockquote containing Code block and HR.
+>
+> ```
+> Quoted code line inside Blockquote
+> ```
+>
+> ---
+>
+> S04Q — Text after HR inside Blockquote.
+
+## Section 5 — Code Blocks &amp; Internals
+
+### S05A — H3 before single-line Code block
+
+```
+S05B — Single-line Code block after H3 and before Paragraph
+```
+
+S05C — Paragraph before multi-line Code block.
+
+```
+S05D — Multi-line Code block line 1
+  Indented line 2
+
+  Line 4 after internal blank line
+```
+
+#### S05E — H4 after Code block
+
+```
+S05F — First Code block before second Code block
+```
+
+```
+S05G — Second Code block after first Code block
+```
+
+- S05H — Bullet list before Code block
+- Second bullet
+
+```
+S05I — Code block between Bullet lists
+```
+
+- S05J — Bullet list after Code block
+- Second bullet
+
+1. S05K — Ordered list before Code block
+2. Second ordered
+
+```
+S05L — Code block between Ordered lists
+```
+
+1. S05M — Ordered list after Code block
+2. Second ordered
+
+```
+S05N — Literal BBCode inside Code block (must stay unparsed):
+[b]Not bold[/b]
+[size=6]Not huge[/size]
+[url=https://example.com]Not a link[/url]
+```
+
+## Section 6 — Spoiler Blocks &amp; Internals
+
+### S06A — H3 before Spoiler block
+
+||
+
+S06B — Spoiler block after H3 and before Paragraph.
+
+||
+
+S06C — Paragraph before Spoiler block.
+
+||
+
+S06D — Spoiler block after Paragraph and before H4.
+
+||
+
+#### S06E — H4 after Spoiler block
+
+||
+
+S06F — First Spoiler block before second Spoiler block.
+
+||
+
+||
+
+S06G — Second Spoiler block after first Spoiler block.
+
+||
+
+- S06H — Bullet list before Spoiler block
+- Second bullet
+
+||
+
+S06I — Spoiler block between Bullet lists.
+
+||
+
+- S06J — Bullet list after Spoiler block
+- Second bullet
+
+1. S06K — Ordered list before Spoiler block
+2. Second ordered
+
+||
+
+S06L — Spoiler block between Ordered lists.
+
+||
+
+1. S06M — Ordered list after Spoiler block
+2. Second ordered
+
+||
+
+S06N — Multi-paragraph Spoiler paragraph 1.
+
+S06N — Multi-paragraph Spoiler paragraph 2.
+
+||
+
+||
+
+#### S06O — Heading inside Spoiler block
+
+Paragraph inside Spoiler block before bullet list and HR.
+
+- Bullet 1 inside Spoiler
+- Bullet 2 inside Spoiler
+
+---
+
+Paragraph after HR inside Spoiler.
+
+||
+
+||
+
+S06P — Spoiler block with nested Blockquote and Code block.
+
+> Nested Blockquote inside Spoiler block.
+
+```
+Nested Code block inside Spoiler block
+```
+
+||
+
+||
+
+S06Q — Spoiler block containing an Image:
+
+![S06Q Spoiler Image](https://placehold.co/320x60/262626/f5f5f5.png?text=Nexus+Test+Image)
+
+||
+
+## Section 7 — Center Blocks &amp; Internals
+
+### S07A — H3 before Center block
+
+<div style="text-align: center">
+
+S07B — Center block after H3 and before Paragraph.
+
+</div>
+
+S07C — Paragraph before Center block.
+
+<div style="text-align: center">
+
+S07D — Center block after Paragraph and before H4.
+
+</div>
+
+#### S07E — H4 after Center block
+
+<div style="text-align: center">
+
+S07F — First Center block before second Center block.
+
+</div>
+
+<div style="text-align: center">
+
+S07G — Second Center block after first Center block.
+
+</div>
+
+- S07H — Bullet list before Center block
+- Second bullet
+
+<div style="text-align: center">
+
+S07I — Center block between Bullet lists.
+
+</div>
+
+- S07J — Bullet list after Center block
+- Second bullet
+
+1. S07K — Ordered list before Center block
+2. Second ordered
+
+<div style="text-align: center">
+
+S07L — Center block between Ordered lists.
+
+</div>
+
+1. S07M — Ordered list after Center block
+2. Second ordered
+
+<div style="text-align: center">
+
+### S07N — Centered Heading inside Center block
+
+Centered paragraph below centered heading.
+
+</div>
+
+<div style="text-align: center">
+
+![S07O Centered Image](https://placehold.co/320x60/262626/f5f5f5.png?text=Nexus+Test+Image)
+
+S07O — Centered caption under centered image.
+
+</div>
+
+<div style="text-align: center">
+
+- S07P — Centered Bullet list item 1
+- S07P — Centered Bullet list item 2
+
+</div>
+
+<div style="text-align: center">
+
+||
+
+S07Q — Centered Spoiler block inside Center block.
+
+||
+
+</div>
+
+## Section 8 — Callouts (Fixed &amp; Collapsible)
+
+### S08A — H3 before Fixed Callout
+
+> [!note] S08B — Fixed Callout (single paragraph)
+> Single paragraph inside Fixed Callout.
+
+S08C — Paragraph before Fixed Callout with immediate bullet list.
+
+> [!tip] S08D — Fixed Callout with immediate list (tests 1-newline title gap)
+> - Callout list item 1
+> - Callout list item 2
+
+S08E — Paragraph before multi-block Fixed Callout.
+
+> [!info] S08F — Fixed Callout (multi-paragraph + list)
+> First paragraph inside Callout.
+> 
+> Second paragraph inside Callout.
+> 
+> - List item inside Callout
+
+#### S08G — H4 after Fixed Callout
+
+S08H — Paragraph before Collapsible (-) Callout.
+
+> [!warning]- S08I — Collapsible Callout (default collapsed)
+> Hidden details inside collapsed Callout.
+
+S08J — Paragraph after Collapsible (-) Callout.
+
+> [!example]+ S08K — Collapsible (+) Callout before Fixed Callout
+> Body inside expanded Callout.
+
+> [!caution] S08L — Fixed Callout after Collapsible Callout and before Bullet list
+> Body inside Fixed Callout.
+
+- S08M — Bullet list after Callout
+- Second bullet
+
+> [!warning]- S08N — Outer Collapsible Callout containing nested Callout
+> Outer paragraph before inner Callout.
+> 
+> > [!tip]+ S08O — Inner Expanded Callout
+> > Inner Callout body text.
+
+> [!note] S08P — Title-Only Callout
+
+## Section 9 — Tables &amp; Images
+
+### S09A — H3 before Table
+
+
+| Name       | Role          | Notes              |
+| ---------- | ------------- | ------------------ |
+| S09B Row 1 | Header-to-row | Basic cell         |
+| Row 2      | Value B       | End of first table |
+
+
+S09C — Paragraph before Table.
+
+
+| Column A    | Column B |
+| ----------- | -------- |
+| S09D Cell 1 | Cell 2   |
+
+
+- S09E — Bullet list after Table and before Table
+- Second bullet
+
+
+| Left                                        | Center                             | Right             |
+| :------------------------------------------- | :----------------------------------: | -----------------: |
+| S09F **Bold**                               | *Italic*                           | `Code`            |
+| <span style="color: #e6a050">Colored</span> | [Link](https://www.nexusmods.com/) | Escaped pipe a\|b |
+
+
+#### S09G — H4 after Table
+
+
+| Table 1A   | Table 1B  |
+| ---------- | --------- |
+| S09H First | Before HR |
+
+
+---
+
+
+| Table 2A    | Table 2B |
+| ----------- | -------- |
+| S09I Second | After HR |
+
+
+### S09J — H3 before Standalone Image
+
+![S09K Standalone Image](https://placehold.co/320x60/262626/f5f5f5.png?text=Nexus+Test+Image)
+
+S09L — Paragraph after Standalone Image and before Standalone Image.
+
+![S09M Standalone Image](https://placehold.co/320x60/262626/f5f5f5.png?text=Nexus+Test+Image)
+
+#### S09N — H4 after Standalone Image
+
+![S09O Image before HR](https://placehold.co/320x60/262626/f5f5f5.png?text=Nexus+Test+Image)
+
+---
+
+![S09P Image after HR and before Bullet list](https://placehold.co/320x60/262626/f5f5f5.png?text=Nexus+Test+Image)
+
+- S09Q — Bullet list between Standalone Images
+- Second bullet
+
+![S09R Image after Bullet list](https://placehold.co/320x60/262626/f5f5f5.png?text=Nexus+Test+Image)
+
+![S09S Hard-Break Image A](https://placehold.co/320x60/262626/f5f5f5.png?text=Nexus+Test+Image)  
+![S09S Hard-Break Image B](https://placehold.co/320x60/262626/f5f5f5.png?text=Nexus+Test+Image)
+
+S09T — Inline image mid-sentence ![Inline IMG](https://placehold.co/80x24/262626/f5f5f5.png?text=IMG) followed by trailing text.
+
+## Section 10 — Complete Cross-Block Pair Matrix
+
+> S10A — Matrix Chain 1: Q -&gt; CODE -&gt; SPOIL -&gt; CTR -&gt; Q
+
+```
+S10B — CODE after Q, before SPOIL
+```
+
+||
+
+S10C — SPOIL after CODE, before CTR.
+
+||
+
+<div style="text-align: center">
+
+S10D — CTR after SPOIL, before Q.
+
+</div>
+
+> S10E — Matrix Chain 2: Q -&gt; SPOIL -&gt; CODE -&gt; CTR -&gt; SPOIL -&gt; Q
+
+||
+
+S10F — SPOIL after Q, before CODE.
+
+||
+
+```
+S10G — CODE after SPOIL, before CTR
+```
+
+<div style="text-align: center">
+
+S10H — CTR after CODE, before SPOIL.
+
+</div>
+
+||
+
+S10I — SPOIL after CTR, before Q.
+
+||
+
+> S10J — Matrix Chain 3: Q -&gt; CTR -&gt; CODE -&gt; Q
+
+<div style="text-align: center">
+
+S10K — CTR after Q, before CODE.
+
+</div>
+
+```
+S10L — CODE after CTR, before Q
+```
+
+> S10M — End of core container matrix chains.
+
+- [x] S10N — Task list before H4
+- [ ] Unchecked item
+
+#### S10O — H4 after Task list
+
+- [x] S10P — Task list before HR
+- [ ] Unchecked item
+
+---
+
+- [x] S10Q — Task list before Quote
+- [ ] Unchecked item
+
+> S10R — Quote after Task list.
+
+
+| Key        | Value        |
+| ---------- | ------------ |
+| S10S Table | Before Quote |
+
+
+> S10T — Quote after Table.
+
+
+| Key        | Value       |
+| ---------- | ----------- |
+| S10U Table | Before Code |
+
+
+```
+S10V — Code after Table
+```
+
+
+| Key        | Value          |
+| ---------- | -------------- |
+| S10W Table | Before Spoiler |
+
+
+||
+
+S10X — Spoiler after Table.
+
+||
+
+
+| Key        | Value         |
+| ---------- | ------------- |
+| S10Y Table | Before Center |
+
+
+<div style="text-align: center">
+
+S10Z — Center after Table.
+
+</div>
+
+> [!note] S10AA — Callout before HR
+> Callout body before HR.
+
+---
+
+> [!tip] S10AB — Callout before Code
+> Callout body before Code.
+
+```
+S10AC — Code after Callout
+```
+
+> [!info] S10AD — Callout before Spoiler
+> Callout body before Spoiler.
+
+||
+
+S10AE — Spoiler after Callout.
+
+||
+
+## Section 11 — Intentional Extra Blank Lines
+
+S11A — Baseline 1 blank line before next Paragraph.
+
+S11B — Exactly 2 blank lines follow this Paragraph.
+
+S11C — Exactly 3 blank lines follow this Paragraph.
+
+
+
+S11D — Paragraph after 3 blank lines.
+
+#### S11E — H4 with 2 blank lines before Bullet list
+
+- S11F — Bullet list after 2 blank lines from H4
+- Second item
+
+S11G — Paragraph with 2 blank lines before HR.
+
+---
+
+S11H — Paragraph after 2 blank lines from HR, and 2 blank lines before Quote.
+
+> S11I — Blockquote after 2 blank lines from Paragraph, and 2 blank lines before Paragraph.
+
+S11J — Paragraph with 2 blank lines before Code block.
+
+```
+S11K — Code block after 2 blank lines from Paragraph
+```
+
+S11L — Paragraph after 2 blank lines from Code block.
+
+## Section 12 — Inline Formatting, Nesting &amp; Parser Edge Cases
+
+S12A — All standard inline marks: **bold**, *italic*, ~~strikethrough~~, <span style="color: #e6a050">warm amber</span>, [Nexus Mods](https://www.nexusmods.com/), [mailto link](mailto:test@example.com).
+
+S12B — Mid-sentence `inline code` inside an isolated paragraph to test whether Nexus forces a line or block break.
+
+S12C — Mid-sentence ||inline spoiler|| inside an isolated paragraph to test whether Nexus forces a toggle box break.
+
+S12D — Multiple inline `code one` and `code two` alongside ||spoiler one|| and ||spoiler two|| on the same line.
+
+S12E — Nested inline marks: ***bold italic***, **bold with *italic* and ~~strike~~**, <span style="color: #60a5fa">**colored bold** and *colored italic*</span>, [**bold link**](https://www.nexusmods.com/), [<span style="color: #05df72">colored link</span>](https://www.nexusmods.com/), and ||**bold** and <span style="color: #ffb900">colored</span> inside inline spoiler||.
+
+### S12F — Heading with *italic*, ~~strike~~, <span style="color: #e6a050">color</span>, and [link](https://www.nexusmods.com/)
+
+S12G — Escaping and literal characters: \|\|escaped pipes\|\|, literal brackets \[Mod Name\], \[Optional\], \[1\], and \[b\]fake bold\[/b\].
+
+S12H — Punctuation &amp; Unicode: em-dash — arrow → ampersand &amp; comparisons a &lt; b and c &gt; d plus accents éàü.
