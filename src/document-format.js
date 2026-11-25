@@ -37,6 +37,48 @@ export function withDocumentMetadata(source, target) {
   return `---\nformat: mdbbcode\nversion: 1\ntarget: ${target || 'nexus'}\n---\n\n${source.replace(/^\uFEFF/, '')}`;
 }
 
+// ==> Section 1B - App-Reserved bbcodeLint Property <==
+// `bbcodeLint: true | false` in ordinary front matter overrides the global BBCode warning scope
+// for that file. It is the only app-reserved key outside legacy metadata.
+export function readBBCodeLintProperty(source) {
+  if (!/bbcodeLint/.test(source.slice(0, 8192))) return null;
+  try {
+    const value = readDocumentSource(source).yaml?.get('bbcodeLint');
+    return typeof value === 'boolean' ? value : null;
+  } catch { return null; }
+}
+
+// Sets (true/false) or removes (null) the key, touching only its own line so every other byte of
+// the front matter (unknown keys, comments, order, quoting, CRLF) stays as it was. A front matter
+// block is created when needed and dropped again when removing the key leaves it empty.
+export function withBBCodeLintProperty(source, value) {
+  const bom = source.startsWith('﻿') ? '﻿' : '';
+  const text = source.slice(bom.length);
+  const documentSource = readDocumentSource(source);
+  const newline = text.includes('\r\n') ? '\r\n' : '\n';
+  if (!documentSource.yaml) {
+    if (value === null) return source;
+    return `${bom}---${newline}bbcodeLint: ${value}${newline}---${newline}${text}`;
+  }
+  const opening = text.match(/^---[ \t]*\r?\n/)[0];
+  const remaining = text.slice(opening.length);
+  const closing = /^---[ \t]*(?:\r?\n|$)(?:\r?\n)?/m.exec(remaining);
+  let yamlText = remaining.slice(0, closing.index);
+  const after = remaining.slice(closing.index);
+  const yamlNewline = yamlText.includes('\r\n') ? '\r\n' : newline;
+  const keyLine = /^bbcodeLint[ \t]*:[^\r\n]*(?:\r?\n|$)/m;
+  if (value === null) yamlText = yamlText.replace(keyLine, '');
+  else if (keyLine.test(yamlText)) yamlText = yamlText.replace(keyLine, match => `bbcodeLint: ${value}${match.match(/\r?\n$/)?.[0] ?? ''}`);
+  else yamlText = `${yamlText}${yamlText && !/\n$/.test(yamlText) ? yamlNewline : ''}bbcodeLint: ${value}${yamlNewline}`;
+  if (!yamlText.trim()) return `${bom}${after.replace(/^---[ \t]*(?:\r?\n|$)/, '')}`;
+  const updated = `${bom}${opening}${yamlText}${after}`;
+  // Verify with the YAML Document API; unusual layouts (flow maps, indented keys) fall back to it.
+  if (readBBCodeLintProperty(updated) === value || (value === null && readDocumentSource(updated).yaml?.has('bbcodeLint') === false)) return updated;
+  const yaml = documentSource.yaml;
+  if (value === null) yaml.delete('bbcodeLint'); else yaml.set('bbcodeLint', value);
+  return `${bom}${opening}${yaml.toString().replace(/\n/g, yamlNewline)}${after}`;
+}
+
 export function hasDocumentContent(source) {
   try { return Boolean(readDocumentSource(source).body.trim()); }
   catch { return Boolean(source); }

@@ -6,7 +6,8 @@ import { documentToBBCodeWithWarnings } from '../src/document-format.js';
 import { collectAuditFiles, runFolderAudit, relativeAuditPath, isAuditCandidate } from '../src/lint/folder-audit-model.js';
 import { groupLintProblems } from '../src/lint/lint-engine.js';
 import { LintController } from '../src/lint/lint-controller.js';
-import { normalizeLintSettings } from '../src/lint/lint-config.js';
+import { normalizeLintSettings, bbcodeWarningsActive, bbcodeScopeDefault } from '../src/lint/lint-config.js';
+import { readBBCodeLintProperty, withBBCodeLintProperty } from '../src/document-format.js';
 
 const summary = problems => problems.map(problem => [problem.line, problem.code, problem.severity]);
 
@@ -40,9 +41,43 @@ test('problems without a line group last and do not break sorting', () => {
   assert.deepEqual(groups.map(group => group.code), ['MD018', 'BB-STEAM-NOTE']);
 });
 
-test('settings keep BBCode warnings on by default', () => {
-  assert.equal(normalizeLintSettings({}).bbcode, true);
-  assert.equal(normalizeLintSettings({ bbcode: false }).bbcode, false);
+test('BBCode warning scope defaults to .mdbbcode files and migrates the old boolean', () => {
+  assert.equal(normalizeLintSettings({}).bbcodeScope, 'mdbbcode');
+  assert.equal(normalizeLintSettings({ bbcode: true }).bbcodeScope, 'mdbbcode');
+  assert.equal(normalizeLintSettings({ bbcode: false }).bbcodeScope, 'off');
+  assert.equal(normalizeLintSettings({ bbcode: false, bbcodeScope: 'all' }).bbcodeScope, 'all');
+  assert.equal(normalizeLintSettings({ bbcodeScope: 'nope' }).bbcodeScope, 'mdbbcode');
+  assert.equal('bbcode' in normalizeLintSettings({ bbcode: true }), false);
+});
+
+test('a file bbcodeLint value overrides the global scope in both directions', () => {
+  assert.equal(bbcodeWarningsActive('mdbbcode', 'C:\\a.md', null), false);
+  assert.equal(bbcodeWarningsActive('mdbbcode', 'C:\\a.MDBBCODE', null), true);
+  assert.equal(bbcodeWarningsActive('mdbbcode', 'C:\\a.md', true), true);
+  assert.equal(bbcodeWarningsActive('all', 'C:\\a.md', false), false);
+  assert.equal(bbcodeWarningsActive('all', null, null), true);
+  assert.equal(bbcodeWarningsActive('off', 'C:\\a.mdbbcode', null), false);
+  assert.equal(bbcodeWarningsActive('off', 'C:\\a.md', true), true);
+  assert.equal(bbcodeScopeDefault('mdbbcode', null), false);
+});
+
+test('bbcodeLint is read and written without disturbing other front matter', () => {
+  assert.equal(readBBCodeLintProperty('# T\n'), null);
+  assert.equal(readBBCodeLintProperty('---\nbbcodeLint: "yes"\n---\n'), null);
+  assert.equal(withBBCodeLintProperty('# T\n', true), '---\nbbcodeLint: true\n---\n# T\n');
+  assert.equal(withBBCodeLintProperty('---\nbbcodeLint: true\n---\n# T\n', null), '# T\n');
+  const commented = '---\ntitle: a # keep\n# comment\nz: 1\n---\n\n# T\n';
+  assert.equal(withBBCodeLintProperty(commented, false), '---\ntitle: a # keep\n# comment\nz: 1\nbbcodeLint: false\n---\n\n# T\n');
+  assert.equal(withBBCodeLintProperty(withBBCodeLintProperty(commented, false), null), commented);
+  const middle = '---\ntitle: a\nbbcodeLint: false\nother: 2\n---\n# T\n';
+  assert.equal(withBBCodeLintProperty(middle, true), '---\ntitle: a\nbbcodeLint: true\nother: 2\n---\n# T\n');
+  const crlf = '---\r\ntitle: a\r\n---\r\n# T\r\n';
+  assert.equal(withBBCodeLintProperty(crlf, true), '---\r\ntitle: a\r\nbbcodeLint: true\r\n---\r\n# T\r\n');
+  assert.equal(withBBCodeLintProperty('# T\r\n', true), '---\r\nbbcodeLint: true\r\n---\r\n# T\r\n');
+  assert.equal(readBBCodeLintProperty(withBBCodeLintProperty('---\n\nText after a rule\n', true)), true);
+  const flow = '---\n{ title: a }\n---\n# T\n';
+  assert.equal(readBBCodeLintProperty(withBBCodeLintProperty(flow, true)), true);
+  assert.throws(() => withBBCodeLintProperty('---\ntitle: [\n---\n# T\n', true), /Invalid YAML/);
 });
 
 function fakeTree(tree) {

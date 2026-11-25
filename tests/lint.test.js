@@ -48,7 +48,7 @@ test('groupLintProblems collapses repeated rule hits in first-occurrence order',
 });
 
 test('lint settings and panel tab normalize safely', () => {
-  const defaults = { markers: true, bbcode: true, preset: 'app', rules: {}, debounceMs: 400, largeFileKB: 300 };
+  const defaults = { markers: true, bbcodeScope: 'mdbbcode', preset: 'app', rules: {}, debounceMs: 400, largeFileKB: 300 };
   assert.deepEqual(normalizeLintSettings(undefined), { enabled: false, ...defaults });
   assert.deepEqual(normalizeLintSettings({ enabled: 'yes' }), { enabled: false, ...defaults });
   assert.deepEqual(normalizeLintSettings({ enabled: true }), { enabled: true, ...defaults });

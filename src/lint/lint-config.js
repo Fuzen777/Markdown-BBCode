@@ -68,13 +68,38 @@ export function normalizeLintPreset(value) {
   return LINT_PRESETS.some(preset => preset.id === value) ? value : 'app';
 }
 
+// BBCode export warnings: 'mdbbcode' (default) | 'all' | 'off'. Sessions from before the scope
+// stored `bbcode: true/false`; true (or nothing) becomes 'mdbbcode', false becomes 'off'.
+export const BBCODE_SCOPES = Object.freeze([
+  { id: 'all', label: 'All Markdown Files' },
+  { id: 'mdbbcode', label: 'Only .mdbbcode Files' },
+  { id: 'off', label: 'Off' },
+]);
+
+export function normalizeBBCodeScope(settings = {}) {
+  if (BBCODE_SCOPES.some(scope => scope.id === settings?.bbcodeScope)) return settings.bbcodeScope;
+  return settings?.bbcode === false ? 'off' : 'mdbbcode';
+}
+
+// What the global scope alone gives for a path (without the file's own bbcodeLint value).
+export function bbcodeScopeDefault(scope, path) {
+  if (scope === 'all') return true;
+  if (scope === 'mdbbcode') return /\.mdbbcode$/i.test(path || '');
+  return false;
+}
+
+// The file's `bbcodeLint` front matter value wins in both directions.
+export function bbcodeWarningsActive(scope, path, fileValue) {
+  return typeof fileValue === 'boolean' ? fileValue : bbcodeScopeDefault(scope, path);
+}
+
 // Older sessions stored only { enabled }; every other field falls back to its default.
 export function normalizeLintSettings(value) {
   const source = value && typeof value === 'object' ? value : {};
   return {
     enabled: source.enabled === true,
     markers: source.markers !== false,
-    bbcode: source.bbcode !== false,
+    bbcodeScope: normalizeBBCodeScope(source),
     preset: normalizeLintPreset(source.preset),
     rules: normalizeRuleOverrides(source.rules),
     debounceMs: clampInteger(source.debounceMs, LINT_DEBOUNCE_RANGE, LINT_DEBOUNCE_MS),

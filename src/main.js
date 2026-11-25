@@ -5,7 +5,7 @@ import { open, save } from '@tauri-apps/plugin-dialog';
 import { DocumentStore, documentName, pathKey, outputPath, normalizeViewportWidth, normalizeBBCodeTarget, normalizeOutlineMode } from './documents.js';
 // Settings dialog, rule browser and project config discovery are dynamically imported on demand.
 import { MarkdownEditor } from './visual-editor.js';
-import { documentToBBCodeWithWarnings, hasDocumentContent, readDocumentSource } from './document-format.js';
+import { documentToBBCodeWithWarnings, hasDocumentContent, readDocumentSource, readBBCodeLintProperty, withBBCodeLintProperty } from './document-format.js';
 import { importBBCode } from './bbcode-import.js';
 import { ColorPicker } from './color-picker.js';
 import { FindReplaceController } from './find-replace.js';
@@ -13,7 +13,7 @@ import { TableGridPicker } from './table-controls.js';
 import { DocumentOutline } from './outline.js';
 import { LintPanel } from './lint/lint-panel.js';
 import { LintController } from './lint/lint-controller.js';
-import { normalizeLintSettings, presetConfigSync, loadPresetConfig, mergeLintConfig, BBCODE_WARNINGS_MAX_KB } from './lint/lint-config.js';
+import { normalizeLintSettings, presetConfigSync, loadPresetConfig, mergeLintConfig, BBCODE_WARNINGS_MAX_KB, BBCODE_SCOPES, bbcodeScopeDefault, bbcodeWarningsActive } from './lint/lint-config.js';
 import { applyEdit, diffEdit } from './lint/lint-engine.js';
 import { FolderBrowser } from './folder-browser.js';
 import { DiffDialog } from './diff-dialog.js';
@@ -510,8 +510,10 @@ function createBBCodeWorker() {
 
 function updateLint(options = {}) {
   if (!lintController?.enabled || !store.active) return;
+  renderBBCodeFileToggle();
   lintController.update(store.active.id, store.active.content, options);
-  if (bbcodeController.enabled) {
+  // The BBCode worker is created on its first update, so out-of-scope documents never load it.
+  if (bbcodeController.enabled && bbcodeWarningsForActive()) {
     bbcodeController.setTiming({ debounceMs: store.lint.debounceMs, largeFileBytes: Math.min(store.lint.largeFileKB, BBCODE_WARNINGS_MAX_KB) * 1024 });
     bbcodeController.setConfig({ target: normalizeBBCodeTarget(store.bbcodeTarget), path: store.active.path || null });
     bbcodeController.update(store.active.id, store.active.content, options);
@@ -522,7 +524,7 @@ function updateLint(options = {}) {
 // The Lint tab shows markdownlint problems plus, when on, a BBCode section for the same text.
 function combinedLintResult() {
   const result = markdownlintResult;
-  if (!result || result.state !== 'ready' || !store.lint.bbcode) return result;
+  if (!result || result.state !== 'ready' || !bbcodeWarningsForActive()) return result;
   const target = activeBBCodeTarget();
   const label = `BBCode (${target === 'steam' ? 'Steam' : 'Nexus'})`;
   const bbcode = bbcodeResult?.docKey === result.docKey ? bbcodeResult : null;
@@ -552,8 +554,53 @@ function handleBBCodeResult(result) {
 }
 
 function applyBBCodeWarningsEnabled() {
-  if (store.lint.enabled && store.lint.bbcode) bbcodeController.enable();
+  if (store.lint.enabled) bbcodeController.enable();
   else { bbcodeController.disable(); bbcodeResult = null; }
+}
+
+// Global scope, overridden by the file's own `bbcodeLint` front matter value.
+function bbcodeWarningsState(path = store.active?.path, content = store.active?.content || '') {
+  const fileValue = readBBCodeLintProperty(content);
+  const scopeDefault = bbcodeScopeDefault(store.lint.bbcodeScope, path);
+  return { active: bbcodeWarningsActive(store.lint.bbcodeScope, path, fileValue), fileValue, scopeDefault };
+}
+
+function bbcodeWarningsForActive() {
+  return Boolean(store.active && store.lint.enabled && bbcodeWarningsState().active);
+}
+
+function renderBBCodeFileToggle() {
+  if (!store.active) return;
+  const state = bbcodeWarningsState();
+  const scopeLabel = BBCODE_SCOPES.find(scope => scope.id === store.lint.bbcodeScope)?.label || '';
+  const source = state.fileValue === null
+    ? `${state.active ? 'On' : 'Off'} by the global setting (${scopeLabel}).`
+    : `${state.active ? 'On' : 'Off'} because this file sets bbcodeLint: ${state.fileValue}.`;
+  lintPanel.setBBCodeFileState({ checked: state.active, title: source });
+}
+
+// Writes `bbcodeLint` into the front matter (removed when it would equal the global default).
+async function setBBCodeWarningsForFile(enabled) {
+  capture();
+  if (!store.active) return;
+  const current = editor.val();
+  const state = bbcodeWarningsState(store.active.path, current);
+  const next = withBBCodeLintProperty(current, enabled === state.scopeDefault ? null : enabled);
+  if (next === current) { renderBBCodeFileToggle(); return; }
+  if (editor.sourceMode()) {
+    applySourceTextEdit(diffEdit(current, next));
+  } else {
+    // Front matter is outside the Visual/Hybrid editor body: update the prefix in place so undo
+    // history and the body stay untouched.
+    const editorBody = current.slice(editor.documentSource.prefix.length);
+    const parsed = readDocumentSource(next, /\.mdbbcode$/i.test(store.active.path || ''));
+    if (parsed.body !== editorBody) throw new Error('Could not update the front matter here. Switch to Source to edit it.');
+    Object.assign(editor.documentSource, { prefix: parsed.prefix, yaml: parsed.yaml });
+  }
+  capture();
+  updateLint();
+  showLintResult();
+  renderBBCodeFileToggle();
 }
 
 // Inline markers load as their own chunk the first time a result is ready with markers on.
@@ -706,7 +753,11 @@ async function runFolderAudit() {
       lintText: async (text, path) => {
         const project = await projectConfigFor(path);
         const config = project?.config || mergeLintConfig(await loadPresetConfig(store.lint.preset), store.lint.rules);
-        return lintController.lintOnce(text, config);
+        const problems = await lintController.lintOnce(text, config);
+        // The BBCode pass follows the same scope and per-file bbcodeLint rule as the open document.
+        if (!bbcodeWarningsState(path, text).active || text.length > BBCODE_WARNINGS_MAX_KB * 1024) return problems;
+        const bbcode = await bbcodeController.lintOnce(text, { target: normalizeBBCodeTarget(store.bbcodeTarget), path });
+        return [...problems, ...bbcode];
       },
       openProblem: (path, problem) => runAction(async () => {
         await openPaths([path]);
@@ -1403,6 +1454,7 @@ async function initialize() {
     onFix: problem => { void runAction(() => fixLintProblem(problem)); },
     onFixAll: () => { void runAction(fixAllLintProblems); },
     onFolderAudit: () => { void runFolderAudit(); },
+    onBBCodeFileToggle: enabled => { void runAction(() => setBBCodeWarningsForFile(enabled)); },
   });
   folderBrowser = new FolderBrowser(elements, backend, {
     getState: () => store.folderBrowser,

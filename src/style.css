@@ -334,6 +334,9 @@ button.table-col-handle.icon-button { width: 22px; height: 14px; padding: 0; cur
 .lint-audit-fill { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
 .lint-audit-summary { margin: 2px 6px 6px; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .lint-audit-file-row .lint-text { font-family: var(--font-mono); font-size: 11px; }
+.lint-file-toggle { display: flex; align-items: center; gap: 6px; margin: 6px 10px 0; font-size: 12px; color: var(--text-secondary); cursor: pointer; }
+.lint-file-toggle[hidden] { display: none; }
+.lint-file-toggle input { margin: 0; accent-color: var(--signature-fill); }
 .lint-section-heading { margin: 8px 6px 2px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px; font-weight: 600; color: var(--muted); }
 .lint-section-note { margin: 2px 6px 6px; font-size: 12px; color: var(--muted); }
 .lint-row:disabled { opacity: 1; cursor: default; }

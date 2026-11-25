@@ -918,7 +918,7 @@ test('Linting settings toggle rules, set Error severity, clamp timing, open docs
   await dialog.getByRole('spinbutton', { name: 'Lint Delay' }).fill('5000');
   await dialog.getByRole('spinbutton', { name: 'Lint Delay' }).press('Enter');
   await expect(dialog.getByRole('spinbutton', { name: 'Lint Delay' })).toHaveValue('2000');
-  await expect.poll(() => page.evaluate(() => JSON.stringify(window.testDesktop.session?.lint))).toBe(JSON.stringify({ enabled: true, markers: true, bbcode: true, preset: 'app', rules: { MD018: false, MD004: 'error' }, debounceMs: 2000, largeFileKB: 300 }));
+  await expect.poll(() => page.evaluate(() => JSON.stringify(window.testDesktop.session?.lint))).toBe(JSON.stringify({ enabled: true, markers: true, bbcodeScope: 'mdbbcode', preset: 'app', rules: { MD018: false, MD004: 'error' }, debounceMs: 2000, largeFileKB: 300 }));
   await page.screenshot({ path: 'test-results/settings-linting-page.png' });
   await page.keyboard.press('Escape');
 
@@ -954,8 +954,7 @@ test('nearest project .markdownlint.jsonc with extends replaces app lint setting
   await page.getByRole('tab', { name: 'Lint' }).click();
   await page.getByRole('button', { name: 'Enable Linting', exact: true }).click();
   // Project config: MD018 off, MD033 (inline HTML) on because markdownlint defaults apply, MD004 is an error.
-  // The bare <span> also cannot be exported to Nexus, so the BBCode group reports an export error.
-  await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD033', 'MD032', 'MD004', 'BB-NEXUS-ERROR']);
+  await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD033', 'MD032', 'MD004']);
   await expect(page.locator('#lint-tab-count')).toHaveClass(/has-errors/);
 
   const dialog = page.locator('#settings-dialog');
@@ -1072,6 +1071,14 @@ test('Visual Fix asks before resetting undo and offers Switch to Source', async 
 test('BBCode export warnings appear as their own Lint group, follow the dialect, jump to lines and can be turned off', async ({ page }) => {
   await enableLinting(page, '# Title\n\n## Part\n\n### Section\n\n#### Deep\n\n- [ ] task\n');
   const list = page.locator('#lint-list');
+  const dialog = page.locator('#settings-dialog');
+  // The default scope is .mdbbcode only; this draft needs "All Markdown Files".
+  await expect(list).toContainText('No problems in this document.');
+  await expect(list.locator('.lint-section-heading')).toHaveCount(0);
+  await page.keyboard.press('Control+,');
+  await dialog.getByRole('tab', { name: 'Linting' }).click();
+  await dialog.getByRole('combobox', { name: 'BBCode Export Warnings' }).selectOption('all');
+  await page.keyboard.press('Escape');
   await expect(list.locator('.lint-section-heading')).toHaveText('BBCode (Nexus)');
   await expect(list.locator('.lint-code')).toHaveText(['BB-NEXUS-TASK']);
 
@@ -1083,14 +1090,57 @@ test('BBCode export warnings appear as their own Lint group, follow the dialect,
   expect(await page.getByRole('textbox', { name: 'Markdown Source' }).evaluate(textarea => textarea.value.slice(0, textarea.selectionStart).split('\n').length)).toBe(9);
 
   await page.keyboard.press('Control+,');
-  const dialog = page.locator('#settings-dialog');
   await dialog.getByRole('tab', { name: 'Linting' }).click();
-  await dialog.getByRole('checkbox', { name: /Include BBCode Export Warnings/ }).uncheck();
-  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.lint?.bbcode)).toBe(false);
+  await dialog.getByRole('combobox', { name: 'BBCode Export Warnings' }).selectOption('off');
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.lint?.bbcodeScope)).toBe('off');
   await expect(list.locator('.lint-section-heading')).toHaveCount(0);
   await expect(list).toContainText('No problems in this document.');
   await page.keyboard.press('Escape');
   await page.locator('#target-nexus').click();
+});
+
+test('BBCode warnings default to .mdbbcode files and the per-file switch writes bbcodeLint front matter', async ({ page }) => {
+  const workerRequested = () => page.evaluate(() => performance.getEntriesByType('resource').some(entry => entry.name.includes('bbcode-worker')));
+  const source = '# Title\n\n- [ ] task\n';
+  await enableLinting(page, source);
+  const list = page.locator('#lint-list');
+  const toggle = page.getByRole('checkbox', { name: 'BBCode Warnings For This File' });
+  await expect(list).toContainText('No problems in this document.');
+  await expect(list.locator('.lint-section-heading')).toHaveCount(0);
+  await expect(toggle).not.toBeChecked();
+  await expect(page.locator('#lint-bbcode-file')).toHaveAttribute('title', 'Off by the global setting (Only .mdbbcode Files).');
+  expect(await workerRequested()).toBe(false);
+
+  const textarea = page.getByRole('textbox', { name: 'Markdown Source' });
+  await toggle.check();
+  await expect(textarea).toHaveValue(`---\nbbcodeLint: true\n---\n${source}`);
+  await expect(list.locator('.lint-section-heading')).toHaveText('BBCode (Nexus)');
+  await expect(list.locator('.lint-code')).toHaveText(['BB-NEXUS-TASK']);
+  await expect(page.locator('#lint-bbcode-file')).toHaveAttribute('title', 'On because this file sets bbcodeLint: true.');
+  await textarea.press('Control+z');
+  await expect(textarea).toHaveValue(source);
+  await toggle.check();
+  await toggle.uncheck();
+  await expect(textarea).toHaveValue(source);
+  await expect(list.locator('.lint-section-heading')).toHaveCount(0);
+
+  // In Visual the front matter changes in place, without reloading the editor body.
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await toggle.check();
+  await expect(list.locator('.lint-section-heading')).toHaveText('BBCode (Nexus)');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(textarea).toHaveValue(`---\nbbcodeLint: true\n---\n${source}`);
+
+  // A .mdbbcode file shows the group under the default scope.
+  await page.evaluate(() => {
+    window.testDesktop.files['C:\\Guide.mdbbcode'] = { path: 'C:\\Guide.mdbbcode', content: '# Guide\n\n- [ ] task\n', revision: '1' };
+    window.testDesktop.openPaths = ['C:\\Guide.mdbbcode'];
+  });
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.locator('#document-path')).toHaveText('C:\\Guide.mdbbcode');
+  await expect(list.locator('.lint-section-heading')).toHaveText('BBCode (Nexus)');
+  await expect(toggle).toBeChecked();
+  await expect(page.locator('#lint-bbcode-file')).toHaveAttribute('title', 'On by the global setting (Only .mdbbcode Files).');
 });
 
 test('Folder scope audits Markdown files under the Folder Browser root on demand, opens results and can be cancelled', async ({ page }) => {
@@ -1101,6 +1151,8 @@ test('Folder scope audits Markdown files under the Folder Browser root on demand
     add('C:\\Audit\\clean.md', '# Clean\n');
     add('C:\\Audit\\plain.txt', 'just some words');
     add('C:\\Audit\\sub\\b.md', '# B\n\n* x\n- y\n');
+    add('C:\\Audit\\bb.md', '---\nbbcodeLint: true\n---\n# BB\n\n- [ ] task\n');
+    add('C:\\Audit\\plain-task.md', '# Plain\n\n- [ ] task\n');
     // The shared bridge lists files only; add subfolders and optionally slow reads for this test.
     const original = window.__TAURI_INTERNALS__.invoke;
     window.__TAURI_INTERNALS__.invoke = async (command, args = {}) => {
@@ -1131,8 +1183,12 @@ test('Folder scope audits Markdown files under the Folder Browser root on demand
 
   await page.getByRole('button', { name: 'Folder', exact: true }).click();
   const folder = page.locator('#lint-folder');
-  await expect(folder.locator('.lint-audit-summary')).toHaveText('4 Problems in 2 of 3 Files');
-  await expect(folder.locator('.lint-audit-file-row .lint-text')).toHaveText(['a.md', 'sub\\b.md']);
+  // bb.md opts into BBCode warnings with bbcodeLint: true; plain-task.md stays out under the .mdbbcode-only default.
+  await expect(folder.locator('.lint-audit-summary')).toHaveText('5 Problems in 3 of 5 Files');
+  await expect(folder.locator('.lint-audit-file-row .lint-text')).toHaveText(['a.md', 'bb.md', 'sub\\b.md']);
+  await folder.locator('.lint-audit-file-row', { hasText: 'bb.md' }).click();
+  await expect(folder.locator('.lint-child .lint-code')).toHaveText(['BB-NEXUS-TASK']);
+  await folder.locator('.lint-audit-file-row', { hasText: 'bb.md' }).click();
   await expect(page.locator('#lint-summary')).toHaveText('Folder Audit');
   await folder.locator('.lint-audit-file-row', { hasText: 'a.md' }).click();
   await page.screenshot({ path: 'test-results/lint-folder-audit.png' });

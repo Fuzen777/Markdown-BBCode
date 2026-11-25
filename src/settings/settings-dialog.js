@@ -1,7 +1,7 @@
 // ==> Section 1 - Settings Dialog Shell <==
 // Dynamically imported the first time Settings opens, so none of this costs startup time.
 import { setButtonIcon } from '../icons.js';
-import { LINT_PRESETS, LINT_DEBOUNCE_RANGE, LINT_LARGE_FILE_RANGE, clampInteger, mergeLintConfig } from '../lint/lint-config.js';
+import { LINT_PRESETS, LINT_DEBOUNCE_RANGE, LINT_LARGE_FILE_RANGE, BBCODE_SCOPES, clampInteger, mergeLintConfig } from '../lint/lint-config.js';
 import {
   LINT_CATEGORIES, buildRuleCatalog, ruleMatchesSearch, resolveRuleState, overrideForState, withOverride,
   optionInputValue, parseOptionInput, withOption,
@@ -202,12 +202,10 @@ export class SettingsDialog {
   }
 
   bbcodeCheck(lint) {
-    this.bbcodeInput = element('input', { type: 'checkbox', checked: lint.bbcode, id: 'settings-lint-bbcode' });
-    this.bbcodeInput.onchange = () => this.host.updateLint({ bbcode: this.bbcodeInput.checked });
-    return element('label', { className: 'settings-check' }, [this.bbcodeInput, element('span', {}, [
-      element('span', { className: 'settings-label', text: 'Include BBCode Export Warnings' }),
-      element('span', { className: 'settings-hint', text: 'Lists what the current Nexus or Steam export would drop or change, for documents up to 100 KB.' }),
-    ])]);
+    this.bbcodeInput = element('select', { 'aria-label': 'BBCode Export Warnings', id: 'settings-lint-bbcode' }, BBCODE_SCOPES.map(scope => element('option', { value: scope.id, text: scope.label })));
+    this.bbcodeInput.value = lint.bbcodeScope;
+    this.bbcodeInput.onchange = () => this.host.updateLint({ bbcodeScope: this.bbcodeInput.value });
+    return settingRow('BBCode Export Warnings', this.bbcodeInput, 'What the Nexus or Steam export would drop or change, up to 100 KB. A file’s bbcodeLint front matter overrides this.');
   }
 
   async syncLinting() {
@@ -215,7 +213,7 @@ export class SettingsDialog {
     const lint = this.host.getState().lint;
     this.enabledInput.checked = lint.enabled;
     this.markersInput.checked = lint.markers;
-    this.bbcodeInput.checked = lint.bbcode;
+    this.bbcodeInput.value = lint.bbcodeScope;
     const presetChanged = this.presetSelect.value !== lint.preset;
     this.presetSelect.value = lint.preset;
     if (presetChanged) { await this.ensureCatalog(); this.renderRules(); }

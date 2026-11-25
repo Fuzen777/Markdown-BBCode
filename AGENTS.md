@@ -22,7 +22,7 @@ The Tiptap Markdown manager uses an isolated Marked instance and validated schem
 
 ## Metadata And Preferences
 
-Ordinary Markdown accepts arbitrary optional YAML; only legacy metadata has app-reserved fields. Save As does not inject metadata. Conversion validation happens at export, never as a prerequisite to saving. YAML Document API retains unknown fields/comments. Selection indicators derive from Tiptap transactions and selections.
+Ordinary Markdown accepts arbitrary optional YAML; only legacy metadata and the `bbcodeLint` key (per-file BBCode warning override, read/written by `readBBCodeLintProperty`/`withBBCodeLintProperty` in src/document-format.js, touching only its own line) are app-reserved. Save As does not inject metadata. Conversion validation happens at export, never as a prerequisite to saving. YAML Document API retains unknown fields/comments. Selection indicators derive from Tiptap transactions and selections.
 
 src/colors.js owns conversion/validation; src/color-picker.js owns the picker. Session preferences.lastColor and preferences.colorMode are global portable settings. Selection never overwrites lastColor. Save input-mode changes immediately, including cancellation. Preserve editor bookmarks across the picker in every mode.
 

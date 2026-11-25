@@ -4,12 +4,12 @@
 import { bbcodeProblems } from './bbcode-lint.js';
 
 self.onmessage = event => {
-  const { id, text, config } = event.data || {};
+  const { id, kind, text, config } = event.data || {};
   const started = performance.now();
   try {
     const result = bbcodeProblems(text, config?.path || null, config?.target || 'nexus');
-    self.postMessage({ id, problems: result.problems, meta: { target: result.target }, elapsed: performance.now() - started });
+    self.postMessage({ id, kind, problems: result.problems, meta: { target: result.target }, elapsed: performance.now() - started });
   } catch (error) {
-    self.postMessage({ id, error: error?.message || String(error) });
+    self.postMessage({ id, kind, error: error?.message || String(error) });
   }
 };

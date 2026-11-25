@@ -63,6 +63,10 @@ S01G — First standalone Paragraph before second Paragraph.
 
 ## Concerns
 
+### Performance
+
+- [ ] **BBCode Conversion Speed**: `documentToBBCodeWithWarnings` (and the Steam path in `steam-bbcode.js`) grows superlinearly, about 0.6 s at 50 KB and 2.4 s at 100 KB (measured in lint phase 4). It runs for Copy BBCode, Export, the live BBCode Preview and the Lint tab's BBCode warnings worker, which skips documents over 100 KB (`BBCODE_WARNINGS_MAX_KB`). Profile it, remove the superlinear hot spots, then raise or drop the 100 KB lint skip.
+
 ## Fixes
 
 - Page mode now shows an orange outline on the edges on each side.

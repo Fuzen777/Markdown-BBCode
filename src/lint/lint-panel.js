@@ -5,8 +5,9 @@ import { groupLintProblems, countLintProblems } from './lint-engine.js';
 import { lineColumnToOffset, countLines, blockIndexAtOffset, contentBlockOrdinal } from './lint-locate.js';
 
 export class LintPanel {
-  constructor(elements, { getEditor, onEnabledChange, onTabChange, onShowPanel, onOpenUrl, onRefresh, onFix = () => {}, onFixAll = () => {}, onFolderAudit = () => {} }) {
-    Object.assign(this, { elements, getEditor, onEnabledChange, onTabChange, onShowPanel, onOpenUrl, onRefresh, onFix, onFixAll, onFolderAudit });
+  constructor(elements, { getEditor, onEnabledChange, onTabChange, onShowPanel, onOpenUrl, onRefresh, onFix = () => {}, onFixAll = () => {}, onFolderAudit = () => {}, onBBCodeFileToggle = () => {} }) {
+    Object.assign(this, { elements, getEditor, onEnabledChange, onTabChange, onShowPanel, onOpenUrl, onRefresh, onFix, onFixAll, onFolderAudit, onBBCodeFileToggle });
+    elements['lint-bbcode-file-input'].onchange = () => this.onBBCodeFileToggle(elements['lint-bbcode-file-input'].checked);
     this.scope = 'document';
     elements['lint-scope-document'].onclick = () => this.setScope('document');
     elements['lint-scope-folder'].onclick = () => this.setScope('folder');
@@ -39,6 +40,14 @@ export class LintPanel {
     this.enabled = Boolean(enabled);
     if (!this.enabled) { this.result = null; this.scope = 'document'; }
     this.render();
+  }
+
+  // Effective per-file BBCode warning state; the tooltip says whether it comes from the file or the global setting.
+  setBBCodeFileState({ checked, title }) {
+    const input = this.elements['lint-bbcode-file-input'];
+    input.checked = checked;
+    this.elements['lint-bbcode-file'].title = title;
+    input.setAttribute('aria-description', title);
   }
 
   // Folder scope runs its audit each time it is opened (never in the background).
@@ -98,6 +107,7 @@ export class LintPanel {
     const fixable = ready ? this.result.problems.filter(problem => problem.fixable).length : 0;
     const folder = this.enabled && this.scope === 'folder';
     this.elements['lint-scope'].hidden = !this.enabled;
+    this.elements['lint-bbcode-file'].hidden = !this.enabled || folder;
     this.elements['lint-scope-document'].setAttribute('aria-pressed', String(!folder));
     this.elements['lint-scope-folder'].setAttribute('aria-pressed', String(folder));
     this.elements['lint-list'].hidden = folder;
