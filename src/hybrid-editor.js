@@ -490,10 +490,15 @@ export class HybridEditor {
     this.host.replaceChildren();
     this.blocks = segmentMarkdown(this.body);
     if (!this.blocks.length) this.blocks = [{ start: 0, end: 0, raw: '', type: 'paragraph' }];
+    // Blank lines render like Visual: the first one between two content blocks is a paragraph-sized gap,
+    // the others (leading, trailing, repeated) take no height until activated. Source still shows them all.
+    const lastContentIndex = this.blocks.findLastIndex(block => block.type !== 'space');
     this.blocks.forEach((block, index) => {
       const shell = document.createElement('section');
       shell.className = 'hybrid-block';
       shell.classList.toggle('blank-block', block.type === 'space');
+      const separatorGap = block.type === 'space' && index > 0 && this.blocks[index - 1].type !== 'space' && index < lastContentIndex;
+      shell.classList.toggle('collapsed-blank', block.type === 'space' && !separatorGap);
       shell.classList.toggle('multi-selected', this.selectedIndices.has(index));
       shell.dataset.block = index;
       shell.append(this.controls(index), this.buildPreviewElement(block, index));
@@ -1526,6 +1531,14 @@ export class HybridEditor {
   }
 
   focus() { if (!this.code) this.activate(0); else this.code.focus(); }
+
+  // Focuses the n-th content (non-blank) block, which pairs with Visual's n-th top-level node on mode switches.
+  focusContentBlock(contentIndex) {
+    let seen = -1;
+    const index = this.blocks.findIndex(block => block.type !== 'space' && ++seen === contentIndex);
+    if (index < 0) { this.focus(); return; }
+    this.activate(index, true, 0);
+  }
 
   selectionBookmark() { return this.code ? { from: this.code.state.selection.main.from, to: this.code.state.selection.main.to } : { from: 0, to: 0 }; }
 

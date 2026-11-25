@@ -261,6 +261,36 @@ test('blank lines are independent editable rows and content has no phantom lines
 });
 
 
+test('Hybrid hides blank lines like Visual: one paragraph gap per separator, extra blanks take no height', async ({ page }) => {
+  await openDocument(page, '\nFirst\n\n\n\nSecond\n\nThird\n\n');
+  const heights = await page.locator('.blank-block').evaluateAll(blocks => blocks.map(block => Math.round(block.getBoundingClientRect().height)));
+  expect(heights).toEqual([0, 15, 0, 0, 15, 0]);
+});
+
+test('switching between Visual and Hybrid keeps the block at the top of the view', async ({ page }) => {
+  const paragraphs = Array.from({ length: 80 }, (_, index) => `Paragraph ${index + 1} with enough words to read like real text.`);
+  await openDocument(page, paragraphs.join('\n\n'), 'visual');
+  const topParagraph = selector => page.evaluate(scrollerSelector => {
+    const scroller = document.querySelector(scrollerSelector);
+    const top = scroller.getBoundingClientRect().top;
+    const blocks = [...scroller.querySelectorAll(scrollerSelector === '#visual-editor' ? '.tiptap > *' : '.hybrid-block:not(.blank-block)')];
+    const block = blocks.find(element => element.getBoundingClientRect().bottom > top + 1);
+    return { text: block?.textContent.trim(), offset: Math.round(block.getBoundingClientRect().top - top) };
+  }, selector);
+  await page.locator('#visual-editor').evaluate(element => { element.scrollTop = 1200; });
+  const visualTop = await topParagraph('#visual-editor');
+  expect(visualTop.text).not.toBe(paragraphs[0]);
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Hybrid', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  const hybridTop = await topParagraph('#hybrid-editor');
+  expect(hybridTop.text).toBe(visualTop.text);
+  expect(Math.abs(hybridTop.offset - visualTop.offset)).toBeLessThanOrEqual(2);
+  await expect(page.locator('.hybrid-block.active')).toContainText(visualTop.text.split(' with')[0]);
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Visual', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  expect((await topParagraph('#visual-editor')).text).toBe(visualTop.text);
+});
+
 test('blank line actions delete or duplicate only the actual separator and undo exactly', async ({ page }) => {
   const source = 'Before\r\n \r\n\r\nAfter';
   await openDocument(page, source);

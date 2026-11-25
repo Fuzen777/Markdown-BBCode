@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+1. Fixed switching from Visual to Hybrid (and back) jumping to the top of the document: the block at the top of the view now stays at the same spot and gets the caret. Switches to or from Source keep the same relative scroll position.
+1. Changed Hybrid to hide blank lines like Visual: the blank line between two blocks is now a paragraph-sized gap that still opens for editing on click, and leading, trailing or repeated blank lines take no height. Source still shows every blank line, and nothing changes on disk.
 1. Fixed `Alt+Up`/`Down` in Visual mode moving a neighbouring divider (`---`) instead of the block under the caret: the editor's own arrow handling selected the divider first. Moves now read the caret before that. Hybrid, `Move Up`/`Down` and drag and drop were not affected.
 1. Changed the portable deploy (`npm run portable`, `Build-Portable.cmd`) to close a copy running as administrator instead of aborting: after one UAC prompt, an elevated helper sends the same `--graceful-close` request and `WM_CLOSE` fallback, still with a 10 s limit that aborts cleanly on a save or conflict dialog. The new exe is now staged beside the old one and swapped in with a retried rename, and the relaunch stays non-elevated. The Playwright suite limit is 180 s.
 1. Fixed `.mdbbcode` files still reporting MD033 for the editor's centered `<div>` / color `<span>` and MD041 for a centered H1 when a project `.markdownlint.json` (for example one with `"default": true` at the workspace root) was in use: the `.mdbbcode` format rules now apply on top of project configs too. In `.mdbbcode`, MD041 now accepts an H1 inside centered or colored editor wrappers, even nested; `.md` files keep the stock rule.

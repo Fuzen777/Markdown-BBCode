@@ -402,7 +402,10 @@ button.table-col-handle.icon-button { width: 22px; height: 14px; padding: 0; cur
 .hybrid-preview.tiptap p:last-child { margin-bottom: 0; }
 .hybrid-preview.tiptap pre { white-space: pre-wrap; }
 .hybrid-preview.tiptap .raw-block { padding: 0; border: 0; background: transparent; }
-.blank-block .hybrid-preview { height: 25.5px; }
+.hybrid-block.blank-block { min-height: 0; }
+.blank-block .hybrid-preview { height: 1em; }
+.collapsed-blank:not(.active) .hybrid-preview { height: 0; }
+.collapsed-blank:not(.active) > .hybrid-block-controls { display: none; }
 .hybrid-source { padding: 4px 10px 12px; }
 .hybrid-source { padding: 0 8px; }
 .hybrid-source .cm-editor { background: transparent; color: var(--text); font: 15px/1.7 var(--font-ui); }

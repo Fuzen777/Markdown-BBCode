@@ -481,12 +481,49 @@ async function activate(documentId) {
   editor.focus();
 }
 
+// Mode switches keep the view: the content block at the top of the viewport (Visual's n-th top-level node pairs with
+// Hybrid's n-th non-blank block, as in the BBCode preview sync) lands at the same spot. Other pairs keep the scroll ratio.
+function captureScrollAnchor() {
+  const scroller = activeEditorScroller();
+  const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  const anchor = { ratio: maxScroll ? scroller.scrollTop / maxScroll : 0, atTop: scroller.scrollTop <= 1, index: -1 };
+  const blocks = activeEditorBlockElements();
+  const scrollerTop = scroller.getBoundingClientRect().top;
+  for (let index = 0; index < blocks.length; index++) {
+    const rect = blocks[index].getBoundingClientRect();
+    if (rect.bottom <= scrollerTop) continue;
+    Object.assign(anchor, { index, count: blocks.length, viewportOffset: rect.top - scrollerTop, fraction: Math.max(0, (scrollerTop - rect.top) / Math.max(1, rect.height)) });
+    break;
+  }
+  return anchor;
+}
+
+function restoreScrollAnchor(anchor) {
+  const scroller = activeEditorScroller();
+  const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  if (anchor.atTop) { scroller.scrollTop = 0; return; }
+  const blocks = activeEditorBlockElements();
+  if (anchor.index >= 0 && blocks.length === anchor.count) {
+    const rect = blocks[anchor.index].getBoundingClientRect();
+    const blockTop = rect.top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+    scroller.scrollTop = anchor.viewportOffset >= 0 ? blockTop - anchor.viewportOffset : blockTop + anchor.fraction * rect.height;
+    return;
+  }
+  scroller.scrollTop = anchor.ratio * maxScroll;
+}
+
 async function changeMode(mode) {
+  const anchor = captureScrollAnchor();
   capture();
   store.active.mode = mode;
   showDocument();
+  restoreScrollAnchor(anchor);
   await persist();
-  editor.focus();
+  const blockAnchored = anchor.index >= 0 && activeEditorBlockElements().length === anchor.count;
+  if (blockAnchored) editor.focusBlock(anchor.index); else editor.focus();
+  restoreScrollAnchor(anchor);
+  // The lazy Properties panel can mount above the blocks after this; settle once more on the next frame.
+  requestAnimationFrame(() => { if (editor.mode === mode) restoreScrollAnchor(anchor); });
 }
 
 async function setViewportWidth(mode) {

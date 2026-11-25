@@ -39,7 +39,7 @@ Publishing, image uploads and managed local attachments are deferred. BBCode exp
 
 ## Hybrid Spacing And Icon Controls
 
-Real top-level blank lines are individual editable blocks; content blocks have no extra trailing editor rows. Gutter actions do not add vertical space. Blank rows can be edited, duplicated, deleted or moved, with undo. Internal container spacing is preserved.
+Real top-level blank lines are individual editable blocks; content blocks have no extra trailing editor rows. Gutter actions do not add vertical space. Blank lines render like Visual: the one between two blocks is a paragraph-sized gap (click it to edit, duplicate, delete or move it, with undo), and leading, trailing or repeated blank lines take no height in Hybrid; Source shows them all. Switching between Visual and Hybrid keeps the block at the top of the view and puts the caret in it. Internal container spacing is preserved.
 
 File and formatting actions use locally bundled Material Symbols Rounded icons with hover and keyboard-focus tooltips. Icons work offline, preserve active styles and retain accessible names. Modes, dropdowns and confirmation actions remain text-labelled.
 

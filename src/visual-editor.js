@@ -6,6 +6,7 @@ import { TableEdgeControls } from './table-controls.js';
 import { BubbleMenu } from './bubble-menu.js';
 import { InlineOverlays } from './inline-overlays.js';
 import { Editor } from '@tiptap/core';
+import { Selection } from '@tiptap/pm/state';
 import { editorExtensions, parseMarkdown, serializeMarkdown, isHttpUrl } from './markdown.js';
 import { formatMarkdownSelection, inspectMarkdownFormatting, moveSourceLines } from './source-formatting.js';
 import { shortcutKey, isMismatchedCtrlLetter } from './shortcuts.js';
@@ -319,6 +320,16 @@ export class MarkdownEditor {
     return false;
   }
   focus() { if (this.mode === 'hybrid') { this.hybridView.focus(); return; } if (this.sourceMode()) this.sourceElement.focus(); else this.editor.commands.focus(); }
+  // Puts the caret in the n-th top-level block (Hybrid: n-th non-blank block) without scrolling, so a mode switch keeps the view.
+  focusBlock(index) {
+    if (this.mode === 'hybrid' && this.hybridView) { this.hybridView.focusContentBlock(index); return; }
+    if (this.mode !== 'visual' || !this.editor || index < 0 || index >= this.editor.state.doc.childCount) { this.focus(); return; }
+    let position = 0;
+    for (let child = 0; child < index; child++) position += this.editor.state.doc.child(child).nodeSize;
+    const { state, view } = this.editor;
+    view.dispatch(state.tr.setSelection(Selection.near(state.doc.resolve(position), 1)));
+    view.focus();
+  }
   // setEditable(…, false): Tiptap otherwise emits a content-free `update`, which would mark Visual as
   // edited and re-serialize (normalize) the document every time a dialog opens.
   readOnly(value) { this.readonly = value; this.sourceElement.readOnly = value; this.editor?.setEditable(!value, false); this.hybridView?.readOnly(value); this.properties?.readOnly(value); }
