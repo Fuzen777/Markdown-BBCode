@@ -399,6 +399,12 @@ const ListIndentShortcuts = Extension.create({
 const EditorStarterKit = StarterKit.extend({
   addExtensions() {
     return this.parent().map(extension => {
+      // Tiptap's Code mark excludes every other mark ('_'), so Markdown such as **`x`** or a link
+      // around `code` produced text with bold+code that the schema rejected (Visual fell back to Source).
+      // Inline code may carry the other inline marks, as CommonMark allows.
+      // A lower priority sorts code last among a text node's marks, so it serializes innermost
+      // (*`x`* stays *`x`*, not `*x*`, and code text is never wrapped in other syntax).
+      if (extension.name === 'code') return extension.extend({ excludes: '', priority: 50 });
       if (extension.name !== 'codeBlock') return extension;
       return extension.extend({
         parseMarkdown: (token, helpers) => {
@@ -458,9 +464,30 @@ function validateTokens(tokens) {
   }
 }
 
+// Adds the 1-based body line (and a stable `kind`) to a parse failure so the Visual fallback
+// notice can say where it happened (see src/editor-errors.js).
+function annotateParseError(error, kind, line) {
+  const annotated = error instanceof Error ? error : new Error(String(error));
+  annotated.parseKind ??= kind;
+  if (line && !annotated.line) annotated.line = line;
+  return annotated;
+}
+
+function lineOfOffset(text, offset) {
+  let line = 1;
+  for (let index = text.indexOf('\n'); index >= 0 && index < offset; index = text.indexOf('\n', index + 1)) line++;
+  return line;
+}
+
 export function parseMarkdown(source) {
   const normalized = source.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
-  validateTokens(markdownManager.instance.lexer(normalized));
+  const topLevelTokens = markdownManager.instance.lexer(normalized);
+  let tokenOffset = 0;
+  for (const token of topLevelTokens) {
+    try { validateTokens([token]); }
+    catch (error) { throw annotateParseError(error, token.type === 'def' ? 'reference' : 'html', lineOfOffset(normalized, tokenOffset + (token.raw?.length - token.raw?.trimStart().length || 0))); }
+    tokenOffset += token.raw?.length || 0;
+  }
   const documentModel = markdownManager.parse(normalized);
   if (!documentModel.content?.length) documentModel.content = [{ type: 'paragraph' }];
   const normalizeBlocks = node => {
@@ -476,9 +503,21 @@ export function parseMarkdown(source) {
     node.content = children.length ? children.map(({ inlineGroup, ...child }) => { void inlineGroup; return child; }) : [{ type: 'paragraph' }];
   };
   normalizeBlocks(documentModel);
-  const validated = documentSchema.nodeFromJSON(documentModel);
-  validated.check();
-  return validated.toJSON();
+  try {
+    const validated = documentSchema.nodeFromJSON(documentModel);
+    validated.check();
+    return validated.toJSON();
+  } catch (error) {
+    // Locate the first top-level block the schema rejects; blocks map to the n-th non-space source segment.
+    let failing = -1;
+    (documentModel.content || []).some((child, index) => {
+      try { documentSchema.nodeFromJSON(child).check(); return false; }
+      catch { failing = index; return true; }
+    });
+    const segment = failing >= 0 ? segmentMarkdown(normalized).filter(block => block.type !== 'space')[failing] : null;
+    const kind = /Invalid collection of marks/.test(error?.message || '') ? 'marks' : 'schema';
+    throw annotateParseError(error, kind, segment ? lineOfOffset(normalized, segment.start) : null);
+  }
 }
 
 export function serializeMarkdown(documentModel) {

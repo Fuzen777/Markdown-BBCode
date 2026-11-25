@@ -408,7 +408,10 @@ function render() {
   }
   elements['notice-text'].textContent = error ? errorMessage(error) : globalError || safetyNotice || syncMessage;
   elements.notice.hidden = !elements['notice-text'].textContent;
-  elements.notice.classList.toggle('error', Boolean(error || globalError));
+  // A coded Visual/Hybrid fallback (MBB-…) is an error; saving still works because Source stays authoritative.
+  const fallbackError = Boolean(!error && !globalError && safetyNotice && editor.fallbackError);
+  elements.notice.classList.toggle('error', Boolean(error || globalError || fallbackError));
+  if (fallbackError) elements.notice.dataset.errorCode = editor.fallbackError.code; else delete elements.notice.dataset.errorCode;
   elements.notice.classList.toggle('sync-info', Boolean(lastSync));
   const isConflict = error?.kind === 'conflict';
   const isMissing = error?.kind === 'missing';

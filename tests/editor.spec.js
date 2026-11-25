@@ -1152,6 +1152,35 @@ test('Folder scope audits Markdown files under the Folder Browser root on demand
   await expect(folder).toBeHidden();
 });
 
+test('Visual opens bold, italic and linked inline code and switching modes keeps the source byte-identical', async ({ page }) => {
+  const source = '# Title\n\n- [ ] **Quick Palette (`Ctrl+Shift+P` Or Other)**: Add it.\n\n*`x`* and [`y`](https://example.com) and ||`z`||\n';
+  await setSource(page, source);
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Visual', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#notice')).toBeHidden();
+  await expect(page.locator('.tiptap strong code')).toHaveText('Ctrl+Shift+P');
+  await expect(page.locator('.tiptap em code')).toHaveText('x');
+  await expect(page.locator('.tiptap a code')).toHaveText('y');
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue(source);
+});
+
+test('a document Visual cannot open falls back to Source with a coded error notice and still saves', async ({ page }) => {
+  const source = '# Title\n\nIntro\n\n<script>alert(1)</script>\n';
+  await setSource(page, source);
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  const notice = page.locator('#notice');
+  await expect(notice).toBeVisible();
+  await expect(notice).toHaveClass(/error/);
+  await expect(notice).toHaveAttribute('data-error-code', 'MBB-VISUAL-002');
+  await expect(page.locator('#notice-text')).toHaveText("Visual mode can't open this document (MBB-VISUAL-002: unsupported or unfinished HTML at line 5). Source view keeps it unchanged.");
+  await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue(source);
+  await saveDraft(page);
+  expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.md'].content)).toBe(source);
+});
+
 test('Windows virtual-key shortcuts respect split Ctrl layouts like BEPO azerty-ctrl across modes', async ({ page }) => {
   const dispatchCtrl = (selector, key, keyCode, shiftKey = false) => page.evaluate(
     ({ sel, k, code, shift }) => {

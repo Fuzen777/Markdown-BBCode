@@ -9,6 +9,7 @@ import { Editor } from '@tiptap/core';
 import { editorExtensions, parseMarkdown, serializeMarkdown, isHttpUrl } from './markdown.js';
 import { formatMarkdownSelection, inspectMarkdownFormatting, moveSourceLines } from './source-formatting.js';
 import { shortcutKey, isMismatchedCtrlLetter } from './shortcuts.js';
+import { describeEditorFallback } from './editor-errors.js';
 
 export class MarkdownEditor {
   constructor(visualElement, sourceElement, onChange, onSelectionChange = () => {}, onBubbleCommand = () => {}, overlayCallbacks = {}) {
@@ -47,8 +48,24 @@ export class MarkdownEditor {
       this.formatSource('link', pasted);
     });
   }
+  // Visual/Hybrid could not open the document: keep Source (authoritative, still saveable) and
+  // report a coded error. Lines count from the top of the file, front matter included.
+  fallBackToSource(error, mode, source) {
+    this.editor?.destroy();
+    this.editor = null;
+    this.hybridView?.destroy();
+    this.hybridView = null;
+    this.documentSource = null;
+    this.mode = 'source';
+    let prefixLines = 0;
+    try { prefixLines = (readDocumentSource(source, isMdbbcode(this.path)).prefix.match(/\n/g) || []).length; } catch { /* YAML error: no prefix */ }
+    this.fallbackError = describeEditorFallback(error, mode, prefixLines);
+    return this.fallbackError.message;
+  }
+
   load(source, mode, path) {
     this.path = path;
+    this.fallbackError = null;
     this.visualChanged = false;
     this.documentSource = null;
     this.blockControls?.destroy();
@@ -71,7 +88,7 @@ export class MarkdownEditor {
         this.documentSource = readDocumentSource(source, isMdbbcode(path));
         this.hybridView = new HybridEditor(this.hybridElement, this.documentSource.body, this.onChange, this.onSelectionChange, this.overlayCallbacks);
         this.bubbleMenu = new BubbleMenu(this.hybridView.createBubbleAdapter(), this.hybridElement, (command, value) => this.onBubbleCommand(command, value));
-      } catch (error) { warning = `Source view preserves this document: ${error.message}`; this.mode = 'source'; }
+      } catch (error) { warning = this.fallBackToSource(error, 'hybrid', source); }
     }
     if (mode === 'visual') {
       try {
@@ -95,7 +112,7 @@ export class MarkdownEditor {
         this.tableControls = new TableEdgeControls(this.editor, this.visualElement);
         this.inlineOverlays = new InlineOverlays(this.editor, this.visualElement, this.overlayCallbacks);
         this.bubbleMenu = new BubbleMenu(this.editor, this.visualElement, (command, value) => this.onBubbleCommand(command, value));
-      } catch (error) { warning = `Source view preserves this document: ${error.message}`; this.mode = 'source'; }
+      } catch (error) { warning = this.fallBackToSource(error, 'visual', source); }
     }
     this.hybridElement.hidden = this.mode !== 'hybrid';
     this.visualElement.hidden = this.mode !== 'visual';
