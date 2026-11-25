@@ -8,7 +8,7 @@
 | Density | Compact |
 | Icon set | Material Symbols Rounded |
 | Touch support | No |
-| Themes | Dark and Light (`prefers-color-scheme`) |
+| Themes | Dark and Light (`prefers-color-scheme`), following Windows or forced from Settings (Auto, Light, Dark) through the native window theme |
 | Deviations | Retains OS-matched Light Mode with matching zero-chroma neutral roles; adds blue info callouts (`#60a5fa`) and subtle amber spoiler tints for document semantics |
 
 ## Color System

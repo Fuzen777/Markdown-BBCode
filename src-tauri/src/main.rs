@@ -1133,6 +1133,62 @@ async fn fetchPortableManifest() -> Result<PortableManifest, StorageError> {
         .map_err(StorageError::io)
 }
 
+// The theme preference lives in its own tiny file so Rust can read it before building the window
+// (no flash of the OS theme) without parsing session.json, which holds every open document.
+const APPEARANCE_FILE: &str = "appearance.json";
+
+fn normalizeThemePreference(value: Option<&str>) -> &'static str {
+    match value {
+        Some("light") => "light",
+        Some("dark") => "dark",
+        _ => "auto",
+    }
+}
+
+fn readThemePreference(dataDirectory: &Path) -> &'static str {
+    let parsed = fs::read(dataDirectory.join(APPEARANCE_FILE))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    normalizeThemePreference(
+        parsed
+            .as_ref()
+            .and_then(|value| value.get("theme"))
+            .and_then(|value| value.as_str()),
+    )
+}
+
+fn windowTheme(preference: &str) -> Option<tauri::Theme> {
+    match preference {
+        "light" => Some(tauri::Theme::Light),
+        "dark" => Some(tauri::Theme::Dark),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+fn get_theme_preference(state: tauri::State<AppState>) -> String {
+    readThemePreference(&state.dataDirectory).to_owned()
+}
+
+#[tauri::command]
+fn set_theme_preference(
+    window: tauri::WebviewWindow,
+    state: tauri::State<AppState>,
+    theme: String,
+) -> Result<String, StorageError> {
+    let preference = normalizeThemePreference(Some(&theme));
+    let bytes = serde_json::to_vec(&serde_json::json!({ "theme": preference }))
+        .map_err(StorageError::io)?;
+    {
+        let _writeGuard = state.writeLock.lock().map_err(StorageError::io)?;
+        atomicWrite(&state.dataDirectory.join(APPEARANCE_FILE), &bytes)?;
+    }
+    window
+        .set_theme(windowTheme(preference))
+        .map_err(StorageError::io)?;
+    Ok(preference.to_owned())
+}
+
 #[tauri::command]
 fn app_runtime_info(state: tauri::State<AppState>) -> RuntimeInfo {
     RuntimeInfo {
@@ -1539,6 +1595,7 @@ fn main() {
             .inner_size(1120.0, 800.0)
             .min_inner_size(720.0, 480.0)
             .visible(false)
+            .theme(windowTheme(readThemePreference(&dataDirectory)))
             .data_directory(dataDirectory.join("webview"))
             .build()?;
             configureContextMenuFilter(&window);
@@ -1592,6 +1649,8 @@ fn main() {
             rename_path,
             reveal_in_explorer,
             app_runtime_info,
+            get_theme_preference,
+            set_theme_preference,
             check_for_update,
             install_update
         ])
@@ -1603,6 +1662,22 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_theme_preference_with_auto_fallback() {
+        let directory = std::env::temp_dir().join(format!("mbb-theme-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        assert_eq!(readThemePreference(&directory), "auto");
+        fs::write(directory.join(APPEARANCE_FILE), br#"{"theme":"dark"}"#).unwrap();
+        assert_eq!(readThemePreference(&directory), "dark");
+        fs::write(directory.join(APPEARANCE_FILE), br#"{"theme":"purple"}"#).unwrap();
+        assert_eq!(readThemePreference(&directory), "auto");
+        fs::write(directory.join(APPEARANCE_FILE), b"not json").unwrap();
+        assert_eq!(readThemePreference(&directory), "auto");
+        assert_eq!(windowTheme("light"), Some(tauri::Theme::Light));
+        assert_eq!(windowTheme("auto"), None);
+        let _ = fs::remove_dir_all(&directory);
+    }
 
     #[test]
     fn validates_external_urls() {

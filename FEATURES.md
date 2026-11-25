@@ -31,7 +31,7 @@
 | Callouts | Obsidian types, custom editable titles, nesting and optional folding. |
 | Extra Formatting | Discord-style spoilers, HTML center and color wrappers. Centering several blocks wraps each in its own centered `<div>`, and a block moved out of a shared centered `<div>` keeps its centering. |
 | Color Picker | One-click remembered color, optional #, Hex/RGB/HSL and sliders; settings persist across launches. |
-| Appearance | OS Light/Dark theme following shared zero-chroma neutral tokens (`#111111`–`#f5f5f5` in Dark Mode), sparing Warm Amber signature actions, Surface tooltips, thin 4 px scrollbars and responsive layout. |
+| Appearance | `Theme` in Settings › General: Auto (follows Windows), Light or Dark, applied at once and before the window first shows, title bar included. Shared shared zero-chroma neutral tokens (`#111111`–`#f5f5f5` in Dark Mode), sparing Warm Amber signature actions, Surface tooltips, thin 4 px scrollbars and responsive layout. |
 
 ## Limits
 

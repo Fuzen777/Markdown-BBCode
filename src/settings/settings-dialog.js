@@ -138,6 +138,7 @@ export class SettingsDialog {
     const state = this.host.getState();
     this.content.replaceChildren(
       element('h3', { text: 'General' }),
+      settingRow('Theme', segmented('Theme', [['auto', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], state.theme, value => this.host.setTheme(value)), 'Auto follows Windows.'),
       settingRow('BBCode Dialect', segmented('BBCode Dialect', [['nexus', 'Nexus'], ['steam', 'Steam']], state.bbcodeTarget, value => this.host.setBBCodeTarget(value)), 'Used for the preview, Copy BBCode and Export.'),
       settingRow('Editor Width', segmented('Editor Width', [['page', 'Page'], ['full', 'Full']], state.viewportWidth, value => this.host.setViewportWidth(value)), 'Page caps content at 800 px.'),
       settingRow('Document Outline', segmented('Document Outline', [['off', 'Off'], ['floating', 'Float'], ['docked', 'Dock']], state.outlineMode, value => this.host.setOutlineMode(value))),

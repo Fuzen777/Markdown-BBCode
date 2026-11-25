@@ -29,6 +29,8 @@ test.beforeEach(async ({ page }) => {
         if (command === 'open_external_url') { desktop.openedUrls.push(argumentsObject.url); return; }
         if (command === 'finish_close') { desktop.closed = true; return; }
         if (command === 'app_runtime_info') return structuredClone(desktop.runtimeInfo);
+        if (command === 'get_theme_preference') return desktop.theme ?? 'auto';
+        if (command === 'set_theme_preference') { desktop.theme = ['light', 'dark'].includes(argumentsObject.theme) ? argumentsObject.theme : 'auto'; return desktop.theme; }
         if (command === 'check_for_update') {
           if (desktop.failUpdateCheck) throw { kind: 'io', message: 'Offline.' };
           return structuredClone(desktop.updateCheckResult);
@@ -881,6 +883,21 @@ test('Settings dialog opens from the gear and Ctrl+, without loading at startup,
   await expect(dialog.getByRole('group', { name: 'Editor Width' }).getByRole('button', { name: 'Page' })).toHaveAttribute('aria-pressed', 'true');
   await dialog.getByRole('button', { name: 'Close Settings' }).click();
   await expect(dialog).toBeHidden();
+});
+
+test('Settings Theme choice reads and saves the native preference', async ({ page }) => {
+  await page.evaluate(() => { window.testDesktop.theme = 'dark'; });
+  const dialog = page.locator('#settings-dialog');
+  const theme = dialog.getByRole('group', { name: 'Theme' });
+  await page.keyboard.press('Control+,');
+  await expect(theme.getByRole('button', { name: 'Dark' })).toHaveAttribute('aria-pressed', 'true');
+  await theme.getByRole('button', { name: 'Light' }).click();
+  await expect(theme.getByRole('button', { name: 'Light' })).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => window.testDesktop.theme)).toBe('light');
+  await theme.getByRole('button', { name: 'Auto' }).click();
+  await expect(theme.getByRole('button', { name: 'Auto' })).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => window.testDesktop.theme)).toBe('auto');
+  expect(await page.evaluate(() => window.testDesktop.session?.theme)).toBeUndefined();
 });
 
 test('Linting settings toggle rules, set Error severity, clamp timing, open docs and persist across reload', async ({ page }) => {

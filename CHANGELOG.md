@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+1. Added a `Theme` choice (Auto, Light, Dark) at the top of Settings › General. It is applied through the native window theme, so the title bar matches and WebView2's `prefers-color-scheme` follows without CSS changes. The choice is kept in `appearance.json` beside the other app data and read by Rust before the window is built, so a forced theme shows from the first frame with no flash.
+
 1. Fixed switching from Visual to Hybrid (and back) jumping to the top of the document: the block at the top of the view now stays at the same spot and gets the caret. Switches to or from Source keep the same relative scroll position.
 1. Changed Hybrid to hide blank lines like Visual: the blank line between two blocks is now a paragraph-sized gap that still opens for editing on click, and leading, trailing or repeated blank lines take no height. Source still shows every blank line, and nothing changes on disk.
 1. Fixed `Alt+Up`/`Down` in Visual mode moving a neighbouring divider (`---`) instead of the block under the caret: the editor's own arrow handling selected the divider first. Moves now read the caret before that. Hybrid, `Move Up`/`Down` and drag and drop were not affected.

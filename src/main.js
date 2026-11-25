@@ -42,6 +42,8 @@ const backend = {
   checkForUpdate: () => invoke('check_for_update'),
   installUpdate: () => invoke('install_update'),
 };
+  getThemePreference: () => invoke('get_theme_preference'),
+  setThemePreference: theme => invoke('set_theme_preference', { theme }),
 const store = new DocumentStore(backend, render, handleExternalSync);
 let editor;
 let colorPicker;
@@ -53,6 +55,8 @@ let settingsDialog = null;
 let projectConfigFinder = null;
 let projectLintState = null;
 let lintConfigToken = 0;
+// Applied natively before the window shows (appearance.json); only read once Settings opens.
+let themePreference = null;
 let lintMarkers = null;
 let lintMarkersLoading = null;
 let bbcodeController;
@@ -848,6 +852,7 @@ function settingsHost() {
       dismissedPrompts: store.preferences.dismissedPrompts,
     }),
     setPromptShown: (id, shown) => runAction(async () => {
+      theme: themePreference ?? 'auto',
       const next = { ...store.preferences.dismissedPrompts };
       if (shown) delete next[id];
       else next[id] = DISMISSABLE_PROMPTS.find(prompt => prompt.id === id)?.defaultChoice;
@@ -869,6 +874,10 @@ function settingsHost() {
     loadPresetConfig: preset => loadPresetConfig(preset),
     openUrl: url => runAction(() => invoke('open_external_url', { url })),
   };
+    setTheme: theme => runAction(async () => {
+      themePreference = await backend.setThemePreference(theme);
+      settingsDialog?.sync();
+    }),
 }
 
 async function openSettings(page) {
@@ -881,6 +890,7 @@ async function openSettings(page) {
 }
 
 async function updatePropertiesPanel(patch) {
+  if (themePreference === null) themePreference = await backend.getThemePreference().catch(() => 'auto');
   const next = normalizePropertiesPanel({ ...store.propertiesPanel, ...patch });
   if (next.behavior === store.propertiesPanel.behavior && next.collapsed === store.propertiesPanel.collapsed) return;
   store.propertiesPanel = next;
