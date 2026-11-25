@@ -300,7 +300,7 @@ export class LintPanel {
       const blocks = editor.hybridView.blocks;
       const index = blockIndexAtOffset(blocks, bodyOffset);
       if (index < 0) return;
-      this.elements['hybrid-editor'].children[index]?.scrollIntoView({ block: 'center' });
+      this.elements['hybrid-blocks'].children[index]?.scrollIntoView({ block: 'center' });
       editor.hybridView.activate(index, true, Math.max(0, bodyOffset - blocks[index].start));
       return;
     }

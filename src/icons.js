@@ -25,7 +25,7 @@ const menuIcons = {
   bullet: 'format_list_bulleted', numbered: 'format_list_numbered', task: 'checklist', quote: 'format_quote',
   code: 'code', callout: 'info', table: 'table', duplicate: 'content_copy', up: 'arrow_upward', down: 'arrow_downward',
   delete: 'delete', add: 'add', divider: 'horizontal_rule', spoiler: 'visibility_off', center: 'format_align_center',
-  image: 'image', toggle: 'arrow_drop_down', wrap: 'info',
+  image: 'image', toggle: 'arrow_drop_down', wrap: 'info', properties: 'list_alt',
 };
 const menuIconAliases = { bulletList: 'bullet', orderedList: 'numbered', taskList: 'task', blockquote: 'quote', codeBlock: 'code', horizontalRule: 'divider', spoilerBlock: 'spoiler', centerBlock: 'center' };
 

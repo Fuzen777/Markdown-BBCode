@@ -52,6 +52,7 @@ const hybridBlockItems = [
   { key: 'divider', label: 'Divider', aliases: ['hr', 'div', 'line', 'separator'] },
   { key: 'image', label: 'Image', aliases: ['img', 'picture', 'photo'] },
   { key: 'table', label: 'Table', aliases: ['grid'] },
+  { key: 'properties', label: 'Properties', aliases: ['yaml', 'frontmatter', 'metadata', 'meta', 'tags'] },
 ];
 
 const turnIntoChoices = [
@@ -110,6 +111,8 @@ function wrapCombinedMarkdown(combined, targetType, newline) {
 export class HybridEditor {
   constructor(host, body, onChange, onSelection, callbacks = {}) {
     this.host = host;
+    // The scroll container. It differs from `host` when other content (the Properties panel) sits above the blocks.
+    this.scroller = callbacks.scroller || host;
     this.body = body;
     this.newline = body.includes('\r\n') ? '\r\n' : '\n';
     this.onChange = onChange;
@@ -201,9 +204,9 @@ export class HybridEditor {
       }
     };
 
-    host.addEventListener('scroll', this.boundScroll);
+    this.scroller.addEventListener('scroll', this.boundScroll);
     window.addEventListener('resize', this.boundScroll);
-    host.addEventListener('pointerdown', this.boundHostPointerDown);
+    this.scroller.addEventListener('pointerdown', this.boundHostPointerDown);
     document.addEventListener('pointerdown', this.boundOutsideMenu);
     document.addEventListener('pointermove', this.boundWindowPointerMove);
     document.addEventListener('pointerup', this.boundWindowPointerUp);
@@ -723,6 +726,11 @@ export class HybridEditor {
     const code = this.code;
     this.closeSlashMenu();
     if (!code || !context) return;
+    if (item.key === 'properties') {
+      code.dispatch({ changes: { from: context.from, to: context.to, insert: '' }, selection: { anchor: context.from } });
+      this.callbacks.onAddProperties?.();
+      return;
+    }
     if (item.key === 'image') {
       code.dispatch({ changes: { from: context.from, to: context.to, insert: '' }, selection: { anchor: context.from } });
       code.focus();
@@ -1021,6 +1029,7 @@ export class HybridEditor {
       button.setAttribute('role', 'menuitem');
       button.onclick = () => {
         this.closeMenus();
+        if (item.key === 'properties') { this.callbacks.onAddProperties?.(); return; }
         const block = this.blocks[index];
         if (item.key === 'image') {
           this.remember(true);
@@ -1124,7 +1133,7 @@ export class HybridEditor {
 
   positionMultiBar() {
     if (this.multiBar.hidden) return;
-    const hostRect = this.host.getBoundingClientRect();
+    const hostRect = this.scroller.getBoundingClientRect();
     const width = this.multiBar.offsetWidth || 280;
     const left = Math.max(8, Math.min(hostRect.left + hostRect.width / 2 - width / 2, window.innerWidth - width - 8));
     const top = Math.max(hostRect.top + 8, Math.min(hostRect.bottom - 48, window.innerHeight - 52));
@@ -1134,8 +1143,8 @@ export class HybridEditor {
 
   hostPointerDown(event) {
     if (this.readonly || event.button !== 0) return;
-    if (event.target.closest?.('.hybrid-block-controls, .hybrid-insert-menu, .hybrid-action-menu, .hybrid-turn-menu, .hybrid-slash-menu, .multi-block-bar, .cm-editor, summary, button, input, select, a')) return;
-    const hostRect = this.host.getBoundingClientRect();
+    if (event.target.closest?.('.hybrid-block-controls, .hybrid-insert-menu, .hybrid-action-menu, .hybrid-turn-menu, .hybrid-slash-menu, .multi-block-bar, .properties-panel, .cm-editor, summary, button, input, select, a')) return;
+    const hostRect = this.scroller.getBoundingClientRect();
     const firstNonBlank = this.host.querySelector('.hybrid-block:not(.blank-block) .hybrid-preview');
     const previewLeft = firstNonBlank ? firstNonBlank.getBoundingClientRect().left : hostRect.left + 108;
     const shells = [...this.host.children];
@@ -1385,9 +1394,9 @@ export class HybridEditor {
     }
     this.ghost.style.left = `${event.clientX + 12}px`;
     this.ghost.style.top = `${event.clientY + 12}px`;
-    const hostRect = this.host.getBoundingClientRect();
-    if (event.clientY < hostRect.top + 36) this.host.scrollTop -= 12;
-    else if (event.clientY > hostRect.bottom - 36) this.host.scrollTop += 12;
+    const hostRect = this.scroller.getBoundingClientRect();
+    if (event.clientY < hostRect.top + 36) this.scroller.scrollTop -= 12;
+    else if (event.clientY > hostRect.bottom - 36) this.scroller.scrollTop += 12;
 
     const shells = [...this.host.children];
     let targetIndex = shells.length - 1;
@@ -1504,9 +1513,9 @@ export class HybridEditor {
     this.hideLinkPopover();
     this.endDrag();
     this.bubbleListeners.clear();
-    this.host.removeEventListener('scroll', this.boundScroll);
+    this.scroller.removeEventListener('scroll', this.boundScroll);
     window.removeEventListener('resize', this.boundScroll);
-    this.host.removeEventListener('pointerdown', this.boundHostPointerDown);
+    this.scroller.removeEventListener('pointerdown', this.boundHostPointerDown);
     document.removeEventListener('pointerdown', this.boundOutsideMenu);
     document.removeEventListener('pointermove', this.boundWindowPointerMove);
     document.removeEventListener('pointerup', this.boundWindowPointerUp);

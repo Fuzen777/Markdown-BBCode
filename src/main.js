@@ -2,7 +2,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import { DocumentStore, documentName, pathKey, outputPath, normalizeViewportWidth, normalizeBBCodeTarget, normalizeOutlineMode } from './documents.js';
+import { DocumentStore, documentName, pathKey, outputPath, normalizeViewportWidth, normalizeBBCodeTarget, normalizeOutlineMode, normalizePropertiesPanel, propertiesPanelCollapsed } from './documents.js';
 // Settings dialog, rule browser and project config discovery are dynamically imported on demand.
 import { MarkdownEditor } from './visual-editor.js';
 import { documentToBBCodeWithWarnings, hasDocumentContent, readDocumentSource, readBBCodeLintProperty, withBBCodeLintProperty } from './document-format.js';
@@ -591,11 +591,9 @@ async function setBBCodeWarningsForFile(enabled) {
     applySourceTextEdit(diffEdit(current, next));
   } else {
     // Front matter is outside the Visual/Hybrid editor body: update the prefix in place so undo
-    // history and the body stay untouched.
-    const editorBody = current.slice(editor.documentSource.prefix.length);
+    // history and the body stay untouched (the Properties panel refreshes with it).
     const parsed = readDocumentSource(next, /\.mdbbcode$/i.test(store.active.path || ''));
-    if (parsed.body !== editorBody) throw new Error('Could not update the front matter here. Switch to Source to edit it.');
-    Object.assign(editor.documentSource, { prefix: parsed.prefix, yaml: parsed.yaml });
+    editor.replacePrefix(parsed.prefix);
   }
   capture();
   updateLint();
@@ -799,12 +797,14 @@ function settingsHost() {
       bbcodeTarget: normalizeBBCodeTarget(store.bbcodeTarget),
       viewportWidth: normalizeViewportWidth(store.viewportWidth),
       outlineMode: normalizeOutlineMode(store.outlineMode),
+      propertiesPanel: store.propertiesPanel.behavior,
       lint: store.lint,
       project: store.lint.enabled ? projectLintState : null,
     }),
     setBBCodeTarget: target => runAction(() => setBBCodeTarget(target)),
     setViewportWidth: mode => runAction(() => setViewportWidth(mode)),
     setOutlineMode: mode => runAction(() => setOutlineMode(mode)),
+    setPropertiesPanel: behavior => runAction(() => updatePropertiesPanel({ behavior })),
     setLintEnabled: enabled => runAction(() => setLintEnabled(enabled)),
     updateLint: patch => runAction(() => updateLintSettings(patch)),
     loadPresetConfig: preset => loadPresetConfig(preset),
@@ -819,6 +819,14 @@ async function openSettings(page) {
   }
   capture();
   await settingsDialog.open(page);
+}
+
+async function updatePropertiesPanel(patch) {
+  const next = normalizePropertiesPanel({ ...store.propertiesPanel, ...patch });
+  if (next.behavior === store.propertiesPanel.behavior && next.collapsed === store.propertiesPanel.collapsed) return;
+  store.propertiesPanel = next;
+  settingsDialog?.sync();
+  await persist();
 }
 
 async function setRightPanelTab(tab) {
@@ -1215,6 +1223,7 @@ function keyboardShortcut(event) {
     elements['find-bar'].contains(target)
     || target.matches('input, select')
     || (target.matches('textarea') && target !== elements['markdown-source'])
+    || target.closest('.properties-panel, .properties-menu')
   ));
   const inPreview = Boolean(target && elements['bbcode-preview-pane'].contains(target));
   if (event.altKey && !event.shiftKey) {
@@ -1229,6 +1238,14 @@ function keyboardShortcut(event) {
   if (event.altKey) return;
   // Ctrl+, : the comma character on any layout, or VK_OEM_COMMA for split Ctrl layouts.
   if (!event.shiftKey && (event.key === ',' || event.keyCode === 188)) { event.preventDefault(); event.stopPropagation(); void runAction(() => openSettings()); return; }
+  // Ctrl+; : add a property (VK_OEM_1 for split Ctrl layouts). Properties exist only above Visual and Hybrid.
+  if (!event.shiftKey && (event.key === ';' || event.keyCode === 186)) {
+    if (editor.sourceMode()) return;
+    event.preventDefault();
+    event.stopPropagation();
+    editor.showProperties({ add: true });
+    return;
+  }
   const key = shortcutKey(event);
   if (key === 'f' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); findReplace.open(false, selectedSearchText()); return; }
   if (key === 'h' && !event.shiftKey) { event.preventDefault(); event.stopPropagation(); findReplace.open(true, selectedSearchText()); return; }
@@ -1436,6 +1453,12 @@ async function initialize() {
       onEditImage: target => runAction(() => openImageDialog(target)),
       onInsertImage: () => runAction(() => openImageDialog()),
       onRendered: () => { if (lintMarkers) syncLintMarkers(); },
+      getPropertiesCollapsed: () => propertiesPanelCollapsed(store.propertiesPanel),
+      // Only the Remember behaviour keeps the toggled state; the fixed behaviours reapply on every open.
+      setPropertiesCollapsed: collapsed => {
+        if (store.propertiesPanel.behavior === 'remember') void runAction(() => updatePropertiesPanel({ collapsed }));
+      },
+      onError: error => { globalError = errorMessage(error); render(); },
     },
   );
   findReplace = new FindReplaceController(elements, () => editor, () => { capture(); render(); });

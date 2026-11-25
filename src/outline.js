@@ -254,7 +254,7 @@ export class DocumentOutline {
       const scrollerRect = this.elements['hybrid-editor'].getBoundingClientRect();
       const threshold = scrollerRect.top + 36;
       for (let i = 0; i < this.headings.length; i++) {
-        const shell = this.elements['hybrid-editor'].children[this.headings[i].blockIndex];
+        const shell = this.elements['hybrid-blocks'].children[this.headings[i].blockIndex];
         if (shell && shell.getBoundingClientRect().top <= threshold) nextActive = i;
       }
     } else if (editor?.sourceMode()) {
@@ -285,7 +285,7 @@ export class DocumentOutline {
       const targetPos = Math.min(heading.pos + 1, editor.editor.state.doc.content.size);
       editor.editor.chain().focus().setTextSelection(targetPos).run();
     } else if (editor.mode === 'hybrid' && editor.hybridView) {
-      const shell = this.elements['hybrid-editor'].children[heading.blockIndex];
+      const shell = this.elements['hybrid-blocks'].children[heading.blockIndex];
       shell?.scrollIntoView({ block: 'start', behavior: 'smooth' });
       editor.hybridView.activate(heading.blockIndex, true);
     } else if (editor.sourceMode()) {

@@ -49,7 +49,7 @@ The Color swatch applies the last-used color; its arrow opens Hex/RGB/HSL contro
 
 ## YAML And Export
 
-Ordinary Markdown can contain arbitrary YAML without application-specific fields. Save As preserves source without adding metadata. Legacy `.mdbbcode` headers remain supported, including their visual Target dropdown (`Nexus Mods` or `Steam`). Invalid metadata never prevents saving the source, but can prevent export.
+Ordinary Markdown can contain arbitrary YAML without application-specific fields. In Visual and Hybrid, a collapsible Properties panel edits it as typed fields (text, numbers, checkboxes, dates, lists and nested objects) and writes clean YAML back; add one with `/properties` or `Ctrl+;`. Save As preserves source without adding metadata. Legacy `.mdbbcode` headers remain supported, including their visual Target dropdown (`Nexus Mods` or `Steam`). Invalid metadata never prevents saving the source, but can prevent export.
 
 BBCode is generated only on request. On Nexus, tables become readable text, tasks become lists and callouts become quotes. On Steam, tables use native `[table]` tags, nested lists flatten with `› ` prefixes, `h4`–`h6` downgrade to `[h3]`, colors and centered blocks are stripped with warnings, and standalone YouTube, Steam store and Workshop URLs stay bare for Steam embeds. Review export warnings and check final rendering on the target site. Arbitrary HTML and unsupported conversion syntax can block export. Images require web URLs; local attachment management is not included. The app works offline except for loading remote images.
 

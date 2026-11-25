@@ -6,6 +6,15 @@ import { normalizeLintSettings, normalizeRightPanelTab } from './lint/lint-confi
 export function normalizeViewportWidth(value) { return value === 'full' ? 'full' : 'page'; }
 export function normalizeBBCodeTarget(value) { return value === 'steam' ? 'steam' : 'nexus'; }
 export function normalizeOutlineMode(value) { return value === 'floating' || value === 'docked' ? value : 'off'; }
+// How the Properties panel opens: `remember` restores the last collapsed state across documents and launches.
+export const PROPERTIES_PANEL_BEHAVIORS = ['remember', 'expanded', 'collapsed'];
+export function normalizePropertiesPanel(value) {
+  const behavior = PROPERTIES_PANEL_BEHAVIORS.includes(value?.behavior) ? value.behavior : 'remember';
+  return { behavior, collapsed: value?.collapsed === true };
+}
+export function propertiesPanelCollapsed(settings) {
+  return settings.behavior === 'remember' ? settings.collapsed : settings.behavior === 'collapsed';
+}
 export function pathKey(path) { return path?.replace(/^\\\\\?\\/, '').replaceAll('/', '\\').toLowerCase(); }
 export function outputPath(path) { return path.replace(/\.(mdbbcode|md|markdown|txt)$/i, '.bbcode'); }
 export function documentName(documentRecord) { return documentRecord.path?.split(/[\\/]/).at(-1) || documentRecord.name || 'Untitled'; }
@@ -26,6 +35,7 @@ export class DocumentStore {
     this.bbcodeTarget = 'nexus';
     this.outlineMode = 'off';
     this.rightPanelTab = 'outline';
+    this.propertiesPanel = normalizePropertiesPanel();
     this.lint = normalizeLintSettings();
     this.folderBrowser = folderBrowserState();
     this.activeId = null;
@@ -46,6 +56,7 @@ export class DocumentStore {
     this.bbcodeTarget = normalizeBBCodeTarget(session.bbcodeTarget);
     this.outlineMode = normalizeOutlineMode(session.outlineMode);
     this.rightPanelTab = normalizeRightPanelTab(session.rightPanelTab);
+    this.propertiesPanel = normalizePropertiesPanel(session.propertiesPanel);
     this.lint = normalizeLintSettings(session.lint);
     this.folderBrowser = folderBrowserState(session.folderBrowser);
     this.pendingImports = session.pendingImports || [];
@@ -89,6 +100,7 @@ export class DocumentStore {
       bbcodeTarget: this.bbcodeTarget,
       outlineMode: this.outlineMode,
       rightPanelTab: this.rightPanelTab,
+      propertiesPanel: { ...this.propertiesPanel },
       lint: structuredClone(this.lint),
       folderBrowser: structuredClone(this.folderBrowser),
       activeId: this.activeId,

@@ -11,11 +11,17 @@ import { formatMarkdownSelection, inspectMarkdownFormatting, moveSourceLines } f
 import { shortcutKey, isMismatchedCtrlLetter } from './shortcuts.js';
 import { describeEditorFallback } from './editor-errors.js';
 
+let propertiesModule = null;
+let propertiesLoading = null;
+
 export class MarkdownEditor {
   constructor(visualElement, sourceElement, onChange, onSelectionChange = () => {}, onBubbleCommand = () => {}, overlayCallbacks = {}) {
     this.visualElement = visualElement;
     this.sourceElement = sourceElement;
     this.hybridElement = document.getElementById('hybrid-editor');
+    this.hybridBlocks = document.getElementById('hybrid-blocks');
+    this.properties = null;
+    this.loadToken = 0;
     this.onChange = onChange;
     this.onSelectionChange = onSelectionChange;
     this.onBubbleCommand = onBubbleCommand;
@@ -64,6 +70,8 @@ export class MarkdownEditor {
   }
 
   load(source, mode, path) {
+    this.loadToken++;
+    this.properties?.detach();
     this.path = path;
     this.fallbackError = null;
     this.visualChanged = false;
@@ -86,7 +94,9 @@ export class MarkdownEditor {
     if (mode === 'hybrid') {
       try {
         this.documentSource = readDocumentSource(source, isMdbbcode(path));
-        this.hybridView = new HybridEditor(this.hybridElement, this.documentSource.body, this.onChange, this.onSelectionChange, this.overlayCallbacks);
+        this.hybridView = new HybridEditor(this.hybridBlocks, this.documentSource.body, this.onChange, this.onSelectionChange, {
+          ...this.overlayCallbacks, scroller: this.hybridElement, onAddProperties: () => this.showProperties({ add: true }),
+        });
         this.bubbleMenu = new BubbleMenu(this.hybridView.createBubbleAdapter(), this.hybridElement, (command, value) => this.onBubbleCommand(command, value));
       } catch (error) { warning = this.fallBackToSource(error, 'hybrid', source); }
     }
@@ -108,6 +118,7 @@ export class MarkdownEditor {
         });
         this.blockControls = new BlockControls(this.editor, this.visualElement, {
           onInsertImage: () => this.overlayCallbacks.onInsertImage?.(),
+          onAddProperties: () => this.showProperties({ add: true }),
         });
         this.tableControls = new TableEdgeControls(this.editor, this.visualElement);
         this.inlineOverlays = new InlineOverlays(this.editor, this.visualElement, this.overlayCallbacks);
@@ -118,7 +129,57 @@ export class MarkdownEditor {
     this.visualElement.hidden = this.mode !== 'visual';
     this.sourceElement.hidden = this.mode !== 'source';
     this.sourceElement.readOnly = this.readonly;
+    if (this.documentSource?.prefix) this.showProperties();
     return warning;
+  }
+
+  // ==> Section 1B - Properties Panel (lazy chunk) <==
+  // Shown above Visual and Hybrid when the document has front matter, or on demand to add some.
+  // The chunk is imported the first time it is needed, so files without front matter pay nothing.
+  showProperties({ add = false } = {}) {
+    const host = this.mode === 'visual' ? this.visualElement : this.mode === 'hybrid' ? this.hybridElement : null;
+    if (!host || !this.documentSource) return;
+    const token = this.loadToken;
+    const mount = ({ PropertiesPanel }) => {
+      if (token !== this.loadToken || !this.documentSource) return;
+      this.properties ??= new PropertiesPanel({
+        commit: prefix => this.replacePrefix(prefix, { fromPanel: true }),
+        getCollapsed: () => this.overlayCallbacks.getPropertiesCollapsed?.() ?? false,
+        setCollapsed: collapsed => this.overlayCallbacks.setPropertiesCollapsed?.(collapsed),
+        copyText: text => this.overlayCallbacks.onCopyText?.(text),
+      });
+      if (this.properties.element.parentElement !== host) {
+        host.prepend(this.properties.element);
+        this.properties.load(this.documentSource.prefix, this.currentBody());
+        this.properties.readOnly(this.readonly);
+      }
+      if (add) this.properties.startAdding();
+    };
+    if (propertiesModule) { mount(propertiesModule); return; }
+    propertiesLoading ??= import('./properties/properties-panel.js').then(module => { propertiesModule = module; return module; })
+      .catch(error => { propertiesLoading = null; throw error; });
+    propertiesLoading.then(mount).catch(error => this.overlayCallbacks.onError?.(error));
+  }
+  propertiesFocused() { return Boolean(this.properties?.element.isConnected && this.properties.element.contains(document.activeElement)); }
+  undoProperties(redo = false) { return Boolean(this.properties?.undo(redo)); }
+  currentBody() { return this.val().slice(this.documentSource.prefix.length); }
+
+  // Replaces the front matter while Visual or Hybrid is open, leaving the editor body, its undo
+  // history and selection untouched. Returns false (and changes nothing) when the new front matter
+  // would change how the body parses, such as a body that itself starts with `---`.
+  replacePrefix(prefix, { fromPanel = false } = {}) {
+    if (this.readonly || this.sourceMode() || !this.documentSource) return false;
+    if (prefix === this.documentSource.prefix) return true;
+    const body = this.currentBody();
+    const parsed = readDocumentSource(prefix + body, isMdbbcode(this.path));
+    if (parsed.body !== body || parsed.prefix !== prefix) throw new Error('Could not update the front matter here. Switch to Source to edit it.');
+    Object.assign(this.documentSource, {
+      prefix: parsed.prefix, yaml: parsed.yaml, target: parsed.target, legacyMetadata: parsed.legacyMetadata, explicitTarget: parsed.explicitTarget,
+    });
+    if (!fromPanel && this.properties?.element.isConnected) this.properties.load(parsed.prefix, body);
+    else if (!fromPanel && parsed.prefix) this.showProperties();
+    this.onChange();
+    return true;
   }
   val() { return this.mode === 'source' ? this.sourceElement.value : this.mode === 'hybrid' ? this.documentSource.prefix + this.hybridView.val() : this.documentSource.prefix + (this.visualChanged ? serializeMarkdown(this.editor.getJSON()) : this.documentSource.body); }
   setTarget(target) {
@@ -196,7 +257,7 @@ export class MarkdownEditor {
   focus() { if (this.mode === 'hybrid') { this.hybridView.focus(); return; } if (this.sourceMode()) this.sourceElement.focus(); else this.editor.commands.focus(); }
   // setEditable(…, false): Tiptap otherwise emits a content-free `update`, which would mark Visual as
   // edited and re-serialize (normalize) the document every time a dialog opens.
-  readOnly(value) { this.readonly = value; this.sourceElement.readOnly = value; this.editor?.setEditable(!value, false); this.hybridView?.readOnly(value); }
+  readOnly(value) { this.readonly = value; this.sourceElement.readOnly = value; this.editor?.setEditable(!value, false); this.hybridView?.readOnly(value); this.properties?.readOnly(value); }
 
   selectionBookmark() {
     if (this.mode === 'hybrid') return this.hybridView.selectionBookmark();

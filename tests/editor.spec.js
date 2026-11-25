@@ -2116,3 +2116,113 @@ test('variable-length fenced code blocks work in Visual paste, input rules, BBCo
   await expect(page.locator('#outline-docked-list .outline-item')).toHaveText('Real Heading');
   await page.getByRole('button', { name: 'Hide Document Outline', exact: true }).click();
 });
+
+// ==> Section 9 - Properties Panel <==
+const propertyRow = (panel, key) => panel.locator(`.property-row[data-path='${JSON.stringify([key])}']`);
+const propertyKeys = panel => panel.locator('.property-key').evaluateAll(inputs => inputs.map(input => input.value));
+
+test('the Properties panel edits front matter in Visual and stays out of documents without it', async ({ page }) => {
+  const chunkRequested = () => page.evaluate(() => performance.getEntriesByType('resource').some(entry => entry.name.includes('properties-panel')));
+  const source = '---\ntitle: Hello\ntags: [alpha]\ndraft: false\n---\n\n# Body\n';
+  const textarea = page.getByRole('textbox', { name: 'Markdown Source' });
+  await setSource(page, '# Plain\n');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await expect(page.locator('.properties-panel')).toHaveCount(0);
+  expect(await chunkRequested()).toBe(false);
+
+  await setSource(page, source);
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  const panel = page.locator('.properties-panel');
+  await expect(panel).toBeVisible();
+  await expect(page.locator('.tiptap')).toHaveText('Body');
+  await expect.poll(() => propertyKeys(panel)).toEqual(['title', 'tags', 'draft']);
+  await expect(propertyRow(panel, 'title')).toHaveAttribute('data-type', 'text');
+  await expect(propertyRow(panel, 'tags')).toHaveAttribute('data-type', 'list');
+  await expect(propertyRow(panel, 'draft')).toHaveAttribute('data-type', 'checkbox');
+
+  await panel.getByRole('textbox', { name: 'title Value' }).fill('Hello: World');
+  await panel.getByRole('checkbox', { name: 'draft Value' }).check();
+  const chips = panel.getByRole('textbox', { name: 'Add Value to tags' });
+  await chips.fill('beta');
+  await chips.press('Enter');
+  await panel.getByRole('button', { name: 'Add Property', exact: true }).click();
+  await panel.getByRole('textbox', { name: 'New Property Name' }).fill('rating');
+  await panel.getByRole('textbox', { name: 'New Property Name' }).press('Enter');
+  await expect(panel.getByRole('textbox', { name: 'rating Value' })).toBeFocused();
+  await propertyRow(panel, 'rating').locator('.property-type').click();
+  await page.getByRole('menuitemradio', { name: 'Number' }).click();
+  await panel.getByRole('spinbutton', { name: 'rating Value' }).fill('4.5');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(textarea).toHaveValue('---\ntitle: "Hello: World"\ntags:\n  - alpha\n  - beta\ndraft: true\nrating: 4.5\n---\n\n# Body\n');
+
+  // Removing goes through the row menu and can be undone.
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await propertyRow(panel, 'tags').locator('.property-type').click();
+  await page.getByRole('menuitem', { name: 'Remove Property' }).click();
+  await expect.poll(() => propertyKeys(panel)).toEqual(['title', 'draft', 'rating']);
+  await expect(panel.locator('.properties-status')).toHaveText('Removed “tags”.');
+  await panel.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect.poll(() => propertyKeys(panel)).toEqual(['title', 'tags', 'draft', 'rating']);
+
+  // Rename, then reorder with the keyboard.
+  const key = panel.locator('.property-key').first();
+  await key.fill('name');
+  await key.press('Enter');
+  await expect(panel.locator('.property-key').first()).toHaveValue('name');
+  await panel.locator('.property-key').first().press('Alt+ArrowDown');
+  await expect.poll(() => propertyKeys(panel)).toEqual(['tags', 'name', 'draft', 'rating']);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(textarea).toHaveValue('---\ntags:\n  - alpha\n  - beta\nname: "Hello: World"\ndraft: true\nrating: 4.5\n---\n\n# Body\n');
+});
+
+test('the Properties panel collapses, remembers its state and follows the setting', async ({ page }) => {
+  await setSource(page, '---\na: 1\n---\nText\n');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  const toggle = page.locator('.properties-panel .properties-toggle');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await toggle.click();
+  await expect(page.locator('.properties-panel .properties-body')).toBeHidden();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.propertiesPanel)).toEqual({ behavior: 'remember', collapsed: true });
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  await expect(page.locator('#hybrid-editor > .properties-panel .properties-toggle')).toHaveAttribute('aria-expanded', 'false');
+
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.locator('.tiptap').click();
+  await page.keyboard.press('Control+,');
+  await page.locator('#settings-dialog').getByRole('button', { name: 'Expanded', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.propertiesPanel?.behavior)).toBe('expanded');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await toggle.click();
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+});
+
+test('Hybrid slash command and Ctrl+; add properties to a document without front matter', async ({ page }) => {
+  const textarea = page.getByRole('textbox', { name: 'Markdown Source' });
+  await setSource(page, 'Intro\n');
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  await page.locator('#hybrid-blocks .hybrid-block').first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/propert');
+  await page.locator('.hybrid-slash-menu').getByRole('menuitem', { name: 'Properties' }).click();
+  const name = page.getByRole('textbox', { name: 'New Property Name' });
+  await expect(name).toBeFocused();
+  await name.fill('status');
+  await name.press('Enter');
+  await page.locator('.properties-panel').getByRole('textbox', { name: 'status Value' }).fill('draft');
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(textarea).toHaveValue('---\nstatus: draft\n---\nIntro\n\n');
+
+  await setSource(page, 'Other\n');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.locator('.tiptap p').first().click();
+  await page.keyboard.press('Control+;');
+  await expect(page.getByRole('textbox', { name: 'New Property Name' })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.properties-panel .property-row')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(textarea).toHaveValue('Other\n');
+});

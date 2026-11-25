@@ -113,6 +113,7 @@ export class SettingsDialog {
       settingRow('BBCode Dialect', segmented('BBCode Dialect', [['nexus', 'Nexus'], ['steam', 'Steam']], state.bbcodeTarget, value => this.host.setBBCodeTarget(value)), 'Used for the preview, Copy BBCode and Export.'),
       settingRow('Editor Width', segmented('Editor Width', [['page', 'Page'], ['full', 'Full']], state.viewportWidth, value => this.host.setViewportWidth(value)), 'Page caps content at 800 px.'),
       settingRow('Document Outline', segmented('Document Outline', [['off', 'Off'], ['floating', 'Float'], ['docked', 'Dock']], state.outlineMode, value => this.host.setOutlineMode(value))),
+      settingRow('Properties Panel', segmented('Properties Panel', [['remember', 'Remember'], ['expanded', 'Expanded'], ['collapsed', 'Collapsed']], state.propertiesPanel, value => this.host.setPropertiesPanel(value)), 'How the front matter panel opens in Visual and Hybrid.'),
     );
   }
 

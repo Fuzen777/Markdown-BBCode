@@ -25,6 +25,7 @@ const blockTypes = [
   { key: 'horizontalRule', label: 'Divider', aliases: ['hr', 'div', 'line', 'separator'], insertOnly: true },
   { key: 'image', label: 'Image', aliases: ['img', 'picture', 'photo'], insertOnly: true },
   { key: 'table', label: 'Table', aliases: ['grid'], insertOnly: true },
+  { key: 'properties', label: 'Properties', aliases: ['yaml', 'frontmatter', 'metadata', 'meta', 'tags'], insertOnly: true },
 ];
 
 const wrapOptions = [
@@ -600,7 +601,7 @@ export class BlockControls {
   hostPointerDown(event) {
     if (!this.editor.isEditable || event.button !== 0) return;
     if (
-      event.target.closest?.('.block-controls, .block-menu, .bubble-menu, .multi-block-bar, .link-popover, .code-block-overlay, .image-pill, .table-row-handle, .table-col-handle, .table-add-col, .table-add-row, .callout-title, a, button, input, select, textarea')
+      event.target.closest?.('.properties-panel, .block-controls, .block-menu, .bubble-menu, .multi-block-bar, .link-popover, .code-block-overlay, .image-pill, .table-row-handle, .table-col-handle, .table-add-col, .table-add-row, .callout-title, a, button, input, select, textarea')
     ) return;
 
     const hostRect = this.host.getBoundingClientRect();
@@ -770,7 +771,7 @@ export class BlockControls {
     const q = query.trim().toLowerCase();
     const types = blockTypes.filter(type => {
       const schemaKey = type.key.replace(/heading\d/, 'heading').replace('toggle', 'callout');
-      if (!this.editor.schema.nodes[schemaKey]) return false;
+      if (type.key !== 'properties' && !this.editor.schema.nodes[schemaKey]) return false;
       if (!q) return true;
       return type.label.toLowerCase().includes(q) || type.aliases.some(alias => alias.includes(q));
     });
@@ -891,6 +892,13 @@ export class BlockControls {
   chooseType(type, slash, insert) {
     const state = this.editor.state;
     const schema = state.schema;
+    // Properties live in the front matter, not in the body: drop the typed command and open the panel.
+    if (type === 'properties') {
+      if (slash && this.slashRange) this.editor.chain().focus().deleteRange(this.slashRange).run();
+      this.closeMenu();
+      this.callbacks.onAddProperties?.();
+      return;
+    }
     if (type === 'image') {
       if (slash && this.slashRange) {
         this.editor.chain().focus().deleteRange(this.slashRange).run();
