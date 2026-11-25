@@ -21,6 +21,9 @@ import { DiffDialog } from './diff-dialog.js';
 import { detectTextFormat, parentDirectory, addRecentFolder } from './folder-browser-model.js';
 import { shortcutKey } from './shortcuts.js';
 import { installContextMenuGuard } from './context-menu.js';
+import { openPopupMenu } from './popup-menu.js';
+import { showToast } from './toasts.js';
+import { hiddenDrafts, removeDocuments, restoreDocuments } from './drafts.js';
 import './style.css';
 import { initializeIcons, setButtonIcon, createIcon } from './icons.js';
 
@@ -39,11 +42,11 @@ const backend = {
   renamePath: (oldPath, newPath) => invoke('rename_path', { oldPath, newPath }),
   revealInExplorer: path => invoke('reveal_in_explorer', { path }),
   runtimeInfo: () => invoke('app_runtime_info'),
+  getThemePreference: () => invoke('get_theme_preference'),
+  setThemePreference: theme => invoke('set_theme_preference', { theme }),
   checkForUpdate: () => invoke('check_for_update'),
   installUpdate: () => invoke('install_update'),
 };
-  getThemePreference: () => invoke('get_theme_preference'),
-  setThemePreference: theme => invoke('set_theme_preference', { theme }),
 const store = new DocumentStore(backend, render, handleExternalSync);
 let editor;
 let colorPicker;
@@ -52,11 +55,11 @@ let documentOutline;
 let lintPanel;
 let lintController;
 let settingsDialog = null;
+// Applied natively before the window shows (appearance.json); only read once Settings opens.
+let themePreference = null;
 let projectConfigFinder = null;
 let projectLintState = null;
 let lintConfigToken = 0;
-// Applied natively before the window shows (appearance.json); only read once Settings opens.
-let themePreference = null;
 let lintMarkers = null;
 let lintMarkersLoading = null;
 let bbcodeController;
@@ -64,6 +67,7 @@ let markdownlintResult = null;
 let bbcodeResult = null;
 let folderBrowser;
 let diffDialog;
+let draftsPanel = null;
 let previewOpen = false;
 let previewMeta = { blockOffsets: [], totalLines: 1 };
 let scrollSyncSource = null;
@@ -361,6 +365,10 @@ function render() {
       event.preventDefault();
       void runAction(() => closeTab(documentRecord));
     };
+    tabGroup.oncontextmenu = event => {
+      event.preventDefault();
+      openPopupMenu(event.clientX, event.clientY, tabMenuItems(documentRecord), { className: 'tab-context-menu' });
+    };
     const tab = document.createElement('button');
     tab.className = 'tab';
     tab.role = 'tab';
@@ -377,9 +385,10 @@ function render() {
     tabGroup.append(tab, closeButton);
     elements.tabs.append(tabGroup);
   }
-  const draftCount = store.documents.filter(documentRecord => !documentRecord.open && !documentRecord.path).length;
+  const draftCount = hiddenDrafts(store.documents).length;
   elements.drafts.hidden = draftCount === 0;
   setButtonIcon(elements.drafts, 'inventory_2', `Drafts (${draftCount})`);
+  draftsPanel?.refresh();
   elements.recovered.hidden = store.pendingImports.length === 0;
   setButtonIcon(elements.recovered, 'history', `Recovered BBCode (${store.pendingImports.length})`);
   elements['document-path'].textContent = activeDocument?.path?.replace(/^\\\\\?\\/, '') || 'Recoverable Markdown Draft — Save To Choose A File';
@@ -843,6 +852,7 @@ async function updateLintSettings(patch) {
 function settingsHost() {
   return {
     getState: () => ({
+      theme: themePreference ?? 'auto',
       bbcodeTarget: normalizeBBCodeTarget(store.bbcodeTarget),
       viewportWidth: normalizeViewportWidth(store.viewportWidth),
       outlineMode: normalizeOutlineMode(store.outlineMode),
@@ -852,7 +862,6 @@ function settingsHost() {
       dismissedPrompts: store.preferences.dismissedPrompts,
     }),
     setPromptShown: (id, shown) => runAction(async () => {
-      theme: themePreference ?? 'auto',
       const next = { ...store.preferences.dismissedPrompts };
       if (shown) delete next[id];
       else next[id] = DISMISSABLE_PROMPTS.find(prompt => prompt.id === id)?.defaultChoice;
@@ -865,6 +874,10 @@ function settingsHost() {
       settingsDialog?.sync();
       await persist();
     }),
+    setTheme: theme => runAction(async () => {
+      themePreference = await backend.setThemePreference(theme);
+      settingsDialog?.sync();
+    }),
     setBBCodeTarget: target => runAction(() => setBBCodeTarget(target)),
     setViewportWidth: mode => runAction(() => setViewportWidth(mode)),
     setOutlineMode: mode => runAction(() => setOutlineMode(mode)),
@@ -874,13 +887,10 @@ function settingsHost() {
     loadPresetConfig: preset => loadPresetConfig(preset),
     openUrl: url => runAction(() => invoke('open_external_url', { url })),
   };
-    setTheme: theme => runAction(async () => {
-      themePreference = await backend.setThemePreference(theme);
-      settingsDialog?.sync();
-    }),
 }
 
 async function openSettings(page) {
+  if (themePreference === null) themePreference = await backend.getThemePreference().catch(() => 'auto');
   if (!settingsDialog) {
     const { SettingsDialog } = await import('./settings/settings-dialog.js');
     settingsDialog ??= new SettingsDialog(elements['settings-dialog'], settingsHost());
@@ -890,7 +900,6 @@ async function openSettings(page) {
 }
 
 async function updatePropertiesPanel(patch) {
-  if (themePreference === null) themePreference = await backend.getThemePreference().catch(() => 'auto');
   const next = normalizePropertiesPanel({ ...store.propertiesPanel, ...patch });
   if (next.behavior === store.propertiesPanel.behavior && next.collapsed === store.propertiesPanel.collapsed) return;
   store.propertiesPanel = next;
@@ -1011,11 +1020,70 @@ function removeClosedTab(documentRecord) {
     store.documents = store.documents.filter(otherDocument => otherDocument.id !== documentRecord.id);
     store.saveQueues.delete(documentRecord.id);
   }
-  if (store.activeId === documentRecord.id) {
-    store.activeId = store.documents.find(otherDocument => otherDocument.open)?.id;
-    if (!store.activeId) store.add();
-    showDocument();
+  if (store.activeId === documentRecord.id) activateFallbackTab();
+}
+
+// After the active tab goes away: show the first open tab, or a fresh one (returned) when none is left.
+function activateFallbackTab() {
+  store.activeId = store.documents.find(otherDocument => otherDocument.open)?.id;
+  const placeholder = store.activeId ? null : store.add();
+  showDocument();
+  return placeholder;
+}
+
+// Draft deletion and Undo.
+function tabMenuItems(documentRecord) {
+  const items = [{ icon: 'close', label: 'Close', action: () => runAction(() => closeTab(documentRecord)) }];
+  if (!documentRecord.path) items.push({ icon: 'delete', label: 'Discard Draft', danger: true, action: () => runAction(() => discardDraft(documentRecord)) });
+  return items;
+}
+
+// Drafts are deleted at once; the toast's Undo puts them back where they were (an open tab is reactivated).
+async function deleteDrafts(ids) {
+  capture();
+  const { documents, removed } = removeDocuments(store.documents, ids);
+  if (!removed.length) return;
+  store.documents = documents;
+  for (const { record } of removed) store.saveQueues.delete(record.id);
+  const placeholder = removed.some(({ record }) => record.id === store.activeId) ? activateFallbackTab() : null;
+  await persist();
+  render();
+  const withContent = removed.filter(({ record }) => hasDocumentContent(record.content));
+  if (!withContent.length) return;
+  const discardedTab = removed.some(({ record }) => record.open);
+  showToast({
+    title: removed.length > 1 ? `${removed.length} Drafts Deleted` : discardedTab ? 'Draft Discarded' : 'Draft Deleted',
+    body: removed.length > 1 ? '' : documentName(removed[0].record),
+    action: { label: 'Undo', run: () => runAction(() => restoreDrafts(removed, placeholder)) },
+  });
+}
+
+async function restoreDrafts(removed, placeholder) {
+  capture();
+  store.documents = restoreDocuments(store.documents, removed);
+  // Drop the empty tab that replaced a discarded last tab, unless it has been used since.
+  if (placeholder && !placeholder.path && !hasDocumentContent(placeholder.content)) {
+    store.documents = store.documents.filter(otherDocument => otherDocument.id !== placeholder.id);
+    store.saveQueues.delete(placeholder.id);
   }
+  const reopened = removed.find(({ record }) => record.open)?.record;
+  if (reopened) await activate(reopened.id);
+  else {
+    await persist();
+    render();
+  }
+}
+
+async function discardDraft(documentRecord) {
+  if (!documentRecord || documentRecord.path || !store.documents.includes(documentRecord)) return;
+  await deleteDrafts([documentRecord.id]);
+}
+
+async function openDraft(documentId) {
+  const draft = store.documents.find(documentRecord => documentRecord.id === documentId);
+  if (!draft) return;
+  draft.open = true;
+  await activate(draft.id);
 }
 
 async function resolveConflict(documentRecord = store.active) {
@@ -1710,9 +1778,15 @@ async function initialize() {
   if (elements['view-sync-diff']) elements['view-sync-diff'].onclick = () => runAction(() => openSyncDiff());
   if (elements['dismiss-sync']) elements['dismiss-sync'].onclick = () => { if (store.active) { store.active.lastSync = null; render(); } };
   elements.drafts.onclick = () => runAction(async () => {
-    const drafts = store.documents.filter(documentRecord => !documentRecord.open && !documentRecord.path);
-    for (const draft of drafts) draft.open = true;
-    if (drafts.length) await activate(drafts[0].id);
+    if (!draftsPanel) {
+      const { DraftsPanel } = await import('./drafts-panel.js');
+      draftsPanel = new DraftsPanel(elements.drafts, {
+        list: () => hiddenDrafts(store.documents),
+        onOpen: documentId => runAction(() => openDraft(documentId)),
+        onDelete: ids => runAction(() => deleteDrafts(ids)),
+      });
+    }
+    draftsPanel.toggle();
   });
   if (elements['app-version']) elements['app-version'].onclick = () => runAction(() => checkForUpdates(false));
   if (elements['update-app']) elements['update-app'].onclick = () => runAction(() => applyAppUpdate());

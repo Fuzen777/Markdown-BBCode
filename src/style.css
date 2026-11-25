@@ -766,4 +766,35 @@ button.icon-button { display: inline-flex; align-items: center; justify-content:
 .block-menu-item.danger { color: var(--error-text); }
 .block-menu-item.danger:hover { background: var(--error-fill); color: var(--error-text); }
 
+/* ==> Section 11 - Popup Menus, Drafts Panel And Toasts <== */
+.popup-menu { position: fixed; z-index: 50; width: auto; min-width: 180px; max-width: 320px; }
+.drafts-panel { position: fixed; z-index: 40; width: 320px; display: flex; flex-direction: column; }
+.drafts-panel[hidden] { display: none; }
+.drafts-list { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.drafts-row { display: flex; align-items: center; gap: 2px; border-radius: 6px; }
+.drafts-row:hover { background: var(--control); }
+button.drafts-open { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 9px; border: 0; border-radius: 6px; background: transparent; text-align: left; }
+button.drafts-open:hover { background: transparent; border-color: transparent; }
+.drafts-name, .drafts-preview { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drafts-name { color: var(--text); font-weight: 500; }
+.drafts-preview { color: var(--text-secondary); font-size: 12px; }
+.drafts-preview.empty { color: var(--muted); }
+button.drafts-delete.icon-button { flex: 0 0 auto; width: 28px; height: 28px; margin-right: 4px; padding: 5px; border-color: transparent; border-radius: 8px; background: transparent; color: var(--muted); }
+button.drafts-delete.icon-button:hover { background: var(--active-fill); color: var(--text); border-color: transparent; }
+.drafts-delete .material-icon { width: 18px; height: 18px; }
+#toast-stack { position: fixed; right: 16px; bottom: 48px; z-index: 90; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; pointer-events: none; }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; min-width: 260px; max-width: 380px; padding: 8px 8px 8px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); box-shadow: var(--shadow-float); cursor: pointer; }
+.toast .toast-icon { width: 20px; height: 20px; color: var(--accent); }
+.toast-success .toast-icon { color: var(--success-text); }
+.toast-warning .toast-icon { color: var(--warning-text); }
+.toast-error { border-color: var(--error-border); }
+.toast-error .toast-icon { color: var(--error-text); }
+.toast-text { flex: 1; min-width: 0; }
+.toast-title { font-weight: 500; }
+.toast-body { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 12px; }
+button.toast-action { flex: 0 0 auto; height: 28px; padding: 0 10px; border-radius: 4px; font-size: 12px; }
+button.toast-dismiss.icon-button { flex: 0 0 auto; width: 28px; height: 28px; padding: 5px; border-color: transparent; border-radius: 9999px; background: transparent; color: var(--muted); }
+button.toast-dismiss.icon-button:hover { background: var(--control); color: var(--text); border-color: transparent; }
+.toast-dismiss .material-icon { width: 18px; height: 18px; }
+
 @media (max-width: 840px) { #editor-panes { flex-direction: column; overflow-y: auto; } #folder-sidebar { flex: 0 0 auto; width: 100% !important; min-width: 0; max-width: none; max-height: 112px; overflow-y: auto; border-right: 0; border-bottom: 1px solid var(--border); } #folder-sidebar .folder-tree { flex: 0 0 auto; overflow: visible; } #folder-resizer { display: none; } #editor-primary { min-height: 82px; } #outline-docked-pane { flex: 0 0 auto; width: 100%; max-height: 76px; border-left: 0; border-top: 1px solid var(--border); } #preview-resizer { width: 100%; height: 6px; cursor: row-resize; } #preview-resizer::after { inset: 2px 0; } #bbcode-preview-pane { width: 100%; min-width: 0; min-height: 92px; height: 34%; max-height: 36%; } .diff-dialog-header, .diff-dialog-description, .diff-dialog-footer { padding-left: 12px; padding-right: 12px; } .diff-view-body { padding: 8px; } .diff-split-header, .diff-split-row, .diff-conflict-split { grid-template-columns: 1fr; } .diff-split-col-title + .diff-split-col-title, .diff-split-row .diff-split-cell + .diff-split-cell, .diff-conflict-split .diff-conflict-side + .diff-conflict-side { border-left: 0; border-top: 1px solid var(--border); } .settings-body { flex-direction: column; } .settings-nav { flex: 0 0 auto; flex-direction: row; border-right: 0; border-bottom: 1px solid var(--border); } .settings-page { padding: 12px; } .rule-description { display: none; } .rule-option { grid-template-columns: 1fr; } }

@@ -1622,9 +1622,12 @@ test('middle mouse button closes tabs on auxclick release while ignoring drag-aw
   await page.mouse.up({ button: 'middle' });
   await expect(page.getByRole('tab')).toHaveCount(2);
 
-  // Right-click on a tab does not trigger middle-close.
+  // Right-click on a tab opens its menu instead of triggering middle-close.
   await firstTab.click({ button: 'right' });
   await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(page.getByRole('menuitem', { name: 'Close', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('menu')).toHaveCount(0);
 
   // Middle-clicking an active tab with draft content preserves it in Drafts and keeps at least one open tab.
   await page.getByRole('textbox', { name: 'Visual Markdown Editor' }).fill('Draft kept on middle close');

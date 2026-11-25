@@ -1,5 +1,6 @@
 // ==> Section 1 - Left Folder Browser Controller <==
 import { setButtonIcon, createIcon } from './icons.js';
+import { openPopupMenu } from './popup-menu.js';
 import {
   normalizeFolderPath,
   folderPathKey,
@@ -125,15 +126,9 @@ export class FolderBrowser {
       if (!this.switcherMenu.hidden && !this.switcherMenu.contains(event.target) && !this.switcherButton.contains(event.target)) {
         this.closeSwitcherMenu();
       }
-      if (this.contextMenu && !this.contextMenu.contains(event.target)) {
-        this.closeContextMenu();
-      }
     };
     this.boundWindowKey = event => {
-      if (event.key === 'Escape') {
-        if (!this.switcherMenu.hidden) { this.closeSwitcherMenu(); return; }
-        if (this.contextMenu) { this.closeContextMenu(); }
-      }
+      if (event.key === 'Escape' && !this.switcherMenu.hidden) this.closeSwitcherMenu();
     };
     document.addEventListener('pointerdown', this.boundOutside);
     document.addEventListener('keydown', this.boundWindowKey);
@@ -1093,28 +1088,13 @@ export class FolderBrowser {
   }
 
   closeContextMenu() {
-    this.contextMenu?.remove();
+    this.contextMenu?.close();
     this.contextMenu = null;
   }
 
   openItemContextMenu(clientX, clientY, entry) {
-    this.closeContextMenu();
-    const menu = document.createElement('div');
-    menu.className = 'block-dropdown-menu folder-context-menu';
-    menu.setAttribute('role', 'menu');
-
-    const addOption = (icon, label, action) => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'block-menu-item block-type-item';
-      btn.setAttribute('role', 'menuitem');
-      btn.append(createIcon(icon), document.createTextNode(label));
-      btn.onclick = () => {
-        this.closeContextMenu();
-        void action();
-      };
-      menu.append(btn);
-    };
+    const items = [];
+    const addOption = (icon, label, action) => items.push({ icon, label, action });
 
     if (entry.isDir) {
       const expanded = this.expandedPaths.has(folderPathKey(entry.path));
@@ -1147,11 +1127,6 @@ export class FolderBrowser {
     });
     addOption('content_copy', 'Copy Path', () => navigator.clipboard?.writeText(entry.path).catch(() => {}));
 
-    document.body.append(menu);
-    const left = Math.max(8, Math.min(clientX, window.innerWidth - (menu.offsetWidth || 190) - 8));
-    const top = Math.max(8, Math.min(clientY, window.innerHeight - (menu.offsetHeight || 220) - 8));
-    menu.style.left = `${Math.round(left)}px`;
-    menu.style.top = `${Math.round(top)}px`;
-    this.contextMenu = menu;
+    this.contextMenu = openPopupMenu(clientX, clientY, items, { className: 'folder-context-menu' });
   }
 }
