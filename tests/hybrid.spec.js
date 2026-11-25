@@ -250,6 +250,8 @@ test('blank lines are independent editable rows and content has no phantom lines
   expect(await savedSource(page)).toBe('# Heading\nNew paragraph\n\nParagraph\n\nTail');
   await page.getByRole('button', { name: 'New', exact: true }).focus();
   await expect(page.getByRole('tooltip')).toContainText('New Document');
+  // Custom tooltips replace native ones: no element carries both, so hovering never shows two.
+  await expect.poll(() => page.locator('[data-tooltip][title]').count()).toBe(0);
   await expect(page.getByRole('button', { name: 'New', exact: true }).locator('svg')).toBeVisible();
   await page.screenshot({ path: 'test-results/hybrid-spacing-icons.png' });
   await page.emulateMedia({ colorScheme: 'dark' });

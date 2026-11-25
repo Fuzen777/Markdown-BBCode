@@ -112,8 +112,9 @@ export class LintPanel {
     this.elements['lint-scope-folder'].setAttribute('aria-pressed', String(folder));
     this.elements['lint-list'].hidden = folder;
     this.elements['lint-folder'].hidden = !folder;
-    this.elements['lint-refresh'].title = folder ? 'Audit Folder Again' : 'Lint Again';
-    this.elements['lint-refresh'].setAttribute('aria-label', this.elements['lint-refresh'].title);
+    const refreshLabel = folder ? 'Audit Folder Again' : 'Lint Again';
+    this.elements['lint-refresh'].title = refreshLabel;
+    this.elements['lint-refresh'].setAttribute('aria-label', refreshLabel);
     this.elements['lint-fix-all'].hidden = !fixable || folder;
     this.elements['lint-fix-all'].title = `Fix ${fixable} Fixable ${fixable === 1 ? 'Problem' : 'Problems'}`;
     this.elements['lint-disable'].hidden = !this.enabled;

@@ -7,8 +7,9 @@ export function setButtonIcon(button, name, label, tooltip = label) {
   button.replaceChildren(symbol);
   button.classList.add('icon-button');
   button.setAttribute('aria-label', accessibleLabel);
-  button.title = tooltip || accessibleLabel;
-  button.dataset.tooltip = button.title;
+  // The custom tooltip replaces the native one, so the text lives in data-tooltip rather than title.
+  button.dataset.tooltip = tooltip || accessibleLabel;
+  button.removeAttribute('title');
 }
 
 export function createIcon(name) {
@@ -57,7 +58,18 @@ export function initializeIcons() {
 }
 
 // ==> Section 2 - Hover And Keyboard Tooltips <==
+// A title set on an element that has a custom tooltip (in markup or by later code) moves into data-tooltip, so the native tooltip never shows beside the custom one. Elements without data-tooltip keep their native title.
+function claimNativeTitle(element) {
+  if (!element.hasAttribute('title')) return;
+  element.dataset.tooltip = element.getAttribute('title');
+  element.removeAttribute('title');
+}
+
 function installTooltips() {
+  for (const element of document.querySelectorAll('[data-tooltip][title]')) claimNativeTitle(element);
+  new MutationObserver(records => {
+    for (const { target } of records) if (target.dataset?.tooltip !== undefined) claimNativeTitle(target);
+  }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ['title'] });
   const tooltip = document.createElement('div');
   tooltip.id = 'button-tooltip';
   tooltip.role = 'tooltip';
@@ -68,9 +80,10 @@ function installTooltips() {
   const show = event => {
     const button = event.target.closest?.('[data-tooltip]');
     if (!button || button.disabled) return;
+    claimNativeTitle(button);
     hide();
     current = button;
-    tooltip.textContent = button.title || button.dataset.tooltip;
+    tooltip.textContent = button.dataset.tooltip;
     tooltip.hidden = false;
     button.setAttribute('aria-describedby', tooltip.id);
     const bounds = button.getBoundingClientRect();

@@ -1641,8 +1641,9 @@ test('header Nexus | Steam dialect switch renders SVGs, updates preview, persist
   const steamButton = page.getByRole('button', { name: 'Steam', exact: true });
   await expect(nexusButton).toHaveAttribute('aria-pressed', 'true');
   await expect(steamButton).toHaveAttribute('aria-pressed', 'false');
-  await expect(nexusButton).toHaveAttribute('title', 'Generate Nexus Mods BBCode');
-  await expect(steamButton).toHaveAttribute('title', 'Generate Steam BBCode');
+  await expect(nexusButton).toHaveAttribute('data-tooltip', 'Generate Nexus Mods BBCode');
+  await expect(steamButton).toHaveAttribute('data-tooltip', 'Generate Steam BBCode');
+  await expect(nexusButton).not.toHaveAttribute('title');
   await expect(nexusButton.locator('svg')).toBeVisible();
   await expect(steamButton.locator('svg')).toBeVisible();
   const nexusSvgBox = await nexusButton.locator('svg').boundingBox();

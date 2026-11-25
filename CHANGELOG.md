@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+1. Fixed hovering an icon button (block drag handle, `+`, toolbar, Folder Browser, Lint and Outline buttons) showing the system tooltip on top of the app's own: elements with an app tooltip now keep their text in `data-tooltip` instead of `title`, including titles set later by code (`src/icons.js`). Elements without an app tooltip (paths, file rows, outline items) keep their native one.
 1. Fixed the block drag handle and `+` (and Hybrid's block actions) sitting off-center on headings, task lists, quotes, callouts and code blocks: they are now centered on the first line of their block in Visual and Hybrid, including the block being edited (`src/first-line.js`).
 1. Fixed task-list checkboxes sitting a few pixels below their text: Visual and the Hybrid preview now center the checkbox on the first line of the item, and the live checkbox in an active Hybrid block is centered on its line too.
 1. Changed centering several blocks at once (Visual toolbar and Turn Into, Hybrid multi-block `Wrap`) to give each block its own `<div style="text-align: center">` instead of one shared wrapper, so every block carries its own alignment. Nexus BBCode export now has one `[center]` pair per block, which renders the same. Existing shared wrappers are left untouched.
