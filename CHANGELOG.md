@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+1. Fixed task-list checkboxes sitting a few pixels below their text: Visual and the Hybrid preview now center the checkbox on the first line of the item, and the live checkbox in an active Hybrid block is centered on its line too.
 1. Changed centering several blocks at once (Visual toolbar and Turn Into, Hybrid multi-block `Wrap`) to give each block its own `<div style="text-align: center">` instead of one shared wrapper, so every block carries its own alignment. Nexus BBCode export now has one `[center]` pair per block, which renders the same. Existing shared wrappers are left untouched.
 1. Fixed a block moved out of a Centered Block that holds several blocks losing its centering: it now leaves in a Centered Block of its own (Alt+Up/Down, Move Up/Down, drag and drop).
 1. Changed markdownlint MD033 (no inline HTML) to stay off for `.mdbbcode` files on top of the app settings (a project `.markdownlint.json(c)` still applies as-is), with a note on MD033 in the rule browser, and added `div` to the app profile's allowed elements so the editor's own `<div style="text-align: center">` no longer warns in `.md` files (the color `<span>` was already allowed).
