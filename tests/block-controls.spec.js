@@ -121,6 +121,42 @@ test('moving next to a Centered Block keeps centering on the centered block only
   expect(await topLevel()).toEqual(['Third', 'First', 'center(Centered)']);
 });
 
+test('a block leaving a shared Centered Block keeps its centering in its own wrapper', async ({ page }) => {
+  const topLevel = () => page.evaluate(() => window.blockEditor.getJSON().content.map(node => node.type === 'centerBlock' ? `center(${node.content.map(child => child.content?.[0]?.text).join(',')})` : node.content?.[0]?.text));
+  const reset = selection => page.evaluate(position => {
+    window.blockEditor.commands.setContent('<p>Before</p><div style="text-align: center"><p>C1</p><p>C2</p><p>C3</p></div><p>After1</p><p>After2</p>');
+    window.blockEditor.commands.focus();
+    window.blockEditor.commands.setTextSelection(position);
+  }, selection);
+  const editorDom = page.locator('.tiptap');
+
+  await reset(19);
+  await editorDom.press('Alt+ArrowDown');
+  expect(await topLevel()).toEqual(['Before', 'center(C1,C2)', 'After1', 'center(C3)', 'After2']);
+
+  await reset(10);
+  await editorDom.press('Alt+ArrowUp');
+  expect(await topLevel()).toEqual(['Before', 'center(C1)', 'center(C2,C3)', 'After1', 'After2']);
+  await editorDom.press('Alt+ArrowUp');
+  expect(await topLevel()).toEqual(['center(C1)', 'Before', 'center(C2,C3)', 'After1', 'After2']);
+
+  await reset(10);
+  await editorDom.press('Alt+ArrowDown');
+  expect(await topLevel()).toEqual(['Before', 'center(C2,C1,C3)', 'After1', 'After2']);
+
+  await reset(10);
+  await page.locator('.tiptap div[style*="center"] p').first().hover();
+  const handle = page.getByRole('button', { name: 'Block Actions And Drag Handle', exact: true });
+  const handleBox = await handle.boundingBox();
+  const afterBox = await page.locator('.tiptap > p').nth(1).boundingBox();
+  await page.mouse.move(handleBox.x + handleBox.width / 2, handleBox.y + handleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(afterBox.x + 10, afterBox.y + afterBox.height - 2, { steps: 6 });
+  await page.mouse.up();
+  expect(await topLevel()).toEqual(['Before', 'center(C2,C3)', 'After1', 'center(C1)', 'After2']);
+  await expect(page.locator('.tiptap > div[style*="center"]').nth(1)).toHaveText('C1');
+});
+
 test('approaching a drag handle horizontally preserves the hovered block', async ({ page }) => {
   const second = page.locator('.tiptap p').nth(1);
   const secondBox = await second.boundingBox();

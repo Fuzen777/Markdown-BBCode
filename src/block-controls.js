@@ -415,6 +415,20 @@ export class BlockControls {
     return current;
   }
 
+  // A block leaving a shared Centered Block takes the centering with it in a wrapper of its own.
+  keepCentering(units, target, mode) {
+    const schema = this.editor.schema;
+    return units.map(unit => {
+      if (unit.kind !== 'containerChild' || unit.parentType !== 'centerBlock') return unit;
+      const wrapperStart = unit.parentContainerPos;
+      const wrapperEnd = wrapperStart + unit.parentContainer.nodeSize;
+      const staysInside = mode === 'into-container'
+        ? target.position >= wrapperStart && target.position < wrapperEnd
+        : target.position > wrapperStart && target.position < wrapperEnd;
+      return staysInside ? unit : { ...unit, node: schema.nodes.centerBlock.create(null, unit.node) };
+    });
+  }
+
   movableEntry(entry) {
     const unit = this.movableUnit(entry.unit);
     return unit === entry.unit ? entry : { index: this.units.indexOf(unit), unit };
@@ -1131,7 +1145,7 @@ export class BlockControls {
       }
     } else if (mode === 'into-container' && containerTypes.has(target.node.type.name)) {
       insertPos = target.position + target.node.nodeSize - 1;
-      payloadNodes = wrapUnitsAsPayload(sourceUnits, 'block', null, schema);
+      payloadNodes = wrapUnitsAsPayload(this.keepCentering(sourceUnits, target, mode), 'block', null, schema);
       if (
         target.node.type.name === 'callout' &&
         target.node.childCount === 1 &&
@@ -1146,7 +1160,9 @@ export class BlockControls {
         this.closeMenu();
         return;
       }
-      payloadNodes = wrapUnitsAsPayload(sourceUnits, target.kind === 'listItem' ? 'listItem' : 'block', target.listType, schema);
+      payloadNodes = target.kind === 'listItem'
+        ? wrapUnitsAsPayload(sourceUnits, 'listItem', target.listType, schema)
+        : wrapUnitsAsPayload(this.keepCentering(sourceUnits, target, mode), 'block', null, schema);
     }
 
     const deleteOps = this.collectDeleteOps(sourceEntries, this.editor.state.doc);

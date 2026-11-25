@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+1. Fixed a block moved out of a Centered Block that holds several blocks losing its centering: it now leaves in a Centered Block of its own (Alt+Up/Down, Move Up/Down, drag and drop).
 1. Fixed moving a Centered Block in Visual mode with `Alt+Up`/`Down`, `Move Up`/`Down` or drag and drop: the block lost its centering (the handle grabbed the paragraph inside the `<div style="text-align: center">` and moved it out, dissolving the wrapper), and blocks moved onto it could land inside and become centered. A Centered Block around a single block now moves as one unit and blocks land beside it.
 1. Changed lint Fix and Fix All in Visual mode to keep undo history: the fixed source is re-parsed and only the changed top-level blocks are replaced in one transaction, so Ctrl+Z restores the exact original source and Ctrl+Y re-applies it; source-only fixes (spacing, blank lines, list indents) have their own undo entry. The confirm-and-reload dialog remains only as a fallback.
 2. Added `Don't Show This Again` to informational prompts (Visual fix fallback, BBCode Export Notes, BBCode Import Notes) and a Settings > Prompts page to show them again or `Reset All` (`preferences.dismissedPrompts` in `session.json`).
