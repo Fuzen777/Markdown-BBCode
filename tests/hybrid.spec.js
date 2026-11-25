@@ -489,6 +489,18 @@ test('Hybrid supports Enter list/callout continuation, Tab indent, slash filteri
   expect(await savedSource(page)).not.toContain('> [!note]');
 });
 
+test('Hybrid Wrap In Centered Block gives each selected block its own wrapper', async ({ page }) => {
+  await openDocument(page, 'Alpha\n\nBeta\n\nGamma\n');
+  for (const index of [0, 1]) {
+    const block = page.locator('.hybrid-block:not(.blank-block)').nth(index);
+    await block.hover();
+    await block.getByRole('button', { name: /^Drag Block/ }).click({ modifiers: ['Shift'] });
+  }
+  await page.getByRole('button', { name: 'Wrap Selected Blocks', exact: true }).click();
+  await page.locator('.multi-wrap-menu').getByRole('menuitem', { name: 'Centered Block', exact: true }).click();
+  expect(await savedSource(page)).toBe('<div style="text-align: center">\n\nAlpha\n\n</div>\n\n<div style="text-align: center">\n\nBeta\n\n</div>\n\nGamma\n');
+});
+
 test('Hybrid handles 4-backtick code blocks containing triple backticks and hash comments without breaking live preview', async ({ page }) => {
   const b3 = '\x60'.repeat(3);
   const b4 = '\x60'.repeat(4);

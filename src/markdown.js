@@ -1,6 +1,7 @@
 // ==> Section 1 - Markdown Extension Delimiters <==
-import { Mark, Node, Extension, markInputRule, textblockTypeInputRule, getSchema } from '@tiptap/core';
-import { Slice } from '@tiptap/pm/model';
+import { Mark, Node, Extension, markInputRule, textblockTypeInputRule, getSchema, isNodeActive } from '@tiptap/core';
+import { NodeRange, Slice } from '@tiptap/pm/model';
+import { findWrapping } from '@tiptap/pm/transform';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import StarterKit from '@tiptap/starter-kit';
@@ -125,6 +126,30 @@ const CenterBlock = Node.create({
   renderHTML: () => ['div', { style: 'text-align: center' }, 0],
   parseMarkdown: (token, helpers) => helpers.createNode('centerBlock', {}, helpers.parseChildren(token.tokens)),
   renderMarkdown: (node, helpers) => `<div style="text-align: center">\n\n${helpers.renderChildren(node, '\n\n')}\n\n</div>`,
+  addCommands() {
+    return {
+      // Centering several blocks gives each block its own wrapper, so a block always carries its own alignment.
+      toggleCenter: () => ({ state, tr, dispatch, commands }) => {
+        const type = state.schema.nodes.centerBlock;
+        if (isNodeActive(state, type)) return commands.lift(type);
+        const range = state.selection.$from.blockRange(state.selection.$to);
+        if (!range || range.endIndex - range.startIndex < 2) return commands.wrapIn(type);
+        const childRanges = [];
+        let position = range.start;
+        for (let index = range.startIndex; index < range.endIndex; index++) {
+          const child = range.parent.child(index);
+          const childRange = new NodeRange(state.doc.resolve(position), state.doc.resolve(position + child.nodeSize), range.depth);
+          childRanges.push({ childRange, wrapping: findWrapping(childRange, type) });
+          position += child.nodeSize;
+        }
+        if (childRanges.some(entry => !entry.wrapping)) return commands.wrapIn(type);
+        if (dispatch) {
+          for (const { childRange, wrapping } of childRanges.reverse()) tr.wrap(childRange, wrapping);
+        }
+        return true;
+      },
+    };
+  },
   markdownTokenizer: {
     name: 'centerBlock', level: 'block', start: source => source.toLowerCase().indexOf('<div'),
     tokenize(source, tokens, lexer) {

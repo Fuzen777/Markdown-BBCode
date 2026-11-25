@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+1. Changed centering several blocks at once (Visual toolbar and Turn Into, Hybrid multi-block `Wrap`) to give each block its own `<div style="text-align: center">` instead of one shared wrapper, so every block carries its own alignment. Nexus BBCode export now has one `[center]` pair per block, which renders the same. Existing shared wrappers are left untouched.
 1. Fixed a block moved out of a Centered Block that holds several blocks losing its centering: it now leaves in a Centered Block of its own (Alt+Up/Down, Move Up/Down, drag and drop).
 1. Changed markdownlint MD033 (no inline HTML) to stay off for `.mdbbcode` files on top of the app settings (a project `.markdownlint.json(c)` still applies as-is), with a note on MD033 in the rule browser, and added `div` to the app profile's allowed elements so the editor's own `<div style="text-align: center">` no longer warns in `.md` files (the color `<span>` was already allowed).
 1. Fixed moving a Centered Block in Visual mode with `Alt+Up`/`Down`, `Move Up`/`Down` or drag and drop: the block lost its centering (the handle grabbed the paragraph inside the `<div style="text-align: center">` and moved it out, dissolving the wrapper), and blocks moved onto it could land inside and become centered. A Centered Block around a single block now moves as one unit and blocks land beside it.

@@ -29,7 +29,7 @@
 | Settings | Header gear or `Ctrl+,` opens a lazily loaded Settings dialog. `General` mirrors the BBCode dialect, `Width` and Outline controls; `Linting` has the master toggle, `Lint Delay`, `Large File Threshold`, presets (`Markdown BBCode Default`, `markdownlint Default`, `Relaxed`) and a schema-generated rule browser with search, category filter, `Only Modified`, per-rule enable, `Warning`/`Error` severity, typed options, `Reset` and documentation links. A `.markdownlint.jsonc`/`.markdownlint.json` above the document (relative `extends` supported) replaces app rules read-only for that document. |
 | Markdown Elements | Headings, inline styles, links, web images, lists, tasks, tables, quotes and code (including variable-length ` ```` ` / `~~~~` fenced blocks preserving inner backticks across Visual, Hybrid, Source, Outline, and BBCode export/import). |
 | Callouts | Obsidian types, custom editable titles, nesting and optional folding. |
-| Extra Formatting | Discord-style spoilers, HTML center and color wrappers. |
+| Extra Formatting | Discord-style spoilers, HTML center and color wrappers. Centering several blocks wraps each in its own centered `<div>`, and a block moved out of a shared centered `<div>` keeps its centering. |
 | Color Picker | One-click remembered color, optional #, Hex/RGB/HSL and sliders; settings persist across launches. |
 | Appearance | OS Light/Dark theme following shared zero-chroma neutral tokens (`#111111`–`#f5f5f5` in Dark Mode), sparing Warm Amber signature actions, Surface tooltips, thin 4 px scrollbars and responsive layout. |
 

@@ -361,13 +361,13 @@ export class MarkdownEditor {
         if (value === 'codeBlock') return chain.toggleCodeBlock();
         if (value === 'callout') return chain.toggleWrap('callout', { type: 'note', title: '', fold: null });
         if (value === 'spoilerBlock') return this.editor.isActive('spoilerBlock') ? chain.lift('spoilerBlock') : chain.wrapIn('spoilerBlock');
-        if (value === 'centerBlock') return chain.toggleWrap('centerBlock');
+        if (value === 'centerBlock') return chain.toggleCenter();
         return null;
       },
       addRowBefore: () => chain.addRowBefore(), addRowAfter: () => chain.addRowAfter(), deleteRow: () => chain.deleteRow(),
       addColumnBefore: () => chain.addColumnBefore(), addColumnAfter: () => chain.addColumnAfter(), deleteColumn: () => chain.deleteColumn(),
       toggleHeaderRow: () => chain.toggleHeaderRow(), deleteTable: () => chain.deleteTable(),
-      code: () => chain.toggleCodeBlock(), inlineCode: () => chain.toggleCode(), center: () => chain.toggleWrap('centerBlock'),
+      code: () => chain.toggleCodeBlock(), inlineCode: () => chain.toggleCode(), center: () => chain.toggleCenter(),
       color: () => chain.setMark('textColor', { color: value }), clearColor: () => chain.unsetMark('textColor'), clear: () => chain.unsetAllMarks(),
       heading: () => Number(value) ? chain.setHeading({ level: Number(value) }) : chain.setParagraph(),
       link: () => chain.extendMarkRange('link').setLink({ href: value }), unlink: () => chain.extendMarkRange('link').unsetLink(),

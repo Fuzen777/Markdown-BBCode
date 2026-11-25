@@ -996,7 +996,10 @@ export class HybridEditor {
       if (this.blocks[i].start < insertPos) remainingBefore += this.blocks[i].raw;
       else remainingAfter += this.blocks[i].raw;
     }
-    const wrapped = wrapCombinedMarkdown(this.joinBlocks(movedRaws), targetType, this.newline);
+    // Centering wraps each block on its own, so every block keeps its own alignment.
+    const wrapped = targetType === 'centerBlock'
+      ? this.joinBlocks(movedRaws.filter(raw => raw.trim()).map(raw => wrapCombinedMarkdown(raw, targetType, this.newline)))
+      : wrapCombinedMarkdown(this.joinBlocks(movedRaws), targetType, this.newline);
     let nextBody = this.joinBlocks([remainingBefore, wrapped, remainingAfter].filter(Boolean));
     if (/\r?\n$/.test(this.body) && !/\r?\n$/.test(nextBody)) nextBody += this.newline;
     this.clearMultiSelection(false);

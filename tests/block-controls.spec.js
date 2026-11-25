@@ -157,6 +157,16 @@ test('a block leaving a shared Centered Block keeps its centering in its own wra
   await expect(page.locator('.tiptap > div[style*="center"]').nth(1)).toHaveText('C1');
 });
 
+test('centering several blocks wraps each one in its own Centered Block', async ({ page }) => {
+  const topLevel = () => page.evaluate(() => window.blockEditor.getJSON().content.map(node => node.type === 'centerBlock' ? `center(${node.content.map(child => child.content?.[0]?.text).join(',')})` : node.content?.[0]?.text));
+  await page.evaluate(() => window.blockEditor.chain().focus().setTextSelection({ from: 2, to: 12 }).toggleCenter().run());
+  expect(await topLevel()).toEqual(['center(First)', 'center(Second)', 'Third']);
+  await page.evaluate(() => window.blockEditor.chain().focus().setTextSelection(3).toggleCenter().run());
+  expect(await topLevel()).toEqual(['First', 'center(Second)', 'Third']);
+  await page.evaluate(() => window.blockEditor.chain().focus().setTextSelection(20).toggleCenter().run());
+  expect(await topLevel()).toEqual(['First', 'center(Second)', 'center(Third)']);
+});
+
 test('approaching a drag handle horizontally preserves the hovered block', async ({ page }) => {
   const second = page.locator('.tiptap p').nth(1);
   const secondBox = await second.boundingBox();
