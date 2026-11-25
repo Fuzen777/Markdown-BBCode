@@ -167,6 +167,26 @@ test('centering several blocks wraps each one in its own Centered Block', async 
   expect(await topLevel()).toEqual(['First', 'center(Second)', 'center(Third)']);
 });
 
+test('Alt+Up and Alt+Down move the caret block past a divider instead of moving the divider', async ({ page }) => {
+  const topLevel = () => page.evaluate(() => window.blockEditor.getJSON().content.map(node => node.type === 'horizontalRule' ? '---' : node.content?.[0]?.text));
+  const reset = position => page.evaluate(caret => {
+    window.blockEditor.commands.setContent('<p>P1</p><hr><p>P2</p><p>P3</p>');
+    window.blockEditor.commands.focus();
+    window.blockEditor.commands.setTextSelection(caret);
+  }, position);
+  const editorDom = page.locator('.tiptap');
+  await reset(3);
+  await editorDom.press('Alt+ArrowDown');
+  expect(await topLevel()).toEqual(['---', 'P1', 'P2', 'P3']);
+  await editorDom.press('Alt+ArrowDown');
+  expect(await topLevel()).toEqual(['---', 'P2', 'P1', 'P3']);
+  await reset(6);
+  await editorDom.press('Alt+ArrowUp');
+  expect(await topLevel()).toEqual(['P1', 'P2', '---', 'P3']);
+  await editorDom.press('Alt+ArrowUp');
+  expect(await topLevel()).toEqual(['P2', 'P1', '---', 'P3']);
+});
+
 test('approaching a drag handle horizontally preserves the hovered block', async ({ page }) => {
   const second = page.locator('.tiptap p').nth(1);
   const secondBox = await second.boundingBox();

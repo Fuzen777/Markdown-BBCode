@@ -491,6 +491,16 @@ test('Hybrid supports Enter list/callout continuation, Tab indent, slash filteri
   expect(await savedSource(page)).not.toContain('> [!note]');
 });
 
+test('Hybrid Alt+Up and Alt+Down move the active block past a divider', async ({ page }) => {
+  await openDocument(page, 'P1\n\n---\n\nP2\n\nP3\n');
+  await activateBlock(page, 1);
+  await activeBlock(page).press('Alt+ArrowDown');
+  expect(await savedSource(page)).toBe('---\n\nP1\n\nP2\n\nP3\n');
+  await activateBlock(page, 3);
+  await activeBlock(page).press('Alt+ArrowUp');
+  expect(await savedSource(page)).toBe('---\n\nP2\n\nP1\n\nP3\n');
+});
+
 test('Hybrid Wrap In Centered Block gives each selected block its own wrapper', async ({ page }) => {
   await openDocument(page, 'Alpha\n\nBeta\n\nGamma\n');
   for (const index of [0, 1]) {

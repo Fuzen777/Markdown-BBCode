@@ -298,6 +298,7 @@ export class BlockControls {
     };
     this.boundKey = event => this.keydown(event);
     this.boundEditorKey = event => this.editorKeydown(event);
+    this.boundEditorMoveKey = event => this.editorMoveKeydown(event);
     this.boundCanvasClick = event => this.canvasClick(event);
     this.boundHostPointerDown = event => this.hostPointerDown(event);
     this.boundWindowPointerMove = event => this.marqueeMove(event);
@@ -314,6 +315,8 @@ export class BlockControls {
     document.addEventListener('pointerdown', this.boundOutside);
     document.addEventListener('keydown', this.boundKey, true);
     editor.view.dom.addEventListener('keydown', this.boundEditorKey);
+    // Capture phase: ProseMirror's own arrow handling would otherwise run first and turn the caret into a selection of a neighbouring divider, which then moves instead.
+    editor.view.dom.addEventListener('keydown', this.boundEditorMoveKey, true);
     host.addEventListener('click', this.boundCanvasClick);
     host.addEventListener('pointerdown', this.boundHostPointerDown);
     this.controls.addEventListener('pointerenter', this.boundControlsEnter);
@@ -704,18 +707,20 @@ export class BlockControls {
     if (active) this.suppressNextClick = true;
   }
 
-  editorKeydown(event) {
+  editorMoveKeydown(event) {
     if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
       event.preventDefault();
-      event.stopPropagation();
+      event.stopImmediatePropagation();
       const direction = event.key === 'ArrowUp' ? -1 : 1;
       if (this.selectedIndices.size) this.moveSelectedByStep(direction);
       else {
         this.activeIndex = this.unitIndexForPosition(this.editor.state.selection.$from.pos);
         this.moveByStep(direction, true);
       }
-      return;
     }
+  }
+
+  editorKeydown(event) {
     if (!this.selectedIndices.size && (event.ctrlKey || event.metaKey || event.altKey)) return;
     if (this.selectedIndices.size && (event.key === 'Delete' || event.key === 'Backspace')) {
       event.preventDefault();
@@ -1452,7 +1457,10 @@ export class BlockControls {
     window.removeEventListener('resize', this.boundScroll);
     document.removeEventListener('pointerdown', this.boundOutside);
     document.removeEventListener('keydown', this.boundKey, true);
-    if (!this.editor.isDestroyed) this.editor.view.dom.removeEventListener('keydown', this.boundEditorKey);
+    if (!this.editor.isDestroyed) {
+      this.editor.view.dom.removeEventListener('keydown', this.boundEditorKey);
+      this.editor.view.dom.removeEventListener('keydown', this.boundEditorMoveKey, true);
+    }
     this.host.removeEventListener('click', this.boundCanvasClick);
     this.host.removeEventListener('pointerdown', this.boundHostPointerDown);
     this.controls.removeEventListener('pointerenter', this.boundControlsEnter);
