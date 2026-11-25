@@ -1,4 +1,5 @@
 // ==> Section 1 - Hybrid Markdown Editing And Live Preview <==
+import { firstLineCenter } from './first-line.js';
 import { EditorState, Compartment } from '@codemirror/state';
 import { EditorView, keymap, drawSelection } from '@codemirror/view';
 import { defaultKeymap, selectAll, cursorLineDown, cursorLineUp } from '@codemirror/commands';
@@ -496,6 +497,8 @@ export class HybridEditor {
       shell.classList.toggle('multi-selected', this.selectedIndices.has(index));
       shell.dataset.block = index;
       shell.append(this.controls(index), this.buildPreviewElement(block, index));
+      shell.addEventListener('pointermove', () => this.scheduleAlignControls(shell));
+      shell.addEventListener('focusin', () => this.scheduleAlignControls(shell));
       this.host.append(shell);
     });
     if (activeOffset !== null) {
@@ -867,6 +870,25 @@ export class HybridEditor {
   }
 
   // ==> Section 2 - Block Operations, Turn Into And Selection <==
+  // Lines change height while editing (a paragraph turned into a heading), so realign on every hover frame rather than once.
+  scheduleAlignControls(shell) {
+    if (shell.alignFrame) return;
+    shell.alignFrame = requestAnimationFrame(() => {
+      shell.alignFrame = 0;
+      if (shell.isConnected) this.alignControls(shell);
+    });
+  }
+
+  alignControls(shell) {
+    const controls = shell.querySelector(':scope > .hybrid-block-controls');
+    const content = [...shell.children].find(child => child !== controls);
+    const lineCenter = firstLineCenter(content);
+    const container = controls?.offsetParent;
+    if (!controls || lineCenter === null || !container) return;
+    const offset = lineCenter - container.getBoundingClientRect().top - controls.offsetHeight / 2;
+    controls.style.top = `${Math.round(offset * 2) / 2}px`;
+  }
+
   controls(index) {
     const controls = document.createElement('div');
     controls.className = 'hybrid-block-controls';

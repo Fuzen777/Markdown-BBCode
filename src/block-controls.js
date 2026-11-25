@@ -4,6 +4,7 @@ import { blockHighlightPluginKey } from './markdown.js';
 import { TextSelection } from '@tiptap/pm/state';
 import { closeHistory } from '@tiptap/pm/history';
 import { shortcutKey } from './shortcuts.js';
+import { firstLineCenter } from './first-line.js';
 
 const listTypes = new Set(['bulletList', 'orderedList', 'taskList']);
 const containerTypes = new Set(['callout', 'blockquote', 'spoilerBlock', 'centerBlock']);
@@ -624,7 +625,8 @@ export class BlockControls {
     this.controls.hidden = !this.editor.isEditable || rect.bottom < hostRect.top || rect.top > hostRect.bottom || hostRect.height === 0;
     const offset = unit.kind === 'listItem' && unit.listType !== 'taskList' ? 78 : 60;
     this.controls.style.left = `${Math.max(4, rect.left - offset)}px`;
-    const desiredTop = rect.height < 26 ? rect.top + (rect.height - 26) / 2 : rect.top;
+    const lineCenter = firstLineCenter(this.editor.view.nodeDOM(unit.position));
+    const desiredTop = lineCenter !== null ? lineCenter - 13 : rect.height < 26 ? rect.top + (rect.height - 26) / 2 : rect.top;
     this.controls.style.top = `${Math.max(hostRect.top, Math.min(desiredTop, hostRect.bottom - 26))}px`;
   }
 
