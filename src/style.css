@@ -169,6 +169,8 @@ select:hover { border-color: var(--accent); }
 .tiptap pre { white-space: pre-wrap; background: var(--control); border: 1px solid var(--border); padding: 12px; border-radius: 8px; }
 .tiptap code { font-family: var(--font-mono); background: var(--control); padding: 1px 4px; border-radius: 4px; }
 .tiptap pre code { background: transparent; padding: 0; }
+/* An inline HTML tag kept as literal text (RawInlineHtml in src/markdown.js), in Visual and Hybrid previews. */
+.raw-inline-html { font-family: var(--font-mono); font-size: 0.92em; color: var(--muted); border: 1px solid var(--border); padding: 0 3px; border-radius: 4px; }
 .tiptap [data-spoiler] { background: var(--spoiler-fill); border-bottom: 1px dashed var(--spoiler-border); border-radius: 3px; }
 .tiptap [data-spoiler-block] { border: 1px dashed var(--spoiler-border); background: var(--spoiler-fill); border-radius: 8px; padding: 12px 16px; margin: 12px 0; }
 .tiptap [data-spoiler-block]::before { content: 'Spoiler'; display: block; color: var(--signature-text); font-size: 11px; font-weight: 600; margin-bottom: 6px; }

@@ -31,6 +31,19 @@ test('unrecognized HTML fails instead of silently dropping content', () => {
   assert.throws(() => parseMarkdown('<div style="text-align: right">text</div>'), /Unsupported/);
   assert.throws(() => markdownToBBCode('[bad](javascript:alert)'), /HTTP/);
 });
+test('inline HTML tags stay literal text and round-trip unchanged', () => {
+  for (const source of ['A toast says "Started <name>"; done.', 'Press <kbd>Ctrl</kbd>+**<b>X**', 'Line<br>two <!-- note -->', '*a <x> b* and [go <y>](https://e.com)']) {
+    assert.equal(serializeMarkdown(parseMarkdown(source)), source);
+  }
+  const paragraph = parseMarkdown('Started <name> now').content[0];
+  const tag = paragraph.content.find(node => node.text === '<name>');
+  assert.deepEqual(tag.marks.map(mark => mark.type), ['rawInlineHtml']);
+  for (const target of ['nexus', 'steam']) {
+    const exported = markdownToBBCodeWithWarnings('Started <name> now', target);
+    assert.equal(exported.bbcode, 'Started <name> now');
+    assert.ok(exported.warnings.includes('Raw HTML is exported as plain text.'));
+  }
+});
 test('import converts supported formats and reports losses', () => {
   const imported = importBBCode('[center][b]Title[/b][/center]\n[spoiler]Secret[/spoiler]\n[color=#f00]Red[/color]\n[size=4]Sized[/size][u]Underlined[/u]');
   assert.match(imported.markdown, /text-align: center/);
@@ -110,8 +123,10 @@ test('GFM tables preserve aligned columns and inline content with export warning
 });
 
 test('unsupported markup inside task items and table cells is never silently dropped', () => {
-  assert.throws(() => parseMarkdown('- [ ] <script>Bad</script>'), /Unsupported/);
-  assert.throws(() => parseMarkdown('| A |\n| --- |\n| <script>Bad</script> |'), /Unsupported/);
+  // Inline tags are kept as literal raw-HTML text, never dropped or executed.
+  assert.equal(serializeMarkdown(parseMarkdown('- [ ] <script>Bad</script>')), '- [ ] <script>Bad</script>');
+  assert.match(serializeMarkdown(parseMarkdown('| A |\n| --- |\n| <script>Bad</script> |')), /\| <script>Bad<\/script> \|/);
+  assert.throws(() => parseMarkdown('- [ ] Item\n\n  <script>Bad</script>'), /Unsupported/);
   assert.throws(() => parseMarkdown('[reference]: https://example.com'), /Reference/);
 });
 

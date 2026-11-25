@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+1. Fixed documents with an HTML-looking tag inside a line, such as `"Started <name>"` or `<kbd>`, refusing to open in Visual mode (MBB-VISUAL-002). Inline HTML tags now show as literal text in a small outlined chip (never executed), can be edited or deleted like other text, and are saved back byte for byte. Nexus and Steam export write them as plain text with the warning `Raw HTML is exported as plain text.` HTML blocks on their own lines still open in Source.
+
 1. Added a `Theme` choice (Auto, Light, Dark) at the top of Settings › General. It is applied through the native window theme, so the title bar matches and WebView2's `prefers-color-scheme` follows without CSS changes. The choice is kept in `appearance.json` beside the other app data and read by Rust before the window is built, so a forced theme shows from the first frame with no flash.
 
 1. Added a Drafts list: the `Drafts` button now opens a panel under it instead of reopening every draft at once. Each row shows the draft's name and first line of text, opens it on click and has its own `Delete`, with `Delete All` at the bottom (`src/drafts-panel.js`, a 3 KB lazy chunk). Deleting happens at once and offers `Undo` in a toast for 10 s, which puts the drafts back where they were.

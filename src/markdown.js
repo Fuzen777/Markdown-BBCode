@@ -10,7 +10,7 @@ import { TaskList, TaskItem } from '@tiptap/extension-list';
 import { Table, TableRow, TableCell, TableHeader } from '@tiptap/extension-table';
 import { Callout, calloutTitle } from './callout.js';
 import { SearchHighlight } from './find-replace.js';
-import { steamDocumentToBBCodeParts } from './steam-bbcode.js';
+import { steamDocumentToBBCodeParts, RAW_HTML_WARNING, isRawInlineHtml, withoutRawInlineHtml } from './steam-bbcode.js';
 import { codeFenceFor, matchOpeningFence, isClosingFence } from './code-fence.js';
 import { MarkdownManager } from '@tiptap/markdown';
 import { Marked } from 'marked';
@@ -182,6 +182,22 @@ const TextColor = Mark.create({
       return { type: 'textColor', ...match, color: normalizeColor(opening[2]), tokens: lexer.inlineTokens(match.content) };
     },
   },
+});
+
+// An inline HTML tag that is not one of the editor's wrappers, such as `<name>` in "Started <name>"
+// or `<kbd>`: kept as literal text in a chip, never executed, and written back byte for byte.
+// EditorMarkdownManager.parseInlineTokens routes Marked's inline `html` tokens here; block HTML
+// still fails validateTokens. `code: true` keeps its text unescaped and free of input rules, and
+// the low priority keeps it innermost among marks, like inline code.
+const RawInlineHtml = Mark.create({
+  name: 'rawInlineHtml',
+  code: true,
+  inclusive: false,
+  priority: 50,
+  parseHTML: () => [{ tag: 'span.raw-inline-html' }],
+  renderHTML: () => ['span', { class: 'raw-inline-html' }, 0],
+  parseMarkdown: (token, helpers) => helpers.applyMark('rawInlineHtml', [{ type: 'text', text: token.raw }]),
+  renderMarkdown: (node, helpers) => helpers.renderChildren(node),
 });
 
 export const blockHighlightPluginKey = new PluginKey('blockHighlight');
@@ -467,19 +483,24 @@ const EditorStarterKit = StarterKit.extend({
 
 export const editorExtensions = [
   EditorStarterKit.configure({ underline: false, trailingNode: false, link: { openOnClick: false, autolink: false } }),
-  Image.configure({ inline: true, allowBase64: false }), InlineSpoiler, SpoilerBlock, CenterBlock, TextColor, Callout,
+  Image.configure({ inline: true, allowBase64: false }), RawInlineHtml, InlineSpoiler, SpoilerBlock, CenterBlock, TextColor, Callout,
   TaskList, TaskItem.configure({ nested: true }), Table, TableRow, TableCell, TableHeader, SearchHighlight, BlockHighlight, ActivePlaceholder, SmartUrlPaste, MarkdownPaste, ListIndentShortcuts,
 ];
 // The upstream serializer does not know that literal pipes delimit our custom spoiler marks.
+// Inline HTML tags become RawInlineHtml text instead of going through Tiptap's HTML parsing,
+// which would drop or rewrite them.
 class EditorMarkdownManager extends MarkdownManager {
   escapeMarkdownSyntax(text) { return super.escapeMarkdownSyntax(text).replaceAll('|', '\\|'); }
+  parseInlineTokens(tokens) {
+    return super.parseInlineTokens(tokens.map(token => (token.type === 'html' && !token.block ? { type: 'rawInlineHtml', raw: token.raw } : token)));
+  }
 }
 const markdownManager = new EditorMarkdownManager({ extensions: editorExtensions, marked: new Marked(), markedOptions: { gfm: true } });
 const documentSchema = getSchema(editorExtensions);
 
 function validateTokens(tokens) {
   for (const token of tokens) {
-    if (token.type === 'html') throw new Error('Unsupported or unfinished HTML. Only the colour span and centred div wrappers are supported.');
+    if (token.type === 'html' && token.block) throw new Error('Unsupported or unfinished HTML. Only the colour span and centred div wrappers are supported.');
     if (token.type === 'def') throw new Error('Reference definitions are preserved in Source or Hybrid mode.');
     if (token.header) token.header.forEach(cell => validateTokens(cell.tokens || []));
     if (token.rows) token.rows.forEach(row => row.forEach(cell => validateTokens(cell.tokens || [])));
@@ -590,7 +611,7 @@ function joinNexusBlocks(nodes) {
 function bbcodeNode(node) {
   if (node.type === 'text') {
     let content = node.text;
-    for (const mark of [...(node.marks || [])].reverse()) {
+    for (const mark of [...(withoutRawInlineHtml(node).marks || [])].reverse()) {
       const wrappers = { bold: ['[b]', '[/b]'], italic: ['[i]', '[/i]'], strike: ['[s]', '[/s]'], spoiler: ['[spoiler]', '[/spoiler]'], code: ['[code]', '[/code]'] };
       const wrapper = mark.type === 'textColor' ? [`[color=${normalizeColor(mark.attrs.color)}]`, '[/color]']
         : mark.type === 'link' ? [`[url=${safeUrl(mark.attrs.href)}]`, '[/url]'] : wrappers[mark.type];
@@ -781,6 +802,7 @@ export function markdownToBBCodeWithWarnings(source, target = 'nexus') {
     if (node.type === 'table') warnings.add('Tables are exported as text rows; column alignment is not retained.');
     if (node.type === 'taskList') warnings.add('Task checkboxes are exported as text, not interactive controls.');
     if (node.type === 'callout') warnings.add('Callouts are exported as titled quotes; collapsible callouts use spoilers.');
+    if (isRawInlineHtml(node)) warnings.add(RAW_HTML_WARNING);
     node.content?.forEach(inspect);
   };
   inspect(documentModel);

@@ -11,6 +11,16 @@ const TASK_LIST_WARNING = 'Task checkboxes are exported as text, not interactive
 const COLOR_WARNING = 'Text color has no Steam BBCode tag; color formatting was removed.';
 const CENTER_WARNING = 'Centered alignment has no Steam BBCode tag; alignment was removed.';
 const ORDERED_START_WARNING = 'Steam ordered lists always start at 1.';
+// Shared with the Nexus exporter in src/markdown.js.
+export const RAW_HTML_WARNING = 'Raw HTML is exported as plain text.';
+
+// An inline HTML tag (src/markdown.js RawInlineHtml mark) exports as its literal text.
+export function isRawInlineHtml(node) {
+  return (node.marks || []).some(mark => mark.type === 'rawInlineHtml');
+}
+export function withoutRawInlineHtml(node) {
+  return isRawInlineHtml(node) ? { ...node, marks: node.marks.filter(mark => mark.type !== 'rawInlineHtml') } : node;
+}
 
 const FOOTNOTE_PATTERN = /\[\^[^\]]+\]/;
 const MATH_PATTERN = /\$\$[\s\S]+?\$\$|(?<!\$)\$(?!\$)(?=\S)([^$\n]+?)\$(?!\$)/;
@@ -158,7 +168,9 @@ function renderSteamInline(children, warnings) {
     }
   };
 
-  for (const child of children || []) {
+  for (const inlineChild of children || []) {
+    if (isRawInlineHtml(inlineChild)) warnings.add(RAW_HTML_WARNING);
+    const child = withoutRawInlineHtml(inlineChild);
     if (child.type === 'text') {
       const targetMarks = filterSteamMarks(child.marks, warnings);
       const isCode = targetMarks.some(mark => mark.type === 'code');

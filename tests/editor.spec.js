@@ -1256,6 +1256,20 @@ test('a document Visual cannot open falls back to Source with a coded error noti
   expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.md'].content)).toBe(source);
 });
 
+test('inline HTML tags open in Visual as literal chips and survive Visual and Hybrid unchanged', async ({ page }) => {
+  const source = '# Title\n\nA toast says "Started <name>"; press <kbd>Ctrl</kbd> or <img src=x onerror="window.rawHtmlRan=1">.\n';
+  await setSource(page, source);
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await expect(page.locator('#notice')).toBeHidden();
+  await expect(page.locator('.tiptap .raw-inline-html').first()).toHaveText('<name>');
+  await expect(page.locator('.tiptap kbd, .tiptap img')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  await expect(page.locator('#hybrid-blocks .raw-inline-html').first()).toHaveText('<name>');
+  expect(await page.evaluate(() => window.rawHtmlRan)).toBeUndefined();
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue(source);
+});
+
 const savedContent = page => page.evaluate(() => window.testDesktop.session?.documents?.find(documentRecord => documentRecord.open)?.content);
 
 test('Visual Fix and Fix All apply without a dialog and Ctrl+Z / Ctrl+Y undo and redo them exactly', async ({ page }) => {
