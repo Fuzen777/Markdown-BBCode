@@ -67,6 +67,10 @@ S01G — First standalone Paragraph before second Paragraph.
 
 - [ ] **BBCode Conversion Speed**: `documentToBBCodeWithWarnings` (and the Steam path in `steam-bbcode.js`) grows superlinearly, about 0.6 s at 50 KB and 2.4 s at 100 KB (measured in lint phase 4). It runs for Copy BBCode, Export, the live BBCode Preview and the Lint tab's BBCode warnings worker, which skips documents over 100 KB (`BBCODE_WARNINGS_MAX_KB`). Profile it, remove the superlinear hot spots, then raise or drop the 100 KB lint skip.
 
+### Source Mode
+
+- [ ] **Source Center Wraps The Whole Selection**: In Source mode, `Center` wraps the selected raw text in one shared `<div style="text-align: center">`, while Visual and Hybrid give each block its own wrapper. Splitting raw text into blocks could break fenced code blocks with blank lines, so it was left as is. Idea under consideration: make Source mode read-only and keep Hybrid as the editable source view, which would remove this case.
+
 ## Fixes
 
 - Page mode now shows an orange outline on the edges on each side.
