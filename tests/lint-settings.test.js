@@ -168,3 +168,19 @@ test('rule state resolves presets and edits become minimal overrides', () => {
   assert.equal(parseOptionInput(option, '0'), 1, 'number minimum is enforced');
   assert.equal(parseOptionInput(rule('MD004').options[0], 'nope'), undefined);
 });
+
+test('MD033 is off for .mdbbcode files on top of the app config and the app profile allows the editor HTML in .md', async () => {
+  const { withFileTypeOverrides, FILE_TYPE_RULE_NOTES } = await import('../src/lint/lint-config.js');
+  const { lint } = await import('markdownlint/sync');
+  const { runLint } = await import('../src/lint/lint-engine.js');
+  const source = '# Title\n\n<div style="text-align: center">\n\nCentered <span style="color: #ff0000">red</span>\n\n</div>\n\n<table><tr><td>x</td></tr></table>\n';
+  const appConfig = mergeLintConfig(APP_LINT_CONFIG, { MD033: true, 'no-inline-html': true });
+  const codes = config => runLint(lint, source, config).map(problem => problem.code);
+  assert.ok(codes(withFileTypeOverrides(appConfig, 'C:\\Guide.md')).includes('MD033'));
+  assert.ok(!codes(withFileTypeOverrides(appConfig, 'C:\\Guide.MDBBCODE')).includes('MD033'), 'user overrides and aliases do not bring it back');
+  assert.equal(withFileTypeOverrides(appConfig, null), appConfig);
+  // The app profile allows the editor's own center/color wrappers in .md files; other HTML still warns.
+  const appMd = runLint(lint, source, withFileTypeOverrides(APP_LINT_CONFIG, 'C:\\Guide.md')).filter(problem => problem.code === 'MD033');
+  assert.deepEqual(appMd.map(problem => problem.detail), ['Element: table', 'Element: tr', 'Element: td']);
+  assert.equal(FILE_TYPE_RULE_NOTES.MD033, 'Always off for .mdbbcode files');
+});

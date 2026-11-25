@@ -2,7 +2,7 @@
 // Dynamically imported the first time Settings opens, so none of this costs startup time.
 import { setButtonIcon } from '../icons.js';
 import { DISMISSABLE_PROMPTS } from '../prompts.js';
-import { LINT_PRESETS, LINT_DEBOUNCE_RANGE, LINT_LARGE_FILE_RANGE, BBCODE_SCOPES, clampInteger, mergeLintConfig } from '../lint/lint-config.js';
+import { LINT_PRESETS, LINT_DEBOUNCE_RANGE, LINT_LARGE_FILE_RANGE, BBCODE_SCOPES, FILE_TYPE_RULE_NOTES, clampInteger, mergeLintConfig } from '../lint/lint-config.js';
 import {
   LINT_CATEGORIES, buildRuleCatalog, ruleMatchesSearch, resolveRuleState, overrideForState, withOverride,
   optionInputValue, parseOptionInput, withOption,
@@ -330,6 +330,7 @@ export class SettingsDialog {
       head.append(docs);
     }
     card.append(head);
+    if (FILE_TYPE_RULE_NOTES[rule.id]) card.append(element('p', { className: 'settings-hint rule-note', text: FILE_TYPE_RULE_NOTES[rule.id] }));
     if (rule.options.length) {
       const details = element('details', { className: 'rule-options', open: this.expanded.has(rule.id) });
       details.ontoggle = () => { if (details.open) this.expanded.add(rule.id); else this.expanded.delete(rule.id); };

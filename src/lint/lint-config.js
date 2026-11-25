@@ -8,7 +8,8 @@ export const APP_LINT_CONFIG = Object.freeze({
   MD028: false,
   MD024: { siblings_only: true },
   MD025: { front_matter_title: '' },
-  MD033: { allowed_elements: ['span', 'center', 'details', 'summary', 'br', 'sup', 'sub', 'u', 'kbd', 'mark'] },
+  // `div` and `span` are what the editor itself writes for Center and Color.
+  MD033: { allowed_elements: ['div', 'span', 'center', 'details', 'summary', 'br', 'sup', 'sub', 'u', 'kbd', 'mark'] },
 });
 
 export const LINT_DEBOUNCE_MS = 400;
@@ -141,6 +142,15 @@ export function mergeLintConfig(presetConfig, rules = {}) {
   }
   for (const [key, value] of Object.entries(rules)) merged[key.toUpperCase()] = value;
   return merged;
+}
+
+// File-type overrides applied on top of the app config (preset + rule overrides), never on top of a
+// project .markdownlint.json(c). .mdbbcode files exist to hold the editor's HTML center/color
+// wrappers, so inline-HTML warnings there contradict the format.
+export const FILE_TYPE_RULE_NOTES = Object.freeze({ MD033: 'Always off for .mdbbcode files' });
+
+export function withFileTypeOverrides(config, path) {
+  return /\.mdbbcode$/i.test(path || '') ? mergeLintConfig(config, { MD033: false }) : config;
 }
 
 // Rules configured as "error" (or { severity: "error" }) report as errors; everything else is a warning.

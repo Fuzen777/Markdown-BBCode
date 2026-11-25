@@ -1316,6 +1316,35 @@ test('the Visual fix fallback offers Don\'t Show This Again and Settings > Promp
   await choice.getByRole('button', { name: 'Cancel', exact: true }).click();
 });
 
+test('MD033 never reports in .mdbbcode files, and .md files accept the editor center and color HTML', async ({ page }) => {
+  const content = '# Guide\n\n<div style="text-align: center">\n\nCentered <span style="color: #ff0000">red</span> <abbr>OK</abbr>\n\n</div>\n';
+  await page.evaluate(text => {
+    for (const path of ['C:\\Guide.md', 'C:\\Guide.mdbbcode']) window.testDesktop.files[path] = { path, content: text, revision: '1' };
+    window.testDesktop.openPaths = ['C:\\Guide.md'];
+  }, content);
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.locator('#document-path')).toHaveText('C:\\Guide.md');
+  await page.getByRole('button', { name: 'Dock', exact: true }).click();
+  await page.getByRole('tab', { name: 'Lint' }).click();
+  await page.getByRole('button', { name: 'Enable Linting', exact: true }).click();
+  const list = page.locator('#lint-list');
+  // Only the non-editor <abbr> warns in .md; div and span are the editor's own output.
+  await expect(list.locator('.lint-code')).toHaveText(['MD033']);
+  await expect(list.locator('.lint-row', { hasText: 'MD033' })).toContainText('abbr');
+
+  await page.evaluate(() => { window.testDesktop.openPaths = ['C:\\Guide.mdbbcode']; });
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.locator('#document-path')).toHaveText('C:\\Guide.mdbbcode');
+  await expect(list).toContainText('No problems in this document.');
+  await expect(list.locator('.lint-code', { hasText: 'MD033' })).toHaveCount(0);
+
+  await page.keyboard.press('Control+,');
+  const dialog = page.locator('#settings-dialog');
+  await dialog.getByRole('tab', { name: 'Linting' }).click();
+  await dialog.getByRole('searchbox', { name: 'Search Rules' }).fill('MD033');
+  await expect(dialog.locator('.rule-card[data-rule="MD033"] .rule-note')).toHaveText('Always off for .mdbbcode files');
+});
+
 test('Windows virtual-key shortcuts respect split Ctrl layouts like BEPO azerty-ctrl across modes', async ({ page }) => {
   const dispatchCtrl = (selector, key, keyCode, shiftKey = false) => page.evaluate(
     ({ sel, k, code, shift }) => {
