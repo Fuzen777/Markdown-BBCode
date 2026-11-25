@@ -70,6 +70,7 @@ export function normalizeLintSettings(value) {
   const source = value && typeof value === 'object' ? value : {};
   return {
     enabled: source.enabled === true,
+    markers: source.markers !== false,
     preset: normalizeLintPreset(source.preset),
     rules: normalizeRuleOverrides(source.rules),
     debounceMs: clampInteger(source.debounceMs, LINT_DEBOUNCE_RANGE, LINT_DEBOUNCE_MS),

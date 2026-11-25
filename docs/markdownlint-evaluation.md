@@ -6,6 +6,8 @@ Phase 1 status: shipped (worker, controller, `Outline | Lint` tabs, app profile,
 
 Phase 2 status: shipped 2026-11-24. Settings dialog (gear, `Ctrl+,`) with General and Linting pages, schema-generated rule browser, presets, `lint` settings `{ enabled, preset, rules, debounceMs, largeFileKB }`, and read-only `.markdownlint.json(c)` discovery with relative `extends`. Deviations: project configs are read-only (no JSONC editing yet), "Show inline markers" and the Editor page are not built, and the discovery walk stops at the Folder Browser root only when that root is locked, because an unlocked root follows the active file's folder.
 
+Phase 3 status: shipped 2026-11-25. Hybrid gutter marks and active-block underlines with a Fix tooltip, Visual block decorations, floating-rail problem ticks, `Show Inline Markers`, per-problem `Fix` and `Fix All` (Source undoable, Visual behind a confirmation). Deviations: underlines and tooltips use a small custom CodeMirror decoration instead of `@codemirror/lint` to keep the dependency set unchanged and the code in the lazy chunk; Source has no underlines.
+
 ## Recommendation
 
 Do it, as an **opt-in, lazy-loaded linter that runs in a Web Worker**. Built that way it costs **nothing at boot or close** when the Lint tab has never been opened, and when it is on, typing never waits on it. Doing it the naive way (bundled into `main.js`, linting synchronously on every `capture()`) would cost startup time and visibly lag typing in anything over ~20 KB, so the architecture below is the part that matters.

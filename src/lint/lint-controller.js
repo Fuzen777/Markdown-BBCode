@@ -35,6 +35,7 @@ export class LintController {
     this.cancelTimer();
     this.worker?.terminate();
     this.worker = null;
+    this.rejectFixRequests('Linting was turned off.');
     this.running = null;
     this.dirty = false;
     this.latest = null;
@@ -118,11 +119,38 @@ export class LintController {
       this.worker?.terminate();
       this.worker = null;
       this.running = null;
+      this.rejectFixRequests('The lint worker stopped.');
       this.onResult({ docKey, state: 'error', problems: [], error: event?.message || 'The lint worker stopped.' });
     };
   }
 
+  // Asks the worker for markdownlint's applyFixes result on the given text.
+  fixAll(text) {
+    if (!this.enabled) return Promise.reject(new Error('Linting is off.'));
+    if (!this.worker) this.startWorker();
+    if (!this.worker) return Promise.reject(new Error('The lint worker could not start.'));
+    this.fixRequests ??= new Map();
+    this.fixSequence = (this.fixSequence || 0) + 1;
+    const id = `fix-${this.fixSequence}`;
+    return new Promise((resolve, reject) => {
+      this.fixRequests.set(id, { resolve, reject });
+      this.worker.postMessage({ id, kind: 'fixAll', text, config: this.config });
+    });
+  }
+
+  rejectFixRequests(message) {
+    for (const { reject } of this.fixRequests?.values() || []) reject(new Error(message));
+    this.fixRequests?.clear();
+  }
+
   receive(message) {
+    if (message.kind === 'fixAll') {
+      const pending = this.fixRequests?.get(message.id);
+      if (!pending) return;
+      this.fixRequests.delete(message.id);
+      if (message.error) pending.reject(new Error(message.error)); else pending.resolve(message.fixed);
+      return;
+    }
     const request = this.running;
     if (!request || message.id !== request.revision) return;
     this.running = null;
@@ -131,7 +159,7 @@ export class LintController {
       this.latest = null;
       this.lastLinted = { docKey: request.docKey, text: request.text };
       if (message.error) this.onResult({ docKey: request.docKey, state: 'error', problems: [], error: message.error });
-      else this.onResult({ docKey: request.docKey, state: 'ready', problems: message.problems || [], elapsed: message.elapsed });
+      else this.onResult({ docKey: request.docKey, state: 'ready', problems: message.problems || [], elapsed: message.elapsed, text: request.text });
     }
     if (this.dirty) {
       this.dirty = false;

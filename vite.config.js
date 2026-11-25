@@ -12,7 +12,8 @@ export default defineConfig({
   },
   worker: { format: 'es' },
   // Pre-bundle the worker's dependency so the first lint in dev does not trigger a dependency re-optimization reload.
-  optimizeDeps: { include: ['markdownlint/sync'] },
+  // The same applies to `markdownlint` (applyFixes for Fix All) and the lazy marker chunk's ProseMirror imports.
+  optimizeDeps: { include: ['markdownlint/sync', 'markdownlint', '@tiptap/pm/state', '@tiptap/pm/view'] },
   server: {
     // Portable WebView2 caches contain locked files and are not frontend inputs.
     watch: { ignored: ['**/release/**', '**/portable-data/**', '**/test-results/**', '**/src-tauri/target/**'] },

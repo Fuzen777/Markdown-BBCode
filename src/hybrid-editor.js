@@ -502,6 +502,7 @@ export class HybridEditor {
     this.syncSelectionUI();
     this.notifyBubble();
     this.onSelection();
+    this.callbacks.onRendered?.();
   }
 
   canRestoreIncrementally(index) {
@@ -531,6 +532,7 @@ export class HybridEditor {
     }
     this.notifyBubble();
     this.onSelection();
+    this.callbacks.onRendered?.();
     return true;
   }
 
@@ -645,6 +647,7 @@ export class HybridEditor {
         ],
       }),
     });
+    this.callbacks.onRendered?.();
     if (focus) this.code.focus();
   }
 

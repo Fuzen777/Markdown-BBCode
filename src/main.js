@@ -14,6 +14,7 @@ import { DocumentOutline } from './outline.js';
 import { LintPanel } from './lint/lint-panel.js';
 import { LintController } from './lint/lint-controller.js';
 import { normalizeLintSettings, presetConfigSync, loadPresetConfig, mergeLintConfig } from './lint/lint-config.js';
+import { applyEdit, diffEdit } from './lint/lint-engine.js';
 import { FolderBrowser } from './folder-browser.js';
 import { DiffDialog } from './diff-dialog.js';
 import { detectTextFormat, parentDirectory, addRecentFolder } from './folder-browser-model.js';
@@ -51,6 +52,8 @@ let settingsDialog = null;
 let projectConfigFinder = null;
 let projectLintState = null;
 let lintConfigToken = 0;
+let lintMarkers = null;
+let lintMarkersLoading = null;
 let folderBrowser;
 let diffDialog;
 let previewOpen = false;
@@ -458,6 +461,7 @@ function showDocument() {
   render();
   findReplace?.refresh(true);
   if (store.lint.enabled) void refreshLintConfig();
+  if (lintMarkers) syncLintMarkers();
   if (startupComplete) void folderBrowser?.onActiveFileChanged(store.active?.path || null);
 }
 
@@ -502,6 +506,99 @@ function updateLint(options = {}) {
 function handleLintResult(result) {
   if (!store.active || result.docKey !== store.active.id) return;
   lintPanel.setResult(result);
+  syncLintMarkers();
+}
+
+// Inline markers load as their own chunk the first time a result is ready with markers on.
+function syncLintMarkers() {
+  const result = lintPanel?.result;
+  const visible = store.lint.enabled && store.lint.markers && result?.state === 'ready' && result.docKey === store.active?.id;
+  if (!visible) { lintMarkers?.clear(); return; }
+  if (!lintMarkers) {
+    lintMarkersLoading ??= import('./lint/lint-markers.js').then(({ LintMarkers }) => {
+      lintMarkers = new LintMarkers({ elements, getEditor: () => editor, onFix: problem => { void runAction(() => fixLintProblem(problem)); } });
+      syncLintMarkers();
+    }).catch(error => { lintMarkersLoading = null; globalError = errorMessage(error); render(); });
+    return;
+  }
+  lintMarkers.show(result, store.active.content);
+}
+
+// ==> Lint Quick Fixes - every fix goes through the editor and then capture()/autosave <==
+function applySourceTextEdit(edit) {
+  const textarea = elements['markdown-source'];
+  const expected = applyEdit(textarea.value, edit);
+  textarea.focus();
+  textarea.setSelectionRange(edit.from, edit.to);
+  let applied = false;
+  try {
+    // execCommand keeps the edit on the textarea's native undo stack (Ctrl+Z).
+    applied = edit.insert ? document.execCommand('insertText', false, edit.insert) : edit.from === edit.to || document.execCommand('delete');
+  } catch { applied = false; }
+  if (!applied || textarea.value !== expected) {
+    textarea.value = expected;
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  const caret = edit.from + edit.insert.length;
+  textarea.setSelectionRange(caret, caret);
+}
+
+async function confirmVisualFix() {
+  const choice = await choose('Fix in Visual Mode', 'Fixing in Visual mode resets undo history.', [['fix', 'Fix Anyway'], ['source', 'Switch to Source'], ['cancel', 'Cancel']]);
+  if (choice === 'source') await changeMode('source');
+  return choice;
+}
+
+// Applies one edit computed against `expectedText`; returns false when the document has moved on.
+async function applyLintEdit(edit, expectedText) {
+  capture();
+  if (editor.val() !== expectedText) return false;
+  if (editor.mode === 'visual') {
+    const choice = await confirmVisualFix();
+    if (choice === 'cancel') return true;
+    if (choice === 'source') {
+      if (editor.val() !== expectedText) return false;
+      applySourceTextEdit(edit);
+      return true;
+    }
+    const scroller = activeEditorScroller();
+    const scrollTop = scroller?.scrollTop ?? 0;
+    safetyNotice = editor.load(applyEdit(expectedText, edit), editor.mode, store.active.path);
+    capture();
+    if (scroller) scroller.scrollTop = scrollTop;
+    return true;
+  }
+  if (editor.sourceMode()) { applySourceTextEdit(edit); return true; }
+  const prefixLength = editor.documentSource?.prefix?.length || 0;
+  if (edit.from < prefixLength) {
+    safetyNotice = editor.load(applyEdit(expectedText, edit), editor.mode, store.active.path);
+    capture();
+    return true;
+  }
+  editor.hybridView.replaceBodyRange(edit.from - prefixLength, edit.to - prefixLength, edit.insert);
+  capture();
+  return true;
+}
+
+function relintNow() {
+  if (!store.active || !lintController.enabled) return;
+  lintPanel.showPending(store.active.id);
+  lintController.update(store.active.id, store.active.content, { immediate: true, force: true });
+}
+
+async function fixLintProblem(problem) {
+  const result = lintPanel.result;
+  if (!problem?.fix || result?.state !== 'ready') return;
+  if (!await applyLintEdit(problem.fix, result.text)) relintNow();
+}
+
+async function fixAllLintProblems() {
+  capture();
+  if (!store.active || !lintController.enabled) return;
+  const before = editor.val();
+  const fixed = await lintController.fixAll(before);
+  if (fixed === before) return;
+  if (!await applyLintEdit(diffEdit(before, fixed), before)) relintNow();
 }
 
 async function setLintEnabled(enabled) {
@@ -527,6 +624,7 @@ function applyLintEnabled() {
     lintController.disable();
     lintPanel.setEnabled(false);
   }
+  syncLintMarkers();
   settingsDialog?.sync();
 }
 
@@ -560,6 +658,7 @@ async function refreshLintConfig({ recheck = false } = {}) {
 async function updateLintSettings(patch) {
   store.lint = normalizeLintSettings({ ...store.lint, ...patch });
   await refreshLintConfig();
+  syncLintMarkers();
   settingsDialog?.sync();
   await persist();
 }
@@ -1207,6 +1306,7 @@ async function initialize() {
       onEditLink: () => runAction(() => formatDocument('link')),
       onEditImage: target => runAction(() => openImageDialog(target)),
       onInsertImage: () => runAction(() => openImageDialog()),
+      onRendered: () => { if (lintMarkers) syncLintMarkers(); },
     },
   );
   findReplace = new FindReplaceController(elements, () => editor, () => { capture(); render(); });
@@ -1220,7 +1320,9 @@ async function initialize() {
     onTabChange: tab => { void runAction(() => setRightPanelTab(tab)); },
     onShowPanel: () => { void runAction(() => setOutlineMode('docked')); },
     onOpenUrl: url => { void runAction(() => invoke('open_external_url', { url })); },
-    onRefresh: () => { capture(); if (store.active && lintController.enabled) { lintPanel.showPending(store.active.id); lintController.update(store.active.id, store.active.content, { immediate: true, force: true }); } },
+    onRefresh: () => { capture(); relintNow(); },
+    onFix: problem => { void runAction(() => fixLintProblem(problem)); },
+    onFixAll: () => { void runAction(fixAllLintProblems); },
   });
   folderBrowser = new FolderBrowser(elements, backend, {
     getState: () => store.folderBrowser,

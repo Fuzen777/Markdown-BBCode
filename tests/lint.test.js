@@ -48,7 +48,7 @@ test('groupLintProblems collapses repeated rule hits in first-occurrence order',
 });
 
 test('lint settings and panel tab normalize safely', () => {
-  const defaults = { preset: 'app', rules: {}, debounceMs: 400, largeFileKB: 300 };
+  const defaults = { markers: true, preset: 'app', rules: {}, debounceMs: 400, largeFileKB: 300 };
   assert.deepEqual(normalizeLintSettings(undefined), { enabled: false, ...defaults });
   assert.deepEqual(normalizeLintSettings({ enabled: 'yes' }), { enabled: false, ...defaults });
   assert.deepEqual(normalizeLintSettings({ enabled: true }), { enabled: true, ...defaults });
@@ -126,7 +126,7 @@ test('LintController debounces typing and lints only the latest text', () => {
   assert.equal(workers.length, 1);
   assert.deepEqual(workers[0].posted.map(message => message.text), ['# Tit']);
   reply(workers[0], [{ code: 'MD041' }]);
-  assert.deepEqual(results, [{ docKey: 'a', state: 'ready', problems: [{ code: 'MD041' }], elapsed: undefined }]);
+  assert.deepEqual(results, [{ docKey: 'a', state: 'ready', problems: [{ code: 'MD041' }], elapsed: undefined, text: '# Tit' }]);
   controller.update('a', '# Tit');
   advance(1000);
   assert.equal(workers[0].posted.length, 1, 'unchanged text is not linted again');

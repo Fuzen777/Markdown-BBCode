@@ -177,7 +177,9 @@ export class MarkdownEditor {
     return false;
   }
   focus() { if (this.mode === 'hybrid') { this.hybridView.focus(); return; } if (this.sourceMode()) this.sourceElement.focus(); else this.editor.commands.focus(); }
-  readOnly(value) { this.readonly = value; this.sourceElement.readOnly = value; this.editor?.setEditable(!value); this.hybridView?.readOnly(value); }
+  // setEditable(…, false): Tiptap otherwise emits a content-free `update`, which would mark Visual as
+  // edited and re-serialize (normalize) the document every time a dialog opens.
+  readOnly(value) { this.readonly = value; this.sourceElement.readOnly = value; this.editor?.setEditable(!value, false); this.hybridView?.readOnly(value); }
 
   selectionBookmark() {
     if (this.mode === 'hybrid') return this.hybridView.selectionBookmark();

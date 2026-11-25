@@ -5,8 +5,8 @@ import { groupLintProblems, countLintProblems } from './lint-engine.js';
 import { lineColumnToOffset, countLines, blockIndexAtOffset, contentBlockOrdinal } from './lint-locate.js';
 
 export class LintPanel {
-  constructor(elements, { getEditor, onEnabledChange, onTabChange, onShowPanel, onOpenUrl, onRefresh }) {
-    Object.assign(this, { elements, getEditor, onEnabledChange, onTabChange, onShowPanel, onOpenUrl, onRefresh });
+  constructor(elements, { getEditor, onEnabledChange, onTabChange, onShowPanel, onOpenUrl, onRefresh, onFix = () => {}, onFixAll = () => {} }) {
+    Object.assign(this, { elements, getEditor, onEnabledChange, onTabChange, onShowPanel, onOpenUrl, onRefresh, onFix, onFixAll });
     this.enabled = false;
     this.tab = 'outline';
     this.result = null;
@@ -17,6 +17,7 @@ export class LintPanel {
     elements['right-tab-outline'].onclick = () => this.setTab('outline', true);
     elements['right-tab-lint'].onclick = () => this.setTab('lint', true);
     elements['lint-refresh'].onclick = () => this.onRefresh();
+    elements['lint-fix-all'].onclick = () => this.onFixAll();
     elements['lint-disable'].onclick = () => this.onEnabledChange(false);
     elements['lint-status'].onclick = () => { this.setTab('lint', true); this.onShowPanel(); };
     for (const tab of [elements['right-tab-outline'], elements['right-tab-lint']]) {
@@ -82,6 +83,9 @@ export class LintPanel {
       : counts.total ? `${counts.total.toLocaleString()} Lint ${counts.total === 1 ? 'Problem' : 'Problems'}` : 'No Lint Problems';
     status.title = 'Show Lint Problems';
     this.elements['lint-refresh'].hidden = !this.enabled;
+    const fixable = ready ? this.result.problems.filter(problem => problem.fixable).length : 0;
+    this.elements['lint-fix-all'].hidden = !fixable;
+    this.elements['lint-fix-all'].title = `Fix ${fixable} Fixable ${fixable === 1 ? 'Problem' : 'Problems'}`;
     this.elements['lint-disable'].hidden = !this.enabled;
     this.renderSummary(counts);
     this.renderList();
@@ -161,6 +165,7 @@ export class LintPanel {
       };
     }
     header.append(main);
+    if (single && first.fixable) header.append(this.fixButton(first));
     if (group.docs) {
       const docs = document.createElement('button');
       docs.type = 'button';
@@ -184,11 +189,26 @@ export class LintPanel {
         row.append(line);
         row.title = problemText(problem);
         row.onclick = () => this.jumpTo(problem);
-        children.append(row);
+        const childLine = document.createElement('div');
+        childLine.className = 'lint-child-line';
+        childLine.append(row);
+        if (problem.fixable) childLine.append(this.fixButton(problem));
+        children.append(childLine);
       }
       wrapper.append(children);
     }
     return wrapper;
+  }
+
+  fixButton(problem) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'lint-fix';
+    button.textContent = 'Fix';
+    button.title = `Fix ${problem.code} On Line ${problem.line}`;
+    button.setAttribute('aria-label', `Fix ${problem.code} On Line ${problem.line}`);
+    button.onclick = () => this.onFix(problem);
+    return button;
   }
 
   dot(severity) {

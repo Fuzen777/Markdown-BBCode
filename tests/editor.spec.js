@@ -918,7 +918,7 @@ test('Linting settings toggle rules, set Error severity, clamp timing, open docs
   await dialog.getByRole('spinbutton', { name: 'Lint Delay' }).fill('5000');
   await dialog.getByRole('spinbutton', { name: 'Lint Delay' }).press('Enter');
   await expect(dialog.getByRole('spinbutton', { name: 'Lint Delay' })).toHaveValue('2000');
-  await expect.poll(() => page.evaluate(() => JSON.stringify(window.testDesktop.session?.lint))).toBe(JSON.stringify({ enabled: true, preset: 'app', rules: { MD018: false, MD004: 'error' }, debounceMs: 2000, largeFileKB: 300 }));
+  await expect.poll(() => page.evaluate(() => JSON.stringify(window.testDesktop.session?.lint))).toBe(JSON.stringify({ enabled: true, markers: true, preset: 'app', rules: { MD018: false, MD004: 'error' }, debounceMs: 2000, largeFileKB: 300 }));
   await page.screenshot({ path: 'test-results/settings-linting-page.png' });
   await page.keyboard.press('Escape');
 
@@ -963,6 +963,109 @@ test('nearest project .markdownlint.jsonc with extends replaces app lint setting
   await expect(dialog.locator('.settings-notice')).toHaveText('Using C:\\Repo\\.markdownlint.jsonc (read-only)');
   await expect(dialog.getByRole('checkbox', { name: 'Enable MD001' })).toBeDisabled();
   await expect(dialog.getByRole('combobox', { name: 'Preset' })).toBeDisabled();
+});
+
+async function enableLinting(page, source) {
+  await setSource(page, source);
+  await page.getByRole('button', { name: 'Dock', exact: true }).click();
+  await page.getByRole('tab', { name: 'Lint' }).click();
+  await page.getByRole('button', { name: 'Enable Linting', exact: true }).click();
+}
+
+test('inline markers mark Hybrid blocks, underline the active block with a Fix tooltip, mark Visual blocks, tick the rail and can be turned off', async ({ page }) => {
+  const markersRequested = () => page.evaluate(() => performance.getEntriesByType('resource').some(entry => entry.name.includes('lint-markers')));
+  expect(await markersRequested()).toBe(false);
+  await enableLinting(page, '# Title\n\n##Bad heading\n\nText with <span style="color: #ff0000">red</span>.\n\n* one\n- two\n');
+  await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD018', 'MD032', 'MD004']);
+
+  await page.getByRole('button', { name: 'Hybrid', exact: true }).click();
+  const badBlock = page.locator('#hybrid-editor .hybrid-block', { hasText: '##Bad heading' });
+  await expect(badBlock).toHaveClass(/lint-warning/);
+  await expect(page.locator('#hybrid-editor .hybrid-block', { hasText: 'Text with' })).not.toHaveClass(/lint-/);
+  const heightBefore = await page.locator('#hybrid-editor').evaluate(host => host.scrollHeight);
+  expect(await badBlock.evaluate(shell => getComputedStyle(shell, '::before').position)).toBe('absolute');
+
+  await badBlock.locator('.hybrid-preview').click();
+  const underline = page.locator('#hybrid-editor .cm-lint-range');
+  await expect(underline).toHaveCount(1);
+  await underline.hover();
+  const tooltip = page.locator('.lint-tooltip');
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toContainText('MD018');
+  await expect(tooltip).toContainText('No space after hash on atx style heading');
+  await page.screenshot({ path: 'test-results/lint-hybrid-markers.png' });
+  await tooltip.getByRole('button', { name: 'Fix MD018' }).click();
+  await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD032', 'MD004']);
+  await expect(page.getByRole('textbox', { name: 'Active Block Markdown', exact: true })).toContainText('## Bad heading');
+  expect(Math.abs(await page.locator('#hybrid-editor').evaluate(host => host.scrollHeight) - heightBefore)).toBeLessThan(40);
+  expect(await markersRequested()).toBe(true);
+
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await expect(page.locator('.tiptap > ul.lint-block')).not.toHaveCount(0);
+  await expect(page.locator('.tiptap > h1.lint-block')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Float', exact: true }).click();
+  await expect(page.locator('.outline-problem-tick')).toHaveCount(2);
+  await expect(page.locator('#outline-floating-ticks .outline-tick')).toHaveCount(2);
+  await page.locator('#outline-floating-ticks').hover();
+  await expect(page.locator('#outline-floating-popover')).toBeVisible();
+
+  await page.keyboard.press('Control+,');
+  const dialog = page.locator('#settings-dialog');
+  await dialog.getByRole('tab', { name: 'Linting' }).click();
+  await dialog.getByRole('checkbox', { name: /Show Inline Markers/ }).uncheck();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.lint?.markers)).toBe(false);
+  await expect(page.locator('.tiptap > .lint-block')).toHaveCount(0);
+  await expect(page.locator('.outline-problem-tick')).toHaveCount(0);
+  await dialog.getByRole('checkbox', { name: /Show Inline Markers/ }).check();
+  await expect(page.locator('.tiptap > ul.lint-block')).not.toHaveCount(0);
+});
+
+test('Source Fix is undoable with Ctrl+Z and Fix All applies every fixable fix as one undo step', async ({ page }) => {
+  const original = '# Title\n\n##Bad heading\n\n\n\nText   \n';
+  await enableLinting(page, original);
+  const codes = page.locator('#lint-list .lint-code');
+  await expect(codes).toHaveText(['MD018', 'MD012', 'MD009']);
+  const source = page.getByRole('textbox', { name: 'Markdown Source' });
+  await page.getByRole('button', { name: 'Fix MD018 On Line 3' }).click();
+  await expect(source).toHaveValue('# Title\n\n## Bad heading\n\n\n\nText   \n');
+  await expect(codes).toHaveText(['MD012', 'MD009']);
+  await source.press('Control+z');
+  await expect(source).toHaveValue(original);
+  await expect(codes).toHaveText(['MD018', 'MD012', 'MD009']);
+
+  await page.getByRole('button', { name: 'Fix All', exact: true }).click();
+  await expect(source).toHaveValue('# Title\n\n## Bad heading\n\nText\n');
+  await expect(page.locator('#lint-list')).toContainText('No problems in this document.');
+  await expect(page.getByRole('button', { name: 'Fix All', exact: true })).toBeHidden();
+  await source.press('Control+z');
+  await expect(source).toHaveValue(original);
+});
+
+test('Visual Fix asks before resetting undo and offers Switch to Source', async ({ page }) => {
+  await enableLinting(page, '# Title\n\n##Bad heading\n\n##Other\n');
+  await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD018']);
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.locator('#lint-list .lint-row', { hasText: 'MD018' }).click();
+  const choice = page.locator('#choice-dialog');
+
+  await page.getByRole('button', { name: 'Fix MD018 On Line 3' }).click();
+  await expect(choice).toBeVisible();
+  await expect(choice).toContainText('Fixing in Visual mode resets undo history.');
+  await choice.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.locator('#lint-list .lint-group')).toHaveCount(1);
+  await expect(page.locator('.tiptap h2')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Fix MD018 On Line 3' }).click();
+  await choice.getByRole('button', { name: 'Fix Anyway', exact: true }).click();
+  await expect(page.locator('.tiptap h2')).toHaveCount(1);
+  await expect(page.locator('#lint-list .lint-row', { hasText: 'MD018' })).toContainText('Ln 5');
+
+  await page.getByRole('button', { name: 'Fix MD018 On Line 5' }).click();
+  await choice.getByRole('button', { name: 'Switch to Source', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Source', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue('# Title\n\n## Bad heading\n\n## Other\n');
+  await expect(page.locator('#lint-list')).toContainText('No problems in this document.');
 });
 
 test('Windows virtual-key shortcuts respect split Ctrl layouts like BEPO azerty-ctrl across modes', async ({ page }) => {

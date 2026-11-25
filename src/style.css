@@ -322,6 +322,26 @@ button.table-col-handle.icon-button { width: 22px; height: 14px; padding: 0; cur
 .lint-meta { flex: 0 0 auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .lint-empty { padding: 14px 10px; font-size: 12px; color: var(--muted); text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; }
 .lint-empty p { margin: 0; line-height: 1.45; }
+.lint-fix-all { height: 22px; padding: 0 8px; font-size: 11px; border-radius: 4px; }
+.lint-fix { flex: 0 0 auto; height: 22px; padding: 0 7px; font-size: 11px; border-radius: 4px; border-color: transparent; background: transparent; color: var(--muted); }
+.lint-fix:hover { background: var(--control); color: var(--text); border-color: var(--accent); }
+.lint-child-line { display: flex; align-items: center; gap: 2px; }
+/* Inline markers (lazy src/lint/lint-markers.js): absolute pseudo-elements, so no document height changes */
+.hybrid-block.lint-warning::before, .hybrid-block.lint-error::before, .tiptap > .lint-block::before { content: ''; position: absolute; left: -4px; top: 3px; bottom: 3px; width: 2px; border-radius: 1px; background: var(--warning-text); pointer-events: none; }
+.hybrid-block.lint-error::before, .tiptap > .lint-block-error::before { background: var(--error-text); }
+.hybrid-block.active.lint-warning::before, .hybrid-block.active.lint-error::before { display: none; }
+.tiptap > .lint-block { position: relative; }
+.tiptap > .lint-block::before { left: -12px; }
+.cm-lint-range { text-decoration: underline wavy var(--warning-text); text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-skip-ink: none; }
+.cm-lint-range.cm-lint-error { text-decoration-color: var(--error-text); }
+.lint-tooltip { position: fixed; z-index: 60; max-width: 360px; padding: 6px 8px; font-size: 12px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow-float); }
+.lint-tooltip-row { display: flex; align-items: baseline; gap: 8px; }
+.lint-tooltip-row strong { font: 600 11px var(--font-mono); color: var(--warning-text); }
+.lint-tooltip-row.severity-error strong { color: var(--error-text); }
+.lint-tooltip-row span { flex: 1; min-width: 0; color: var(--text-secondary); line-height: 1.4; }
+.outline-problem-ticks { position: absolute; left: 0; top: 8px; bottom: 8px; width: 4px; pointer-events: none; }
+.outline-problem-tick { position: absolute; left: 0; width: 4px; height: 3px; margin-top: -1px; border-radius: 1px; background: var(--warning-text); }
+.outline-problem-tick.error { background: var(--error-text); }
 .footer-lint { border: 0; background: transparent; padding: 2px 6px; font-size: 12px; color: var(--muted); border-radius: 4px; font-variant-numeric: tabular-nums; }
 .footer-lint:hover { background: var(--control); color: var(--text); }
 .footer-lint.has-problems { color: var(--warning-text); }

@@ -178,6 +178,7 @@ export class SettingsDialog {
         element('span', { className: 'settings-label', text: 'Enable Markdown Linting' }),
         element('span', { className: 'settings-hint', text: 'Checks the open document with markdownlint in the background.' }),
       ])]),
+      this.markersCheck(lint),
       settingRow('Lint Delay', this.debounceField, 'Wait after the last keystroke, 150 to 2000 ms.'),
       settingRow('Large File Threshold', this.largeFileField, 'Larger documents lint only on demand, 50 to 5000 KB.'),
       element('div', { className: 'settings-section-header' }, [element('h3', { text: 'Rules' }), element('label', { className: 'settings-inline-field' }, [document.createTextNode('Preset'), this.presetSelect])]),
@@ -190,10 +191,20 @@ export class SettingsDialog {
     this.renderRules();
   }
 
+  markersCheck(lint) {
+    this.markersInput = element('input', { type: 'checkbox', checked: lint.markers, id: 'settings-lint-markers' });
+    this.markersInput.onchange = () => this.host.updateLint({ markers: this.markersInput.checked });
+    return element('label', { className: 'settings-check' }, [this.markersInput, element('span', {}, [
+      element('span', { className: 'settings-label', text: 'Show Inline Markers' }),
+      element('span', { className: 'settings-hint', text: 'Marks problem blocks in Visual and Hybrid, underlines them in the active Hybrid block and adds ticks to the floating outline.' }),
+    ])]);
+  }
+
   async syncLinting() {
     if (!this.enabledInput) return;
     const lint = this.host.getState().lint;
     this.enabledInput.checked = lint.enabled;
+    this.markersInput.checked = lint.markers;
     const presetChanged = this.presetSelect.value !== lint.preset;
     this.presetSelect.value = lint.preset;
     if (presetChanged) { await this.ensureCatalog(); this.renderRules(); }
