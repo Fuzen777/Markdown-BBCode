@@ -404,6 +404,22 @@ export class BlockControls {
 
   currentUnit() { return this.units[this.activeIndex]; }
 
+  // A Centered Block around a single block is that block's alignment rather than a container: moves carry the wrapper along and land beside it, never inside it.
+  movableUnit(unit) {
+    let current = unit;
+    while (current?.kind === 'containerChild' && current.parentType === 'centerBlock' && current.parentContainer.childCount === 1) {
+      const wrapper = this.units.find(candidate => candidate.kind !== 'listItem' && candidate.position === current.parentContainerPos);
+      if (!wrapper) break;
+      current = wrapper;
+    }
+    return current;
+  }
+
+  movableEntry(entry) {
+    const unit = this.movableUnit(entry.unit);
+    return unit === entry.unit ? entry : { index: this.units.indexOf(unit), unit };
+  }
+
   ownRect(unit) {
     if (!unit) return null;
     const element = this.editor.view.nodeDOM(unit.position);
@@ -1069,21 +1085,21 @@ export class BlockControls {
     const sourceEnd = sourceUnit.position + sourceUnit.node.nodeSize;
     if (direction < 0) {
       if (startIndex <= 0) return null;
-      return { mode: 'sibling', unit: this.units[startIndex - 1], after: false };
+      return { mode: 'sibling', unit: this.movableUnit(this.units[startIndex - 1]), after: false };
     }
     for (let index = startIndex + 1; index < this.units.length; index++) {
       const candidate = this.units[index];
       if (candidate.position >= sourceStart && candidate.position < sourceEnd) continue;
-      return { mode: 'sibling', unit: candidate, after: true };
+      return { mode: 'sibling', unit: this.movableUnit(candidate), after: true };
     }
     return null;
   }
 
   moveByStep(direction, focusEditor = true) {
-    const source = this.currentUnit();
+    const source = this.movableUnit(this.currentUnit());
     const target = this.findAdjacentTarget(direction, source);
     if (!source || !target) { this.closeMenu(); return false; }
-    this.moveUnits([{ index: this.activeIndex, unit: source }], target, focusEditor);
+    this.moveUnits([{ index: this.units.indexOf(source), unit: source }], target, focusEditor);
     return true;
   }
 
@@ -1166,7 +1182,7 @@ export class BlockControls {
   }
 
   moveSelectedByStep(direction) {
-    const entries = this.selectedTopUnits();
+    const entries = this.selectedTopUnits().map(entry => this.movableEntry(entry));
     if (!entries.length) return false;
     const edgeUnit = direction < 0 ? entries[0].unit : entries.at(-1).unit;
     const target = this.findAdjacentTarget(direction, edgeUnit);
@@ -1246,9 +1262,9 @@ export class BlockControls {
     if (event.button !== 0 || !this.editor.isEditable || event.shiftKey || event.ctrlKey || event.metaKey) return;
     event.preventDefault();
     const draggingSelected = this.selectedIndices.has(this.activeIndex) && this.selectedIndices.size > 0;
-    const entries = draggingSelected
+    const entries = (draggingSelected
       ? this.selectedTopUnits()
-      : (this.currentUnit() ? [{ index: this.activeIndex, unit: this.currentUnit() }] : []);
+      : (this.currentUnit() ? [{ index: this.activeIndex, unit: this.currentUnit() }] : [])).map(entry => this.movableEntry(entry));
     this.dragState = {
       pointerId: event.pointerId,
       entries,
@@ -1328,6 +1344,7 @@ export class BlockControls {
         },
       };
     }
+    if (best) best.unit = this.movableUnit(best.unit);
     return best;
   }
 

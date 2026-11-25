@@ -10,6 +10,7 @@ import { editorExtensions, parseMarkdown, serializeMarkdown, isHttpUrl } from '.
 import { formatMarkdownSelection, inspectMarkdownFormatting, moveSourceLines } from './source-formatting.js';
 import { shortcutKey, isMismatchedCtrlLetter } from './shortcuts.js';
 import { describeEditorFallback } from './editor-errors.js';
+import { planVisualPatch } from './doc-patch.js';
 
 let propertiesModule = null;
 let propertiesLoading = null;
@@ -75,6 +76,9 @@ export class MarkdownEditor {
     this.path = path;
     this.fallbackError = null;
     this.visualChanged = false;
+    this.visualSnapshots = [];
+    this.sourceUndo = [];
+    this.sourceRedo = [];
     this.documentSource = null;
     this.blockControls?.destroy();
     this.blockControls = null;
@@ -116,6 +120,7 @@ export class MarkdownEditor {
           onSelectionUpdate: () => this.onSelectionChange(),
           onTransaction: () => this.onSelectionChange(),
         });
+        this.visualSnapshots = [{ doc: this.editor.state.doc, body: this.documentSource.body }];
         this.blockControls = new BlockControls(this.editor, this.visualElement, {
           onInsertImage: () => this.overlayCallbacks.onInsertImage?.(),
           onAddProperties: () => this.showProperties({ add: true }),
@@ -181,7 +186,63 @@ export class MarkdownEditor {
     this.onChange();
     return true;
   }
-  val() { return this.mode === 'source' ? this.sourceElement.value : this.mode === 'hybrid' ? this.documentSource.prefix + this.hybridView.val() : this.documentSource.prefix + (this.visualChanged ? serializeMarkdown(this.editor.getJSON()) : this.documentSource.body); }
+  val() { return this.mode === 'source' ? this.sourceElement.value : this.mode === 'hybrid' ? this.documentSource.prefix + this.hybridView.val() : this.documentSource.prefix + this.visualBody(); }
+
+  // ==> Section 1C - Exact Visual Source Snapshots <==
+  // Visual serialization can normalize Markdown. While the editor document equals a state whose
+  // exact source is known (as loaded, or produced by a patched lint fix, including after Ctrl+Z /
+  // Ctrl+Y), that source is returned instead, so untouched documents never change bytes.
+  visualBody() {
+    if (!this.visualChanged) return this.documentSource.body;
+    const doc = this.editor.state.doc;
+    for (let index = this.visualSnapshots.length - 1; index >= 0; index--) {
+      if (this.visualSnapshots[index].doc.eq(doc)) return this.visualSnapshots[index].body;
+    }
+    return serializeMarkdown(this.editor.getJSON());
+  }
+
+  // Undo/redo of a source-only Visual fix, valid only while the document and its source are still
+  // exactly the state that fix produced (or reverted to).
+  undoSourceOnly(redo) {
+    const stack = redo ? this.sourceRedo : this.sourceUndo;
+    const entry = stack.at(-1);
+    if (!entry || !entry.doc.eq(this.editor.state.doc) || this.visualBody() !== (redo ? entry.before : entry.after)) return false;
+    stack.pop();
+    (redo ? this.sourceUndo : this.sourceRedo).push(entry);
+    this.rememberVisualSnapshot(entry.doc, redo ? entry.after : entry.before);
+    this.visualChanged = true;
+    this.onChange();
+    return true;
+  }
+
+  rememberVisualSnapshot(doc, body) {
+    this.visualSnapshots.push({ doc, body });
+    if (this.visualSnapshots.length > 40) this.visualSnapshots.splice(1, this.visualSnapshots.length - 40);
+  }
+
+  // Applies a new Visual body (e.g. a lint fix) as one undoable transaction that replaces only the
+  // top-level blocks that differ. Returns false when that is not possible; the caller then falls back.
+  applyVisualBodyChange(nextBody) {
+    if (this.mode !== 'visual' || !this.editor || this.readonly) return false;
+    const currentBody = this.visualBody();
+    const plan = planVisualPatch({ schema: this.editor.schema, state: this.editor.state, nextBody, parseMarkdown });
+    if (!plan.safe) { this.lastPatchFailure = plan.reason; return false; }
+    this.rememberVisualSnapshot(this.editor.state.doc, currentBody);
+    if (!plan.transaction) {
+      // Source-only fixes (spacing, blank lines, list indents) parse to the same document. ProseMirror
+      // has no step for them, so they get their own undo entry that Ctrl+Z / Ctrl+Y consult first.
+      this.rememberVisualSnapshot(this.editor.state.doc, nextBody);
+      this.sourceUndo.push({ doc: this.editor.state.doc, before: currentBody, after: nextBody });
+      this.sourceRedo = [];
+      this.visualChanged = true;
+      this.onChange();
+      return true;
+    }
+    this.rememberVisualSnapshot(plan.transaction.doc, nextBody);
+    this.visualChanged = true;
+    this.editor.view.dispatch(plan.transaction.scrollIntoView());
+    return true;
+  }
   setTarget(target) {
     if (this.readonly || this.sourceMode() || !['nexus', 'steam'].includes(target)) return;
     const source = withDocumentMetadata(this.val(), target);
@@ -246,7 +307,10 @@ export class MarkdownEditor {
   undo(redo = false) {
     if (this.readonly) return false;
     if (this.mode === 'hybrid') return Boolean(this.hybridView?.undo(redo));
-    if (this.mode === 'visual' && this.editor) return Boolean(redo ? this.editor.commands.redo() : this.editor.commands.undo());
+    if (this.mode === 'visual' && this.editor) {
+      if (this.undoSourceOnly(redo)) return true;
+      return Boolean(redo ? this.editor.commands.redo() : this.editor.commands.undo());
+    }
     return false;
   }
   selectAll() {

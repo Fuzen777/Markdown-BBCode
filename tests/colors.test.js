@@ -33,10 +33,10 @@ test('color and mode survive session restoration independently of documents', as
   await original.persist();
   const restored = new DocumentStore(backend);
   await restored.restore();
-  assert.deepEqual(restored.preferences, original.preferences);
+  assert.deepEqual(restored.preferences, { ...original.preferences, dismissedPrompts: {} });
   assert.deepEqual(colorPreferences({ lastColor: 'bad value', colorMode: 'invalid' }), { lastColor: '#e6a050', colorMode: 'hex' });
   await backend.saveSession({ version: 2, documents: [] });
   const legacy = new DocumentStore(backend);
   await legacy.restore();
-  assert.deepEqual(legacy.preferences, colorPreferences());
+  assert.deepEqual(legacy.preferences, { ...colorPreferences(), dismissedPrompts: {} });
 });

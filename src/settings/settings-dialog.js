@@ -1,13 +1,17 @@
 // ==> Section 1 - Settings Dialog Shell <==
 // Dynamically imported the first time Settings opens, so none of this costs startup time.
 import { setButtonIcon } from '../icons.js';
+import { DISMISSABLE_PROMPTS } from '../prompts.js';
 import { LINT_PRESETS, LINT_DEBOUNCE_RANGE, LINT_LARGE_FILE_RANGE, BBCODE_SCOPES, clampInteger, mergeLintConfig } from '../lint/lint-config.js';
 import {
   LINT_CATEGORIES, buildRuleCatalog, ruleMatchesSearch, resolveRuleState, overrideForState, withOverride,
   optionInputValue, parseOptionInput, withOption,
 } from './lint-rule-catalog.js';
 
-const PAGES = [['general', 'General'], ['linting', 'Linting']];
+const PAGES = [['general', 'General'], ['linting', 'Linting'], ['prompts', 'Prompts']];
+
+const CHOICE_LABELS = { fix: 'Fix Anyway', source: 'Switch to Source', continue: 'Continue Export', import: 'Import' };
+function choiceLabel(choice) { return CHOICE_LABELS[choice] || choice; }
 
 function element(tag, properties = {}, children = []) {
   const node = document.createElement(tag);
@@ -95,6 +99,7 @@ export class SettingsDialog {
     }
     this.content.setAttribute('aria-labelledby', `settings-tab-${this.page}`);
     if (this.page === 'general') this.renderGeneral();
+    else if (this.page === 'prompts') this.renderPrompts();
     else await this.renderLinting();
   }
 
@@ -102,7 +107,30 @@ export class SettingsDialog {
   sync() {
     if (!this.dialog.open) return;
     if (this.page === 'general') this.renderGeneral();
+    else if (this.page === 'prompts') this.renderPrompts();
     else void this.syncLinting();
+  }
+
+  // ==> Section 2B - Prompts Page <==
+  // Lists every prompt that offers Don't Show This Again; ticking Show brings a dismissed one back.
+  renderPrompts() {
+    const dismissed = this.host.getState().dismissedPrompts || {};
+    const rows = DISMISSABLE_PROMPTS.map(prompt => {
+      const input = element('input', { type: 'checkbox', checked: !dismissed[prompt.id], 'aria-label': `Show ${prompt.label}`, 'data-prompt': prompt.id });
+      input.onchange = () => this.host.setPromptShown(prompt.id, input.checked);
+      const status = dismissed[prompt.id] ? `Skipped: answers ${choiceLabel(dismissed[prompt.id])} automatically.` : 'Shown when needed.';
+      return element('label', { className: 'settings-check' }, [input, element('span', {}, [
+        element('span', { className: 'settings-label', text: prompt.label }),
+        element('span', { className: 'settings-hint', text: `${prompt.description} ${status}` }),
+      ])]);
+    });
+    const reset = element('button', { type: 'button', text: 'Reset All', disabled: !Object.keys(dismissed).length });
+    reset.onclick = () => this.host.resetPrompts();
+    this.content.replaceChildren(
+      element('div', { className: 'settings-section-header' }, [element('h3', { text: 'Prompts' }), reset]),
+      element('p', { className: 'settings-hint', text: 'Confirmations you chose not to see again. Data-loss and conflict prompts always show.' }),
+      ...rows,
+    );
   }
 
   // ==> Section 2 - General Page <==

@@ -1,5 +1,6 @@
 // ==> Section 1 - Document Identity <==
 import { colorPreferences } from './colors.js';
+import { normalizeDismissedPrompts } from './prompts.js';
 import { folderBrowserState } from './folder-browser-model.js';
 import { mergeThreeWay } from './diff.js';
 import { normalizeLintSettings, normalizeRightPanelTab } from './lint/lint-config.js';
@@ -30,7 +31,7 @@ export class DocumentStore {
     this.onExternalSync = onExternalSync;
     this.documents = [];
     this.pendingImports = [];
-    this.preferences = colorPreferences();
+    this.preferences = { ...colorPreferences(), dismissedPrompts: {} };
     this.viewportWidth = 'page';
     this.bbcodeTarget = 'nexus';
     this.outlineMode = 'off';
@@ -51,7 +52,7 @@ export class DocumentStore {
       this.pendingImports = session.documents.filter(documentRecord => documentRecord.content).map(documentRecord => ({ id: documentRecord.id, name: documentName(documentRecord), path: documentRecord.path, content: documentRecord.content }));
       return;
     }
-    this.preferences = colorPreferences(session.preferences);
+    this.preferences = { ...colorPreferences(session.preferences), dismissedPrompts: normalizeDismissedPrompts(session.preferences?.dismissedPrompts) };
     this.viewportWidth = normalizeViewportWidth(session.viewportWidth);
     this.bbcodeTarget = normalizeBBCodeTarget(session.bbcodeTarget);
     this.outlineMode = normalizeOutlineMode(session.outlineMode);
@@ -95,7 +96,7 @@ export class DocumentStore {
   snapshot() {
     return {
       version: 2,
-      preferences: { ...this.preferences },
+      preferences: { ...this.preferences, dismissedPrompts: { ...this.preferences.dismissedPrompts } },
       viewportWidth: this.viewportWidth,
       bbcodeTarget: this.bbcodeTarget,
       outlineMode: this.outlineMode,

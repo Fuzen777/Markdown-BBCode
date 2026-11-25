@@ -362,7 +362,7 @@ test('mode persists on cancel and last-applied color persists after reload', asy
   await page.getByLabel('Value Type').selectOption('hsl');
   await page.getByLabel('Hue', { exact: true }).fill('120');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.testDesktop.session.preferences)).toEqual({ colorMode: 'hsl', lastColor: '#123456' });
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session.preferences)).toEqual({ colorMode: 'hsl', lastColor: '#123456', dismissedPrompts: {} });
   await page.evaluate(() => localStorage.setItem('seedSession', JSON.stringify(window.testDesktop.session)));
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-ready', 'true');
@@ -1042,10 +1042,12 @@ test('Source Fix is undoable with Ctrl+Z and Fix All applies every fixable fix a
   await expect(source).toHaveValue(original);
 });
 
-test('Visual Fix asks before resetting undo and offers Switch to Source', async ({ page }) => {
+test('Visual Fix fallback asks before resetting undo and offers Switch to Source', async ({ page }) => {
   await enableLinting(page, '# Title\n\n##Bad heading\n\n##Other\n');
   await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD018']);
   await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  // Normally the fix is patched in place; the hook forces the confirm-and-reload fallback.
+  await page.evaluate(() => { window.__mbbTestHooks = { forceVisualFixFallback: true }; });
   await page.locator('#lint-list .lint-row', { hasText: 'MD018' }).click();
   const choice = page.locator('#choice-dialog');
 
@@ -1235,6 +1237,83 @@ test('a document Visual cannot open falls back to Source with a coded error noti
   await expect(page.getByRole('textbox', { name: 'Markdown Source' })).toHaveValue(source);
   await saveDraft(page);
   expect(await page.evaluate(() => window.testDesktop.files['C:\\Page.md'].content)).toBe(source);
+});
+
+const savedContent = page => page.evaluate(() => window.testDesktop.session?.documents?.find(documentRecord => documentRecord.open)?.content);
+
+test('Visual Fix and Fix All apply without a dialog and Ctrl+Z / Ctrl+Y undo and redo them exactly', async ({ page }) => {
+  const original = '# Title\n\n##Bad heading\n\n* a\n* b\n\nText\n';
+  await enableLinting(page, original);
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD018']);
+  await page.getByRole('button', { name: 'Fix MD018 On Line 3' }).click();
+  await expect(page.locator('#choice-dialog')).toBeHidden();
+  await expect(page.locator('.tiptap h2')).toHaveText('Bad heading');
+  const fixed = '# Title\n\n## Bad heading\n\n* a\n* b\n\nText\n';
+  await expect.poll(() => savedContent(page)).toBe(fixed);
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => savedContent(page)).toBe(original);
+  await expect(page.locator('.tiptap h2')).toHaveCount(0);
+  await page.keyboard.press('Control+y');
+  await expect.poll(() => savedContent(page)).toBe(fixed);
+
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  const many = '# Title\n\n##One\n\n##  Two\n';
+  await page.getByRole('textbox', { name: 'Markdown Source' }).fill(many);
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await expect(page.locator('#lint-list .lint-code')).toHaveText(['MD018', 'MD019']);
+  await page.getByRole('button', { name: 'Fix All', exact: true }).click();
+  await expect(page.locator('#choice-dialog')).toBeHidden();
+  await expect.poll(() => savedContent(page)).toBe('# Title\n\n## One\n\n## Two\n');
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => savedContent(page)).toBe(many);
+  await page.keyboard.press('Control+y');
+  await expect.poll(() => savedContent(page)).toBe('# Title\n\n## One\n\n## Two\n');
+
+  // A source-only fix (extra spaces after ##) has no ProseMirror step but still undoes exactly.
+  await page.getByRole('button', { name: 'Source', exact: true }).click();
+  const spaced = '# Title\n\n##  Spaced\n';
+  await page.getByRole('textbox', { name: 'Markdown Source' }).fill(spaced);
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.getByRole('button', { name: 'Fix MD019 On Line 3' }).click();
+  await expect.poll(() => savedContent(page)).toBe('# Title\n\n## Spaced\n');
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => savedContent(page)).toBe(spaced);
+  await page.keyboard.press('Control+y');
+  await expect.poll(() => savedContent(page)).toBe('# Title\n\n## Spaced\n');
+});
+
+test('the Visual fix fallback offers Don\'t Show This Again and Settings > Prompts brings it back', async ({ page }) => {
+  await enableLinting(page, '# Title\n\n##One\n\n##Two\n\n##Three\n');
+  await page.getByRole('button', { name: 'Visual', exact: true }).click();
+  await page.evaluate(() => { window.__mbbTestHooks = { forceVisualFixFallback: true }; });
+  await page.locator('#lint-list .lint-row', { hasText: 'MD018' }).click();
+  const choice = page.locator('#choice-dialog');
+  await page.getByRole('button', { name: 'Fix MD018 On Line 3' }).click();
+  await expect(choice).toBeVisible();
+  await choice.getByRole('checkbox', { name: "Don't Show This Again" }).check();
+  await choice.getByRole('button', { name: 'Fix Anyway', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.preferences?.dismissedPrompts)).toEqual({ 'visual-fix-reset-undo': 'fix' });
+  await expect.poll(() => savedContent(page)).toBe('# Title\n\n## One\n\n##Two\n\n##Three\n');
+  await expect(page.getByRole('button', { name: 'Fix MD018 On Line 3' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Fix MD018 On Line 5' }).click();
+  await expect.poll(() => savedContent(page)).toBe('# Title\n\n## One\n\n## Two\n\n##Three\n');
+  await expect(choice).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Fix MD018 On Line 5' })).toHaveCount(0);
+
+  await page.keyboard.press('Control+,');
+  const dialog = page.locator('#settings-dialog');
+  await dialog.getByRole('tab', { name: 'Prompts' }).click();
+  const show = dialog.getByRole('checkbox', { name: 'Show Fix in Visual Mode' });
+  await expect(show).not.toBeChecked();
+  await expect(dialog).toContainText('Skipped: answers Fix Anyway automatically.');
+  await show.check();
+  await expect.poll(() => page.evaluate(() => window.testDesktop.session?.preferences?.dismissedPrompts)).toEqual({});
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Fix MD018 On Line 7' }).click();
+  await expect(choice).toBeVisible();
+  await choice.getByRole('button', { name: 'Cancel', exact: true }).click();
 });
 
 test('Windows virtual-key shortcuts respect split Ctrl layouts like BEPO azerty-ctrl across modes', async ({ page }) => {

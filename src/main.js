@@ -15,6 +15,7 @@ import { LintPanel } from './lint/lint-panel.js';
 import { LintController } from './lint/lint-controller.js';
 import { normalizeLintSettings, presetConfigSync, loadPresetConfig, mergeLintConfig, BBCODE_WARNINGS_MAX_KB, BBCODE_SCOPES, bbcodeScopeDefault, bbcodeWarningsActive } from './lint/lint-config.js';
 import { applyEdit, diffEdit } from './lint/lint-engine.js';
+import { DISMISSABLE_PROMPTS, normalizeDismissedPrompts } from './prompts.js';
 import { FolderBrowser } from './folder-browser.js';
 import { DiffDialog } from './diff-dialog.js';
 import { detectTextFormat, parentDirectory, addRecentFolder } from './folder-browser-model.js';
@@ -636,7 +637,7 @@ function applySourceTextEdit(edit) {
 }
 
 async function confirmVisualFix() {
-  const choice = await choose('Fix in Visual Mode', 'Fixing in Visual mode resets undo history.', [['fix', 'Fix Anyway'], ['source', 'Switch to Source'], ['cancel', 'Cancel']]);
+  const choice = await choose('Fix in Visual Mode', 'Fixing in Visual mode resets undo history.', [['fix', 'Fix Anyway'], ['source', 'Switch to Source'], ['cancel', 'Cancel']], undefined, { promptId: 'visual-fix-reset-undo' });
   if (choice === 'source') await changeMode('source');
   return choice;
 }
@@ -646,6 +647,13 @@ async function applyLintEdit(edit, expectedText) {
   capture();
   if (editor.val() !== expectedText) return false;
   if (editor.mode === 'visual') {
+    // Preferred: patch only the changed top-level blocks as one undoable transaction (Ctrl+Z/Ctrl+Y).
+    const prefixLength = editor.documentSource?.prefix?.length || 0;
+    const forceFallback = Boolean(window.__mbbTestHooks?.forceVisualFixFallback);
+    if (!forceFallback && edit.from >= prefixLength && editor.applyVisualBodyChange(applyEdit(expectedText, edit).slice(prefixLength))) {
+      capture();
+      return true;
+    }
     const choice = await confirmVisualFix();
     if (choice === 'cancel') return true;
     if (choice === 'source') {
@@ -800,6 +808,20 @@ function settingsHost() {
       propertiesPanel: store.propertiesPanel.behavior,
       lint: store.lint,
       project: store.lint.enabled ? projectLintState : null,
+      dismissedPrompts: store.preferences.dismissedPrompts,
+    }),
+    setPromptShown: (id, shown) => runAction(async () => {
+      const next = { ...store.preferences.dismissedPrompts };
+      if (shown) delete next[id];
+      else next[id] = DISMISSABLE_PROMPTS.find(prompt => prompt.id === id)?.defaultChoice;
+      store.preferences.dismissedPrompts = normalizeDismissedPrompts(next);
+      settingsDialog?.sync();
+      await persist();
+    }),
+    resetPrompts: () => runAction(async () => {
+      store.preferences.dismissedPrompts = {};
+      settingsDialog?.sync();
+      await persist();
     }),
     setBBCodeTarget: target => runAction(() => setBBCodeTarget(target)),
     setViewportWidth: mode => runAction(() => setViewportWidth(mode)),
@@ -856,13 +878,19 @@ async function setBBCodeTarget(target) {
 }
 
 // ==> Section 3 - File Actions And Conflict Resolution <==
-async function choose(title, message, choices, inputValue) {
+// `promptId` (one of DISMISSABLE_PROMPTS) adds "Don't Show This Again"; once ticked with a
+// non-cancel choice, later calls return that choice without showing the dialog.
+async function choose(title, message, choices, inputValue, { promptId = null } = {}) {
   capture();
+  const dismissed = promptId ? store.preferences.dismissedPrompts?.[promptId] : null;
+  if (dismissed && choices.some(([value]) => value === dismissed)) return dismissed;
   editor.readOnly(true);
   elements['dialog-title'].textContent = title;
   elements['dialog-message'].textContent = message;
   elements['dialog-input'].hidden = inputValue === undefined;
   elements['dialog-input'].value = inputValue ?? '';
+  elements['dialog-dismiss'].hidden = !promptId;
+  elements['dialog-dismiss-input'].checked = false;
   elements['dialog-actions'].replaceChildren();
   return new Promise(resolve => {
     for (const [value, label] of choices) {
@@ -877,7 +905,13 @@ async function choose(title, message, choices, inputValue) {
     elements['choice-dialog'].onclose = () => {
       elements['dialog-input'].onkeydown = null;
       editor.readOnly(false);
-      resolve(elements['choice-dialog'].returnValue || 'cancel');
+      const choice = elements['choice-dialog'].returnValue || 'cancel';
+      if (promptId && choice !== 'cancel' && elements['dialog-dismiss-input'].checked) {
+        store.preferences.dismissedPrompts = { ...store.preferences.dismissedPrompts, [promptId]: choice };
+        void persist().catch(() => {});
+        settingsDialog?.sync();
+      }
+      resolve(choice);
     };
     elements['choice-dialog'].returnValue = 'cancel';
     elements['choice-dialog'].showModal();
@@ -1289,7 +1323,7 @@ async function prepareExport() {
   globalError = '';
   render();
   if (result.warnings.length) {
-    const choice = await choose('BBCode Export Notes', result.warnings.join('\n'), [['continue', 'Continue Export'], ['cancel', 'Cancel']]);
+    const choice = await choose('BBCode Export Notes', result.warnings.join('\n'), [['continue', 'Continue Export'], ['cancel', 'Cancel']], undefined, { promptId: 'bbcode-export-notes' });
     if (choice !== 'continue') return null;
   }
   return result.bbcode;
@@ -1331,7 +1365,7 @@ async function exportBBCode() {
 async function importDocument(snapshot) {
   const result = importBBCode(snapshot.content);
   if (result.warnings.length) {
-    const choice = await choose('BBCode Import Notes', `${result.warnings.join('\n')}\n\nThe original file will remain unchanged. Import the supported content?`, [['import', 'Import'], ['cancel', 'Cancel']]);
+    const choice = await choose('BBCode Import Notes', `${result.warnings.join('\n')}\n\nThe original file will remain unchanged. Import the supported content?`, [['import', 'Import'], ['cancel', 'Cancel']], undefined, { promptId: 'bbcode-import-notes' });
     if (choice !== 'import') return false;
   }
   capture();
