@@ -1,6 +1,7 @@
 // ==> Section 1 - markdownlint Result Normalization <==
 import { errorRuleNames } from './lint-config.js';
 import { lineColumnToOffset } from './lint-locate.js';
+import { lintOptionsFor, renameWrappedResults } from './mdbbcode-rules.js';
 
 // Turns markdownlint fixInfo into one source edit { from, to, insert } (offsets into text),
 // matching markdownlint's applyFix: deleteCount -1 removes the whole line.
@@ -61,14 +62,17 @@ export function normalizeLintResults(results, config, text = null) {
   }).sort((a, b) => a.line - b.line || a.column - b.column || a.code.localeCompare(b.code));
 }
 
+// The config may carry the .mdbbcode flag (see mdbbcode-rules.js); it is resolved here, in the worker.
 export function runLint(lint, text, config) {
-  const results = lint({ strings: { document: text }, config, handleRuleFailures: true });
-  return normalizeLintResults(results.document, config, text);
+  const options = lintOptionsFor(config);
+  const results = lint({ strings: { document: text }, config: options.config, customRules: options.customRules, handleRuleFailures: true });
+  return normalizeLintResults(renameWrappedResults(results.document), options.severityConfig || options.config, text);
 }
 
 // Fix All: markdownlint's own applyFixes over a fresh lint of the text.
 export function fixAllText(lint, applyFixes, text, config) {
-  const results = lint({ strings: { document: text }, config, handleRuleFailures: true });
+  const options = lintOptionsFor(config);
+  const results = lint({ strings: { document: text }, config: options.config, customRules: options.customRules, handleRuleFailures: true });
   return applyFixes(text, results.document);
 }
 

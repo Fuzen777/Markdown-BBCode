@@ -1345,6 +1345,30 @@ test('MD033 never reports in .mdbbcode files, and .md files accept the editor ce
   await expect(dialog.locator('.rule-card[data-rule="MD033"] .rule-note')).toHaveText('Always off for .mdbbcode files');
 });
 
+test('regression: a workspace .markdownlint.json with default: true reports no MD033 or MD041 for a wrapped H1 in .mdbbcode', async ({ page }) => {
+  const page1 = '<div style="text-align: center">\n\n# <span style="color: #e6a050">Auto Doors</span>\n\n</div>\n\n<div style="text-align: center">\n\n*<span style="color: #e6a050">Approach : door opens.</span>*\n\n</div>\n';
+  await page.evaluate(content => {
+    const files = window.testDesktop.files;
+    files['C:\\Coding\\.markdownlint.json'] = { path: 'C:\\Coding\\.markdownlint.json', content: '{\n  "default": true,\n  "MD013": false,\n  "MD040": false,\n  "MD028": false\n}\n', revision: '1' };
+    files['C:\\Coding\\Mods\\Nexus Page.mdbbcode'] = { path: 'C:\\Coding\\Mods\\Nexus Page.mdbbcode', content, revision: '1' };
+    files['C:\\Coding\\Mods\\Notes.md'] = { path: 'C:\\Coding\\Mods\\Notes.md', content, revision: '1' };
+    window.testDesktop.openPaths = ['C:\\Coding\\Mods\\Notes.md'];
+  }, page1);
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.getByRole('button', { name: 'Dock', exact: true }).click();
+  await page.getByRole('tab', { name: 'Lint' }).click();
+  await page.getByRole('button', { name: 'Enable Linting', exact: true }).click();
+  const list = page.locator('#lint-list');
+  // The .md file keeps the project config as written.
+  await expect(list.locator('.lint-code')).toHaveText(['MD033', 'MD041']);
+
+  await page.evaluate(() => { window.testDesktop.openPaths = ['C:\\Coding\\Mods\\Nexus Page.mdbbcode']; });
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await expect(page.locator('#document-path')).toHaveText('C:\\Coding\\Mods\\Nexus Page.mdbbcode');
+  await expect(list).toContainText('No problems in this document.');
+  await expect(list.locator('.lint-code', { hasText: /MD033|MD041/ })).toHaveCount(0);
+});
+
 test('Windows virtual-key shortcuts respect split Ctrl layouts like BEPO azerty-ctrl across modes', async ({ page }) => {
   const dispatchCtrl = (selector, key, keyCode, shiftKey = false) => page.evaluate(
     ({ sel, k, code, shift }) => {

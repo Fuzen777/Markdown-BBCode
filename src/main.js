@@ -758,7 +758,7 @@ async function runFolderAudit() {
       readFile: path => backend.readFile(path),
       lintText: async (text, path) => {
         const project = await projectConfigFor(path);
-        const config = project?.config || withFileTypeOverrides(mergeLintConfig(await loadPresetConfig(store.lint.preset), store.lint.rules), path);
+        const config = withFileTypeOverrides(project?.config || mergeLintConfig(await loadPresetConfig(store.lint.preset), store.lint.rules), path);
         const problems = await lintController.lintOnce(text, config);
         // The BBCode pass follows the same scope and per-file bbcodeLint rule as the open document.
         if (!bbcodeWarningsState(path, text).active || text.length > BBCODE_WARNINGS_MAX_KB * 1024) return problems;
@@ -783,7 +783,7 @@ async function refreshLintConfig({ recheck = false } = {}) {
   const project = documentPath ? await projectConfigFor(documentPath, { recheck }) : null;
   if (token !== lintConfigToken || !store.lint.enabled) return;
   projectLintState = project;
-  const configChanged = lintController.setConfig(project?.config || withFileTypeOverrides(mergeLintConfig(presetConfig, store.lint.rules), documentPath));
+  const configChanged = lintController.setConfig(withFileTypeOverrides(project?.config || mergeLintConfig(presetConfig, store.lint.rules), documentPath));
   settingsDialog?.sync();
   if (configChanged || timingChanged) updateLint();
 }

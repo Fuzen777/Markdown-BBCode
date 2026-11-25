@@ -144,13 +144,22 @@ export function mergeLintConfig(presetConfig, rules = {}) {
   return merged;
 }
 
-// File-type overrides applied on top of the app config (preset + rule overrides), never on top of a
-// project .markdownlint.json(c). .mdbbcode files exist to hold the editor's HTML center/color
-// wrappers, so inline-HTML warnings there contradict the format.
-export const FILE_TYPE_RULE_NOTES = Object.freeze({ MD033: 'Always off for .mdbbcode files' });
+// .mdbbcode format rules, applied on top of whatever config lints the file: the app config (preset +
+// rule overrides) or a project .markdownlint.json(c), which is written for ordinary Markdown and
+// cannot know this format. The files hold the editor's HTML center/color wrappers, so MD033 is off,
+// and the `__mdbbcode` flag (resolved in the worker, see mdbbcode-rules.js) makes MD041 accept an
+// H1 inside those wrappers.
+export const FILE_TYPE_RULE_NOTES = Object.freeze({
+  MD033: 'Always off for .mdbbcode files',
+  MD041: 'In .mdbbcode files, an H1 inside centered or colored wrappers counts',
+});
+
+export function isMdbbcodePath(path) {
+  return /\.mdbbcode$/i.test(String(path || '').replace(/^\\\\\?\\/, ''));
+}
 
 export function withFileTypeOverrides(config, path) {
-  return /\.mdbbcode$/i.test(path || '') ? mergeLintConfig(config, { MD033: false }) : config;
+  return isMdbbcodePath(path) ? { ...mergeLintConfig(config, { MD033: false }), __mdbbcode: true } : config;
 }
 
 // Rules configured as "error" (or { severity: "error" }) report as errors; everything else is a warning.

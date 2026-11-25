@@ -10,7 +10,7 @@
     "build": "vite build",
     "tauri": "tauri",
     "test": "node scripts/run-with-timeout.mjs 30 node --test tests/*.test.js",
-    "test:ui": "node scripts/run-with-timeout.mjs 120 node node_modules/@playwright/test/cli.js test",
+    "test:ui": "node scripts/run-with-timeout.mjs 180 node node_modules/@playwright/test/cli.js test",
     "test:native": "node scripts/run-with-timeout.mjs 60 node scripts/native-smoke.mjs",
     "lint": "eslint .",
     "portable": "tauri build --no-bundle && node scripts/package.mjs",
