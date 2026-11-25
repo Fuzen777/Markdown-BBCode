@@ -73,7 +73,7 @@ S01G — First standalone Paragraph before second Paragraph.
 
 ## Fixes
 
-- Page mode now shows an orange outline on the edges on each side.
+- [ ] No active item. 
 
 ## Testing
 
