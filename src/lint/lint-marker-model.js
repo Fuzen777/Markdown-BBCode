@@ -12,6 +12,7 @@ function worse(current, next) {
 export function locateProblems(source, prefixLength, problems) {
   const located = [];
   for (const problem of problems || []) {
+    if (problem.line == null) continue;
     const offset = lineColumnToOffset(source, problem.line, problem.column);
     const bodyOffset = offset - prefixLength;
     if (bodyOffset < 0) continue;
@@ -65,6 +66,7 @@ export function railPositions(source, problems, buckets = 200) {
   const lines = Math.max(1, countLines(source || ''));
   const byBucket = new Map();
   for (const problem of problems || []) {
+    if (problem.line == null) continue;
     const fraction = lines <= 1 ? 0 : Math.min(1, Math.max(0, (problem.line - 1) / (lines - 1)));
     const bucket = Math.round(fraction * buckets);
     const previous = byBucket.get(bucket);

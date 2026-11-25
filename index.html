@@ -159,6 +159,10 @@
             </div>
             <nav id="outline-docked-list" class="outline-list" role="tabpanel" aria-label="Document Headings"></nav>
             <section id="lint-panel" class="lint-panel" role="tabpanel" aria-label="Lint Problems" hidden>
+              <div id="lint-scope" class="mode-switch lint-scope" role="group" aria-label="Lint Scope" hidden>
+                <button id="lint-scope-document" type="button" aria-pressed="true">This Document</button>
+                <button id="lint-scope-folder" type="button" aria-pressed="false" title="Lint Markdown Files Under the Folder Browser Root">Folder</button>
+              </div>
               <div class="lint-toolbar">
                 <span id="lint-summary" role="status"></span>
                 <div class="lint-toolbar-actions">
@@ -168,6 +172,7 @@
                 </div>
               </div>
               <div id="lint-list" class="lint-list"></div>
+              <div id="lint-folder" class="lint-list" aria-label="Folder Audit Results" hidden></div>
             </section>
           </aside>
           <div id="preview-resizer" role="separator" aria-orientation="vertical" aria-label="Resize BBCode Preview" tabindex="0" hidden></div>

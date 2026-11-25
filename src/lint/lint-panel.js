@@ -5,8 +5,11 @@ import { groupLintProblems, countLintProblems } from './lint-engine.js';
 import { lineColumnToOffset, countLines, blockIndexAtOffset, contentBlockOrdinal } from './lint-locate.js';
 
 export class LintPanel {
-  constructor(elements, { getEditor, onEnabledChange, onTabChange, onShowPanel, onOpenUrl, onRefresh, onFix = () => {}, onFixAll = () => {} }) {
-    Object.assign(this, { elements, getEditor, onEnabledChange, onTabChange, onShowPanel, onOpenUrl, onRefresh, onFix, onFixAll });
+  constructor(elements, { getEditor, onEnabledChange, onTabChange, onShowPanel, onOpenUrl, onRefresh, onFix = () => {}, onFixAll = () => {}, onFolderAudit = () => {} }) {
+    Object.assign(this, { elements, getEditor, onEnabledChange, onTabChange, onShowPanel, onOpenUrl, onRefresh, onFix, onFixAll, onFolderAudit });
+    this.scope = 'document';
+    elements['lint-scope-document'].onclick = () => this.setScope('document');
+    elements['lint-scope-folder'].onclick = () => this.setScope('folder');
     this.enabled = false;
     this.tab = 'outline';
     this.result = null;
@@ -16,7 +19,7 @@ export class LintPanel {
     setButtonIcon(elements['lint-disable'], 'visibility_off', 'Turn Off Linting', 'Turn Off Linting');
     elements['right-tab-outline'].onclick = () => this.setTab('outline', true);
     elements['right-tab-lint'].onclick = () => this.setTab('lint', true);
-    elements['lint-refresh'].onclick = () => this.onRefresh();
+    elements['lint-refresh'].onclick = () => (this.scope === 'folder' ? this.onFolderAudit() : this.onRefresh());
     elements['lint-fix-all'].onclick = () => this.onFixAll();
     elements['lint-disable'].onclick = () => this.onEnabledChange(false);
     elements['lint-status'].onclick = () => { this.setTab('lint', true); this.onShowPanel(); };
@@ -34,8 +37,17 @@ export class LintPanel {
 
   setEnabled(enabled) {
     this.enabled = Boolean(enabled);
-    if (!this.enabled) this.result = null;
+    if (!this.enabled) { this.result = null; this.scope = 'document'; }
     this.render();
+  }
+
+  // Folder scope runs its audit each time it is opened (never in the background).
+  setScope(scope) {
+    const next = scope === 'folder' ? 'folder' : 'document';
+    if (next === this.scope) return;
+    this.scope = next;
+    this.render();
+    if (next === 'folder') this.onFolderAudit();
   }
 
   setTab(tab, notify = false) {
@@ -84,7 +96,15 @@ export class LintPanel {
     status.title = 'Show Lint Problems';
     this.elements['lint-refresh'].hidden = !this.enabled;
     const fixable = ready ? this.result.problems.filter(problem => problem.fixable).length : 0;
-    this.elements['lint-fix-all'].hidden = !fixable;
+    const folder = this.enabled && this.scope === 'folder';
+    this.elements['lint-scope'].hidden = !this.enabled;
+    this.elements['lint-scope-document'].setAttribute('aria-pressed', String(!folder));
+    this.elements['lint-scope-folder'].setAttribute('aria-pressed', String(folder));
+    this.elements['lint-list'].hidden = folder;
+    this.elements['lint-folder'].hidden = !folder;
+    this.elements['lint-refresh'].title = folder ? 'Audit Folder Again' : 'Lint Again';
+    this.elements['lint-refresh'].setAttribute('aria-label', this.elements['lint-refresh'].title);
+    this.elements['lint-fix-all'].hidden = !fixable || folder;
     this.elements['lint-fix-all'].title = `Fix ${fixable} Fixable ${fixable === 1 ? 'Problem' : 'Problems'}`;
     this.elements['lint-disable'].hidden = !this.enabled;
     this.renderSummary(counts);
@@ -94,6 +114,7 @@ export class LintPanel {
   renderSummary(counts) {
     const summary = this.elements['lint-summary'];
     if (!this.enabled) { summary.textContent = 'Markdown Lint'; return; }
+    if (this.scope === 'folder') { summary.textContent = 'Folder Audit'; return; }
     const state = this.result?.state;
     if (state === 'ready') {
       const parts = [];
@@ -120,8 +141,22 @@ export class LintPanel {
     }
     if (state === 'error') { list.append(this.message(`Linting failed: ${this.result.error}`, 'Try Again', () => this.onRefresh(true))); return; }
     if (state !== 'ready') { list.append(this.message('Checking this document…')); return; }
-    if (!this.result.problems.length) { list.append(this.message('No problems in this document.')); return; }
-    for (const group of groupLintProblems(this.result.problems)) list.append(this.groupElement(group));
+    const markdownProblems = this.result.problems.filter(problem => problem.source !== 'bbcode');
+    const bbcodeProblems = this.result.problems.filter(problem => problem.source === 'bbcode');
+    if (!markdownProblems.length) list.append(this.message('No problems in this document.'));
+    for (const group of groupLintProblems(markdownProblems)) list.append(this.groupElement(group));
+    const section = this.result.bbcode;
+    if (!section) return;
+    const heading = document.createElement('div');
+    heading.className = 'lint-section-heading';
+    heading.textContent = section.label;
+    list.append(heading);
+    const note = text => { const element = document.createElement('p'); element.className = 'lint-section-note'; element.textContent = text; list.append(element); };
+    if (section.state === 'pending') note('Checking BBCode export…');
+    else if (section.state === 'large') note(`Skipped above ${section.limitKB} KB. Export still checks the whole document.`);
+    else if (section.state === 'error') note(`BBCode check failed: ${section.error}`);
+    else if (!bbcodeProblems.length) note('No BBCode export warnings.');
+    else for (const group of groupLintProblems(bbcodeProblems)) list.append(this.groupElement(group));
   }
 
   message(text, actionLabel = '', action = null) {
@@ -153,10 +188,13 @@ export class LintPanel {
     main.append(this.dot(group.severity), this.code(group.code), this.text(single ? problemText(first) : group.description));
     const meta = document.createElement('span');
     meta.className = 'lint-meta';
-    meta.textContent = single ? `Ln ${first.line}` : `×${group.problems.length}`;
+    meta.textContent = single ? lineLabel(first) : `×${group.problems.length}`;
     main.append(meta);
     main.title = `${group.code}${group.alias ? ` (${group.alias})` : ''}: ${single ? problemText(first) : group.description}`;
-    if (single) main.onclick = () => this.jumpTo(first);
+    if (single) {
+      if (first.line == null) main.disabled = true;
+      else main.onclick = () => this.jumpTo(first);
+    }
     else {
       main.setAttribute('aria-expanded', String(this.expanded.has(group.code)));
       main.onclick = () => {
@@ -185,10 +223,11 @@ export class LintPanel {
         row.append(this.text(problemText(problem)));
         const line = document.createElement('span');
         line.className = 'lint-meta';
-        line.textContent = `Ln ${problem.line}`;
+        line.textContent = lineLabel(problem);
         row.append(line);
         row.title = problemText(problem);
-        row.onclick = () => this.jumpTo(problem);
+        if (problem.line == null) row.disabled = true;
+        else row.onclick = () => this.jumpTo(problem);
         const childLine = document.createElement('div');
         childLine.className = 'lint-child-line';
         childLine.append(row);
@@ -267,6 +306,11 @@ export class LintPanel {
       editor.editor.chain().focus().setTextSelection(Math.min(position + 1, doc.content.size)).run();
     }
   }
+}
+
+// BBCode warnings the converter cannot place in a block have no line and are not clickable.
+function lineLabel(problem) {
+  return problem.line == null ? 'No Line' : `Ln ${problem.line}`;
 }
 
 function problemText(problem) {

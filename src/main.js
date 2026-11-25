@@ -13,7 +13,7 @@ import { TableGridPicker } from './table-controls.js';
 import { DocumentOutline } from './outline.js';
 import { LintPanel } from './lint/lint-panel.js';
 import { LintController } from './lint/lint-controller.js';
-import { normalizeLintSettings, presetConfigSync, loadPresetConfig, mergeLintConfig } from './lint/lint-config.js';
+import { normalizeLintSettings, presetConfigSync, loadPresetConfig, mergeLintConfig, BBCODE_WARNINGS_MAX_KB } from './lint/lint-config.js';
 import { applyEdit, diffEdit } from './lint/lint-engine.js';
 import { FolderBrowser } from './folder-browser.js';
 import { DiffDialog } from './diff-dialog.js';
@@ -54,6 +54,9 @@ let projectLintState = null;
 let lintConfigToken = 0;
 let lintMarkers = null;
 let lintMarkersLoading = null;
+let bbcodeController;
+let markdownlintResult = null;
+let bbcodeResult = null;
 let folderBrowser;
 let diffDialog;
 let previewOpen = false;
@@ -497,16 +500,57 @@ function createLintWorker() {
   return new Worker(new URL('./lint/lint-worker.js', import.meta.url), { type: 'module', name: 'markdownlint' });
 }
 
+// BBCode export warnings use a second lazy worker: converting is far slower than linting.
+function createBBCodeWorker() {
+  return new Worker(new URL('./lint/bbcode-worker.js', import.meta.url), { type: 'module', name: 'bbcode-warnings' });
+}
+
 function updateLint(options = {}) {
   if (!lintController?.enabled || !store.active) return;
   lintController.update(store.active.id, store.active.content, options);
+  if (bbcodeController.enabled) {
+    bbcodeController.setTiming({ debounceMs: store.lint.debounceMs, largeFileBytes: Math.min(store.lint.largeFileKB, BBCODE_WARNINGS_MAX_KB) * 1024 });
+    bbcodeController.setConfig({ target: normalizeBBCodeTarget(store.bbcodeTarget), path: store.active.path || null });
+    bbcodeController.update(store.active.id, store.active.content, options);
+  }
   if (lintPanel.result?.docKey !== store.active.id) lintPanel.showPending(store.active.id);
+}
+
+// The Lint tab shows markdownlint problems plus, when on, a BBCode section for the same text.
+function combinedLintResult() {
+  const result = markdownlintResult;
+  if (!result || result.state !== 'ready' || !store.lint.bbcode) return result;
+  const target = activeBBCodeTarget();
+  const label = `BBCode (${target === 'steam' ? 'Steam' : 'Nexus'})`;
+  const bbcode = bbcodeResult?.docKey === result.docKey ? bbcodeResult : null;
+  if (bbcode?.state === 'ready' && bbcode.meta?.target !== target) return { ...result, bbcode: { label, state: 'pending' } };
+  if (bbcode?.state === 'large') return { ...result, bbcode: { label, state: 'large', limitKB: Math.min(store.lint.largeFileKB, BBCODE_WARNINGS_MAX_KB) } };
+  if (bbcode?.state === 'error') return { ...result, bbcode: { label, state: 'error', error: bbcode.error } };
+  if (bbcode?.state !== 'ready' || bbcode.text !== result.text) return { ...result, bbcode: { label, state: 'pending' } };
+  return { ...result, problems: [...result.problems, ...bbcode.problems], bbcode: { label, state: 'ready' } };
+}
+
+function showLintResult() {
+  if (!markdownlintResult || markdownlintResult.docKey !== store.active?.id) return;
+  lintPanel.setResult(combinedLintResult());
+  syncLintMarkers();
 }
 
 function handleLintResult(result) {
   if (!store.active || result.docKey !== store.active.id) return;
-  lintPanel.setResult(result);
-  syncLintMarkers();
+  markdownlintResult = result;
+  showLintResult();
+}
+
+function handleBBCodeResult(result) {
+  if (!store.active || result.docKey !== store.active.id) return;
+  bbcodeResult = result;
+  showLintResult();
+}
+
+function applyBBCodeWarningsEnabled() {
+  if (store.lint.enabled && store.lint.bbcode) bbcodeController.enable();
+  else { bbcodeController.disable(); bbcodeResult = null; }
 }
 
 // Inline markers load as their own chunk the first time a result is ready with markers on.
@@ -615,13 +659,17 @@ function applyLintEnabled() {
     const presetConfig = presetConfigSync(store.lint.preset);
     if (presetConfig && !projectLintState?.config) lintController.setConfig(mergeLintConfig(presetConfig, store.lint.rules));
     lintController.enable();
+    applyBBCodeWarningsEnabled();
     lintPanel.setEnabled(true);
     updateLint();
     void refreshLintConfig();
   } else {
     lintConfigToken++;
     projectLintState = null;
+    folderAudit?.cancel();
     lintController.disable();
+    applyBBCodeWarningsEnabled();
+    markdownlintResult = null;
     lintPanel.setEnabled(false);
   }
   syncLintMarkers();
@@ -630,24 +678,49 @@ function applyLintEnabled() {
 
 // Effective config: the nearest project .markdownlint.json(c) when one exists, otherwise the
 // chosen preset merged with the rule overrides. Project discovery loads only while linting is on.
+// Nearest project .markdownlint.json(c) for a file (lazy module, per-folder cache).
+async function projectConfigFor(path, { recheck = false } = {}) {
+  if (!projectConfigFinder) {
+    const { ProjectConfigFinder } = await import('./lint/lint-project-config.js');
+    projectConfigFinder ??= new ProjectConfigFinder(backend.readFile);
+  }
+  if (recheck) projectConfigFinder.clear();
+  // An unlocked Folder Browser root just follows the active file's folder, so only a locked root bounds the walk.
+  const workspaceRoot = store.folderBrowser?.rootLocked ? store.folderBrowser.rootPath : null;
+  return projectConfigFinder.find(path, workspaceRoot).catch(error => ({ path, error: errorMessage(error) }));
+}
+
+// ==> Folder Audit - Lint tab Folder scope, loaded and run only on demand <==
+let folderAudit = null;
+async function runFolderAudit() {
+  if (!store.lint.enabled) return;
+  if (!folderAudit) {
+    const { FolderAuditView } = await import('./lint/lint-folder-audit.js');
+    folderAudit ??= new FolderAuditView(elements['lint-folder'], {
+      getRoot: () => store.folderBrowser?.rootPath || null,
+      listDirectory: path => backend.listDirectory(path, false),
+      readFile: path => backend.readFile(path),
+      lintText: async (text, path) => {
+        const project = await projectConfigFor(path);
+        const config = project?.config || mergeLintConfig(await loadPresetConfig(store.lint.preset), store.lint.rules);
+        return lintController.lintOnce(text, config);
+      },
+      openProblem: (path, problem) => runAction(async () => {
+        await openPaths([path]);
+        lintPanel.jumpTo(problem);
+      }),
+    });
+  }
+  await folderAudit.run();
+}
+
 async function refreshLintConfig({ recheck = false } = {}) {
   if (!store.lint.enabled) return;
   const token = ++lintConfigToken;
   const timingChanged = lintController.setTiming({ debounceMs: store.lint.debounceMs, largeFileBytes: store.lint.largeFileKB * 1024 });
   const presetConfig = await loadPresetConfig(store.lint.preset);
-  let project = null;
   const documentPath = store.active?.path;
-  if (documentPath) {
-    if (!projectConfigFinder) {
-      const { ProjectConfigFinder } = await import('./lint/lint-project-config.js');
-      projectConfigFinder ??= new ProjectConfigFinder(backend.readFile);
-    }
-    if (recheck) projectConfigFinder.clear();
-    // An unlocked Folder Browser root just follows the active file's folder, so only a locked root bounds the walk.
-    const workspaceRoot = store.folderBrowser?.rootLocked ? store.folderBrowser.rootPath : null;
-    project = await projectConfigFinder.find(documentPath, workspaceRoot)
-      .catch(error => ({ path: documentPath, error: errorMessage(error) }));
-  }
+  const project = documentPath ? await projectConfigFor(documentPath, { recheck }) : null;
   if (token !== lintConfigToken || !store.lint.enabled) return;
   projectLintState = project;
   const configChanged = lintController.setConfig(project?.config || mergeLintConfig(presetConfig, store.lint.rules));
@@ -657,8 +730,10 @@ async function refreshLintConfig({ recheck = false } = {}) {
 
 async function updateLintSettings(patch) {
   store.lint = normalizeLintSettings({ ...store.lint, ...patch });
+  applyBBCodeWarningsEnabled();
   await refreshLintConfig();
-  syncLintMarkers();
+  updateLint();
+  showLintResult();
   settingsDialog?.sync();
   await persist();
 }
@@ -1313,6 +1388,7 @@ async function initialize() {
   diffDialog = new DiffDialog(elements);
   documentOutline = new DocumentOutline(elements, () => editor, mode => { void runAction(() => setOutlineMode(mode)); });
   lintController = new LintController({ createWorker: createLintWorker, config: presetConfigSync('app'), onResult: handleLintResult });
+  bbcodeController = new LintController({ createWorker: createBBCodeWorker, config: { target: 'nexus', path: null }, onResult: handleBBCodeResult, largeFileBytes: BBCODE_WARNINGS_MAX_KB * 1024 });
   elements['settings-open'].onclick = () => runAction(() => openSettings());
   lintPanel = new LintPanel(elements, {
     getEditor: () => editor,
@@ -1323,6 +1399,7 @@ async function initialize() {
     onRefresh: () => { capture(); relintNow(); },
     onFix: problem => { void runAction(() => fixLintProblem(problem)); },
     onFixAll: () => { void runAction(fixAllLintProblems); },
+    onFolderAudit: () => { void runFolderAudit(); },
   });
   folderBrowser = new FolderBrowser(elements, backend, {
     getState: () => store.folderBrowser,

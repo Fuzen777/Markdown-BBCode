@@ -15,6 +15,9 @@ export const LINT_DEBOUNCE_MS = 400;
 export const LINT_MAX_WAIT_MS = 2000;
 export const LINT_LARGE_FILE_KB = 300;
 export const LINT_LARGE_FILE_BYTES = LINT_LARGE_FILE_KB * 1024;
+// Converting a document to BBCode is far slower than linting it (about 2.4 s at 100 KB), so
+// export warnings stop at this size even when the markdownlint threshold is higher.
+export const BBCODE_WARNINGS_MAX_KB = 100;
 export const LINT_DEBOUNCE_RANGE = Object.freeze({ min: 150, max: 2000 });
 export const LINT_LARGE_FILE_RANGE = Object.freeze({ min: 50, max: 5000 });
 
@@ -71,6 +74,7 @@ export function normalizeLintSettings(value) {
   return {
     enabled: source.enabled === true,
     markers: source.markers !== false,
+    bbcode: source.bbcode !== false,
     preset: normalizeLintPreset(source.preset),
     rules: normalizeRuleOverrides(source.rules),
     debounceMs: clampInteger(source.debounceMs, LINT_DEBOUNCE_RANGE, LINT_DEBOUNCE_MS),

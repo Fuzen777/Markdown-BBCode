@@ -179,6 +179,7 @@ export class SettingsDialog {
         element('span', { className: 'settings-hint', text: 'Checks the open document with markdownlint in the background.' }),
       ])]),
       this.markersCheck(lint),
+      this.bbcodeCheck(lint),
       settingRow('Lint Delay', this.debounceField, 'Wait after the last keystroke, 150 to 2000 ms.'),
       settingRow('Large File Threshold', this.largeFileField, 'Larger documents lint only on demand, 50 to 5000 KB.'),
       element('div', { className: 'settings-section-header' }, [element('h3', { text: 'Rules' }), element('label', { className: 'settings-inline-field' }, [document.createTextNode('Preset'), this.presetSelect])]),
@@ -200,11 +201,21 @@ export class SettingsDialog {
     ])]);
   }
 
+  bbcodeCheck(lint) {
+    this.bbcodeInput = element('input', { type: 'checkbox', checked: lint.bbcode, id: 'settings-lint-bbcode' });
+    this.bbcodeInput.onchange = () => this.host.updateLint({ bbcode: this.bbcodeInput.checked });
+    return element('label', { className: 'settings-check' }, [this.bbcodeInput, element('span', {}, [
+      element('span', { className: 'settings-label', text: 'Include BBCode Export Warnings' }),
+      element('span', { className: 'settings-hint', text: 'Lists what the current Nexus or Steam export would drop or change, for documents up to 100 KB.' }),
+    ])]);
+  }
+
   async syncLinting() {
     if (!this.enabledInput) return;
     const lint = this.host.getState().lint;
     this.enabledInput.checked = lint.enabled;
     this.markersInput.checked = lint.markers;
+    this.bbcodeInput.checked = lint.bbcode;
     const presetChanged = this.presetSelect.value !== lint.preset;
     this.presetSelect.value = lint.preset;
     if (presetChanged) { await this.ensureCatalog(); this.renderRules(); }

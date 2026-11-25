@@ -81,7 +81,8 @@ export function groupLintProblems(problems) {
     group.problems.push(problem);
     if (problem.severity === 'error') group.severity = 'error';
   }
-  return [...groups.values()].sort((a, b) => a.problems[0].line - b.problems[0].line || a.code.localeCompare(b.code));
+  const firstLine = group => group.problems[0].line ?? Infinity;
+  return [...groups.values()].sort((a, b) => (firstLine(a) === firstLine(b) ? 0 : firstLine(a) - firstLine(b)) || a.code.localeCompare(b.code));
 }
 
 export function countLintProblems(problems) {

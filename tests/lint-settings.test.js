@@ -18,7 +18,7 @@ const catalog = buildRuleCatalog(schema);
 const rule = id => catalog.find(candidate => candidate.id === id);
 
 test('normalizeLintSettings validates, clamps and keeps old sessions working', () => {
-  assert.deepEqual(normalizeLintSettings({ enabled: true }), { enabled: true, markers: true, preset: 'app', rules: {}, debounceMs: 400, largeFileKB: 300 });
+  assert.deepEqual(normalizeLintSettings({ enabled: true }), { enabled: true, markers: true, bbcode: true, preset: 'app', rules: {}, debounceMs: 400, largeFileKB: 300 });
   const normalized = normalizeLintSettings({
     enabled: true, preset: 'relaxed', debounceMs: 10, largeFileKB: 99999,
     rules: { md013: { line_length: 120, severity: 'fatal' }, MD004: 'error', 'no-bare-urls': false, MD999X: true, MD010: 7, MD033: [1] },

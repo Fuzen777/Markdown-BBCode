@@ -325,6 +325,19 @@ button.table-col-handle.icon-button { width: 22px; height: 14px; padding: 0; cur
 .lint-fix-all { height: 22px; padding: 0 8px; font-size: 11px; border-radius: 4px; }
 .lint-fix { flex: 0 0 auto; height: 22px; padding: 0 7px; font-size: 11px; border-radius: 4px; border-color: transparent; background: transparent; color: var(--muted); }
 .lint-fix:hover { background: var(--control); color: var(--text); border-color: var(--accent); }
+.lint-scope { margin: 6px 8px 0; }
+.lint-scope[hidden] { display: none; }
+.lint-scope button { flex: 1; padding: 3px 8px; font-size: 12px; }
+.lint-audit-progress { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 6px 6px; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.lint-audit-cancel { height: 22px; padding: 0 8px; font-size: 11px; border-radius: 4px; }
+.lint-audit-bar { height: 4px; margin: 0 6px 8px; border-radius: 2px; background: var(--border); overflow: hidden; }
+.lint-audit-fill { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+.lint-audit-summary { margin: 2px 6px 6px; font-size: 12px; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.lint-audit-file-row .lint-text { font-family: var(--font-mono); font-size: 11px; }
+.lint-section-heading { margin: 8px 6px 2px; padding-top: 8px; border-top: 1px solid var(--border); font-size: 11px; font-weight: 600; color: var(--muted); }
+.lint-section-note { margin: 2px 6px 6px; font-size: 12px; color: var(--muted); }
+.lint-row:disabled { opacity: 1; cursor: default; }
+.lint-row:disabled:hover { background: transparent; color: var(--text-secondary); }
 .lint-child-line { display: flex; align-items: center; gap: 2px; }
 /* Inline markers (lazy src/lint/lint-markers.js): absolute pseudo-elements, so no document height changes */
 .hybrid-block.lint-warning::before, .hybrid-block.lint-error::before, .tiptap > .lint-block::before { content: ''; position: absolute; left: -4px; top: 3px; bottom: 3px; width: 2px; border-radius: 1px; background: var(--warning-text); pointer-events: none; }

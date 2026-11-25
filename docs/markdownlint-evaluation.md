@@ -1,12 +1,14 @@
 # markdownlint Integration Evaluation
 
-Status: evaluation written 2026-11-24; implementation status per phase below.
+Status: complete. All four phases shipped (2026-11-24 to 2026-11-25); per-phase notes below.
 
 Phase 1 status: shipped (worker, controller, `Outline | Lint` tabs, app profile, master toggle).
 
 Phase 2 status: shipped 2026-11-24. Settings dialog (gear, `Ctrl+,`) with General and Linting pages, schema-generated rule browser, presets, `lint` settings `{ enabled, preset, rules, debounceMs, largeFileKB }`, and read-only `.markdownlint.json(c)` discovery with relative `extends`. Deviations: project configs are read-only (no JSONC editing yet), "Show inline markers" and the Editor page are not built, and the discovery walk stops at the Folder Browser root only when that root is locked, because an unlocked root follows the active file's folder.
 
 Phase 3 status: shipped 2026-11-25. Hybrid gutter marks and active-block underlines with a Fix tooltip, Visual block decorations, floating-rail problem ticks, `Show Inline Markers`, per-problem `Fix` and `Fix All` (Source undoable, Visual behind a confirmation). Deviations: underlines and tooltips use a small custom CodeMirror decoration instead of `@codemirror/lint` to keep the dependency set unchanged and the code in the lazy chunk; Source has no underlines.
+
+Phase 4 status: shipped 2026-11-25. BBCode export warnings as a `BBCode (Nexus | Steam)` Lint group in a second lazy worker (conversion measured at 0.6 s for 50 KB and 2.4 s for 100 KB, so never on the main thread; capped at 100 KB), with `Include BBCode Export Warnings`; on-demand, cancellable Folder audit (500 files, 2 MB each) grouped per file with click-to-open. Deviations: warnings are mapped to lines by converting each top-level block alone (the converter itself reports no positions), and warnings no single block produces show without a line; no folder tree badges, as planned.
 
 ## Recommendation
 

@@ -13,7 +13,7 @@ self.onmessage = event => {
       return;
     }
     const problems = runLint(lint, text, config);
-    self.postMessage({ id, problems, elapsed: performance.now() - started });
+    self.postMessage({ id, kind, problems, elapsed: performance.now() - started });
   } catch (error) {
     self.postMessage({ id, kind, error: error?.message || String(error) });
   }
