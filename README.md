@@ -98,7 +98,7 @@ npm run build:installer
 npm run test:native
 ```
 
-Browser tests use installed Microsoft Edge. Automated test runners enforce process-tree timeout guards (`30s` unit tests, `120s` Playwright UI with a `20s` server startup limit, and `60s` native smoke). `npm run portable` deploys directly to `D:\Apps\Markdown BBCode\Markdown BBCode.exe`, gracefully closing and relaunching an already-open instance in that directory. Signed GitHub Releases (NSIS installer, portable archive and updater manifests) build via `.github/workflows/release.yml` only on manual dispatch or `release/v*` tags. Build the frontend before Rust checks on a clean checkout. Close other instances before running the isolated native smoke test.
+Browser tests use installed Microsoft Edge. Automated test runners enforce process-tree timeout guards (`30s` unit tests, `180s` Playwright UI with a `20s` server startup limit, and `60s` native smoke). `npm run portable` deploys directly to `D:\Apps\Markdown BBCode\Markdown BBCode.exe`, gracefully closing and relaunching an already-open instance in that directory. The new exe is copied beside the old one first, so the app is only closed for a quick swap. A copy running as administrator (for example started from Everything) is closed too, after one Windows admin prompt; if a save or conflict dialog keeps it open for 10 seconds, or the prompt is declined, nothing is replaced. Signed GitHub Releases (NSIS installer, portable archive and updater manifests) build via `.github/workflows/release.yml` only on manual dispatch or `release/v*` tags. Build the frontend before Rust checks on a clean checkout. Close other instances before running the isolated native smoke test.
 
 ## Hybrid Blank Lines And Icons
 

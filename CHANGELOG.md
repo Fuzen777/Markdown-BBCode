@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+1. Changed the portable deploy (`npm run portable`, `Build-Portable.cmd`) to close a copy running as administrator instead of aborting: after one UAC prompt, an elevated helper sends the same `--graceful-close` request and `WM_CLOSE` fallback, still with a 10 s limit that aborts cleanly on a save or conflict dialog. The new exe is now staged beside the old one and swapped in with a retried rename, and the relaunch stays non-elevated. The Playwright suite limit is 180 s.
 1. Fixed `.mdbbcode` files still reporting MD033 for the editor's centered `<div>` / color `<span>` and MD041 for a centered H1 when a project `.markdownlint.json` (for example one with `"default": true` at the workspace root) was in use: the `.mdbbcode` format rules now apply on top of project configs too. In `.mdbbcode`, MD041 now accepts an H1 inside centered or colored editor wrappers, even nested; `.md` files keep the stock rule.
 1. Fixed the drag handle and `+` sitting below the first line of task-list items in Visual: the checkbox's screen-reader-only label was taken for the item's first line.
 1. Fixed hovering an icon button (block drag handle, `+`, toolbar, Folder Browser, Lint and Outline buttons) showing the system tooltip on top of the app's own: elements with an app tooltip now keep their text in `data-tooltip` instead of `title`, including titles set later by code (`src/icons.js`). Elements without an app tooltip (paths, file rows, outline items) keep their native one.

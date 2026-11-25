@@ -1,5 +1,5 @@
 // ==> Section 1 - Portable Distribution And Live Hot-Swap <==
-import { cp, mkdir, open, writeFile, readFile, readdir, rm, stat } from 'node:fs/promises';
+import { cp, mkdir, open, writeFile, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { dirname, join, resolve } from 'node:path';
@@ -23,11 +23,11 @@ export async function copyPackageLicenses(destinationDir, lockfilePath = 'packag
   }
 }
 
-export async function stagePortableFiles({ destinationDir, exeSource }) {
+export async function stagePortableFiles({ destinationDir, exeSource, exeAlreadySwapped = false }) {
   await mkdir(destinationDir, { recursive: true });
   const destExe = join(destinationDir, 'Markdown BBCode.exe');
   try {
-    await cp(exeSource, destExe, { force: true });
+    if (!exeAlreadySwapped) await cp(exeSource, destExe, { force: true });
   } catch (error) {
     if (error?.code === 'EPERM' || error?.code === 'EBUSY' || error?.code === 'EACCES') {
       throw new Error(
@@ -158,7 +158,53 @@ async function defaultRequestCloseMainWindow(pid) {
   ], { timeout: 5000 }).catch(() => {});
 }
 
-/** Requests running portable instances in targetDir to exit gracefully before swapping files. */
+/**
+ * Builds the script an elevated helper runs to close an elevated instance. Windows UIPI blocks a
+ * non-elevated process from sending the single-instance close request (or WM_CLOSE) to an elevated
+ * window, so the same two requests are sent again from an elevated PowerShell: first
+ * `--graceful-close` (autosave flush and normal shutdown), then CloseMainWindow (WM_CLOSE) after a
+ * few seconds. Exits 0 once every PID is gone, 2 if any is still running at the deadline.
+ */
+export function elevatedCloseScript(exePath, pids, timeoutMs = 10_000, closeMainWindowAfterMs = 3000) {
+  const quotedExe = `'${String(exePath).replaceAll("'", "''")}'`;
+  const pidList = pids.map(pid => Number(pid)).filter(Number.isInteger).join(',');
+  return [
+    `$ids = @(${pidList})`,
+    `$start = Get-Date`,
+    `try { Start-Process -FilePath ${quotedExe} -ArgumentList '--graceful-close' -WindowStyle Hidden } catch {}`,
+    `$closed = $false`,
+    `while (((Get-Date) - $start).TotalMilliseconds -lt ${Number(timeoutMs)}) {`,
+    `  $alive = @($ids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })`,
+    `  if (-not $alive.Count) { exit 0 }`,
+    `  if (-not $closed -and ((Get-Date) - $start).TotalMilliseconds -ge ${Number(closeMainWindowAfterMs)}) {`,
+    `    foreach ($id in $alive) { try { $null = (Get-Process -Id $id -ErrorAction Stop).CloseMainWindow() } catch {} }`,
+    `    $closed = $true`,
+    `  }`,
+    `  Start-Sleep -Milliseconds 250`,
+    `}`,
+    `exit 2`,
+  ].join('\n');
+}
+
+// Runs elevatedCloseScript through one UAC prompt. Resolves 'closed', 'running' or 'declined'.
+async function defaultRequestElevatedClose(pids, exeSource, timeoutMs) {
+  const encoded = Buffer.from(elevatedCloseScript(resolve(exeSource), pids, timeoutMs), 'utf16le').toString('base64');
+  const launcher = `try { $p = Start-Process -FilePath powershell.exe -Verb RunAs -WindowStyle Hidden -Wait -PassThru -ArgumentList @('-NoProfile', '-NonInteractive', '-EncodedCommand', '${encoded}'); exit $p.ExitCode } catch { exit 3 }`;
+  try {
+    await execFileAsync('powershell.exe', ['-NoProfile', '-Command', launcher], { timeout: timeoutMs + 120_000 });
+    return 'closed';
+  } catch (error) {
+    return error?.code === 3 ? 'declined' : 'running';
+  }
+}
+
+/**
+ * Requests running portable instances in targetDir to exit gracefully before swapping files.
+ * Ordinary instances get `--graceful-close` plus WM_CLOSE. Elevated ones (e.g. started from
+ * Everything) cannot receive either from this non-elevated script, so after a short wait they are
+ * closed the same way from an elevated helper (one UAC prompt). Every instance gets `timeoutMs` to
+ * exit; one still open after that (a save or conflict dialog) aborts the swap with nothing changed.
+ */
 export async function closeRunningProcessesGracefully(targetDir, exeSource, options = {}) {
   const {
     timeoutMs = 10_000,
@@ -168,6 +214,7 @@ export async function closeRunningProcessesGracefully(targetDir, exeSource, opti
     inspectProcesses = inspectTargetProcesses,
     requestGracefulClose = defaultRequestGracefulClose,
     requestCloseMainWindow = defaultRequestCloseMainWindow,
+    requestElevatedClose = defaultRequestElevatedClose,
   } = options;
 
   const initial = await inspectProcesses(targetDir);
@@ -179,7 +226,8 @@ export async function closeRunningProcessesGracefully(targetDir, exeSource, opti
   }
 
   const waitBudgetMs = initial.matchedPids.length > 0 ? timeoutMs : elevatedTimeoutMs;
-  const deadline = Date.now() + waitBudgetMs;
+  let deadline = Date.now() + waitBudgetMs;
+  let elevatedRequested = false;
   while (true) {
     const latest = await inspectProcesses(targetDir);
     if (!latest.matchedPids.length && !latest.elevatedPids.length) {
@@ -189,14 +237,20 @@ export async function closeRunningProcessesGracefully(targetDir, exeSource, opti
       return true;
     }
     if (Date.now() >= deadline) {
-      if (latest.elevatedPids.length && !latest.matchedPids.length) {
-        throw new Error(
-          `Running elevated Markdown BBCode instance (PID ${latest.elevatedPids.join(', ')}) is locking "${targetDir}". Windows blocks non-elevated scripts from closing elevated apps (e.g. launched from Everything). Close Markdown BBCode manually and retry.`,
-        );
+      if (latest.elevatedPids.length && !elevatedRequested) {
+        elevatedRequested = true;
+        const outcome = await requestElevatedClose(latest.elevatedPids, exeSource, timeoutMs);
+        if (outcome === 'declined') {
+          throw new Error(
+            `Running elevated Markdown BBCode instance (PID ${latest.elevatedPids.join(', ')}) is locking "${targetDir}". Closing it needs administrator approval, which was declined, so it was left running and nothing was replaced. Close Markdown BBCode manually and retry.`,
+          );
+        }
+        deadline = Date.now() + Math.max(pollIntervalMs, settleMs);
+        continue;
       }
       if (latest.elevatedPids.length) {
         throw new Error(
-          `Running Markdown BBCode instances in "${targetDir}" did not exit (including elevated PID ${latest.elevatedPids.join(', ')}). Close Markdown BBCode manually and retry.`,
+          `Running elevated Markdown BBCode instance (PID ${latest.elevatedPids.join(', ')}) in "${targetDir}" did not exit within ${timeoutMs / 1000}s (save/conflict dialog may be open). Aborting hot-swap cleanly.`,
         );
       }
       throw new Error(
@@ -204,6 +258,34 @@ export async function closeRunningProcessesGracefully(targetDir, exeSource, opti
       );
     }
     await new Promise(resolveWait => setTimeout(resolveWait, pollIntervalMs));
+  }
+}
+
+// ==> Section 2 - Staged Executable Swap (after Tsundoku's Build-Portable.cmd) <==
+// The new exe is copied beside the old one as `.new` before anything is closed, so the app is only
+// down for a rename. The rename is retried for about 15 s because Windows can keep a just-closed
+// exe open for a moment (an antivirus scan, say).
+export async function stageNewExecutable(targetDir, exeSource) {
+  await mkdir(targetDir, { recursive: true });
+  const staged = join(targetDir, 'Markdown BBCode.exe.new');
+  await cp(exeSource, staged, { force: true });
+  return staged;
+}
+
+export async function swapStagedExecutable(targetDir, { attempts = 30, delayMs = 500 } = {}) {
+  const staged = join(targetDir, 'Markdown BBCode.exe.new');
+  const destExe = join(targetDir, 'Markdown BBCode.exe');
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await rename(staged, destExe);
+      return destExe;
+    } catch (error) {
+      if (attempt >= attempts || !['EPERM', 'EBUSY', 'EACCES'].includes(error?.code)) {
+        await rm(staged, { force: true }).catch(() => {});
+        throw new Error(`Cannot replace "${destExe}" (${error?.code || error}): something still has it open. The new build is still in src-tauri/target/release.`, { cause: error });
+      }
+      await new Promise(resolveWait => setTimeout(resolveWait, delayMs));
+    }
   }
 }
 
@@ -236,15 +318,36 @@ export async function runPackage(argv = process.argv.slice(2)) {
   }
 
   const targetDir = process.env.PORTABLE_TARGET_DIR || 'D:\\Apps\\Markdown BBCode';
-  const wasRunning = await closeRunningProcessesGracefully(targetDir, exeSource);
-  const destExe = await stagePortableFiles({ destinationDir: targetDir, exeSource });
-  if (wasRunning && !argv.includes('--no-relaunch')) {
-    const child = spawn(destExe, [], { detached: true, stdio: 'ignore', windowsHide: false });
-    child.unref();
+  const relaunch = !argv.includes('--no-relaunch');
+  const destExe = join(targetDir, 'Markdown BBCode.exe');
+  await stageNewExecutable(targetDir, exeSource);
+  let wasRunning;
+  try {
+    wasRunning = await closeRunningProcessesGracefully(targetDir, exeSource);
+  } catch (error) {
+    // Nothing was closed or replaced: drop the staged copy and leave the running app alone.
+    await rm(join(targetDir, 'Markdown BBCode.exe.new'), { force: true }).catch(() => {});
+    throw error;
+  }
+  try {
+    await swapStagedExecutable(targetDir);
+  } catch (error) {
+    if (wasRunning && relaunch) launchDetached(destExe);
+    throw error;
+  }
+  await stagePortableFiles({ destinationDir: targetDir, exeSource, exeAlreadySwapped: true });
+  if (wasRunning && relaunch) {
+    launchDetached(destExe);
     console.log(`Portable app updated and relaunched: ${destExe}`);
   } else {
     console.log(`Portable app ready: ${destExe}`);
   }
+}
+
+// Started from this (non-elevated) script, so the relaunched app runs non-elevated.
+function launchDetached(exePath) {
+  const child = spawn(exePath, [], { cwd: dirname(exePath), detached: true, stdio: 'ignore', windowsHide: false });
+  child.unref();
 }
 
 if (import.meta.url === new URL(`file:///${process.argv[1]?.replaceAll('\\', '/')}`).href) {

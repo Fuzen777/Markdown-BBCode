@@ -8,8 +8,11 @@ import { join } from 'node:path';
 import {
   classifyTargetProcesses,
   closeRunningProcessesGracefully,
+  elevatedCloseScript,
   isFileLockedForWrite,
   runPackage,
+  stageNewExecutable,
+  swapStagedExecutable,
 } from '../scripts/package.mjs';
 import { generateManifests } from '../scripts/generate-manifests.mjs';
 
@@ -168,8 +171,10 @@ test('closeRunningProcessesGracefully handles idle, standard hot-swap, and eleva
   assert.equal(gracefulCalls, 1);
   assert.deepEqual(closedMainPids, [101, 102]);
 
+  // Elevated instance, UAC prompt declined: nothing is closed or replaced.
   gracefulCalls = 0;
   closedMainPids.length = 0;
+  const elevatedRequests = [];
   await assert.rejects(
     () => closeRunningProcessesGracefully(targetDir, exeSource, {
       elevatedTimeoutMs: 25,
@@ -178,11 +183,43 @@ test('closeRunningProcessesGracefully handles idle, standard hot-swap, and eleva
       inspectProcesses: async () => ({ matchedPids: [], elevatedPids: [68600] }),
       requestGracefulClose: async () => { gracefulCalls += 1; },
       requestCloseMainWindow: async pid => { closedMainPids.push(pid); },
+      requestElevatedClose: async (pids, exe, timeout) => { elevatedRequests.push([pids, exe, timeout]); return 'declined'; },
     }),
-    /Running elevated Markdown BBCode instance \(PID 68600\).*Close Markdown BBCode manually and retry/,
+    /Running elevated Markdown BBCode instance \(PID 68600\).*administrator approval, which was declined.*Close Markdown BBCode manually and retry/,
   );
   assert.equal(gracefulCalls, 1);
   assert.deepEqual(closedMainPids, []);
+  assert.deepEqual(elevatedRequests, [[[68600], exeSource, 10_000]]);
+
+  // Elevated instance closed by the elevated helper after one UAC prompt.
+  let helperDone = false;
+  const closedByHelper = await closeRunningProcessesGracefully(targetDir, exeSource, {
+    elevatedTimeoutMs: 20,
+    pollIntervalMs: 5,
+    settleMs: 0,
+    inspectProcesses: async () => (helperDone ? { matchedPids: [], elevatedPids: [] } : { matchedPids: [], elevatedPids: [68600] }),
+    requestGracefulClose: async () => {},
+    requestCloseMainWindow: async () => {},
+    requestElevatedClose: async () => { helperDone = true; return 'closed'; },
+  });
+  assert.equal(closedByHelper, true);
+
+  // Elevated instance still open after the helper's 10 s (save/conflict dialog): abort cleanly, helper asked once.
+  let helperCalls = 0;
+  await assert.rejects(
+    () => closeRunningProcessesGracefully(targetDir, exeSource, {
+      elevatedTimeoutMs: 20,
+      pollIntervalMs: 5,
+      settleMs: 0,
+      inspectProcesses: async () => ({ matchedPids: [], elevatedPids: [68600] }),
+      requestGracefulClose: async () => {},
+      requestCloseMainWindow: async () => {},
+      requestElevatedClose: async () => { helperCalls += 1; return 'running'; },
+    }),
+    /elevated Markdown BBCode instance \(PID 68600\).*did not exit within 10s \(save\/conflict dialog may be open\)\. Aborting hot-swap cleanly/,
+  );
+  assert.equal(helperCalls, 1);
+  gracefulCalls = 0;
 
   gracefulCalls = 0;
   closedMainPids.length = 0;
@@ -203,6 +240,34 @@ test('closeRunningProcessesGracefully handles idle, standard hot-swap, and eleva
   assert.equal(elevatedExited, true);
   assert.equal(gracefulCalls, 1);
   assert.deepEqual(closedMainPids, []);
+});
+
+test('the elevated close script sends --graceful-close, then WM_CLOSE, and reports whether the PIDs exited', () => {
+  const script = elevatedCloseScript("D:\\Apps\\It's\\Markdown BBCode.exe", [68600, 'x', 4], 10_000, 3000);
+  assert.match(script, /\$ids = @\(68600,4\)/);
+  assert.match(script, /Start-Process -FilePath 'D:\\Apps\\It''s\\Markdown BBCode\.exe' -ArgumentList '--graceful-close'/);
+  assert.match(script, /CloseMainWindow\(\)/);
+  assert.match(script, /-lt 10000/);
+  assert.match(script, /-ge 3000/);
+  assert.match(script, /exit 0[\s\S]*exit 2$/);
+});
+
+test('the new exe is staged beside the old one and swapped in with a rename', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mb-swap-'));
+  try {
+    const source = join(dir, 'build.exe');
+    await writeFile(source, 'new');
+    await writeFile(join(dir, 'Markdown BBCode.exe'), 'old');
+    const staged = await stageNewExecutable(dir, source);
+    assert.equal(await readFile(staged, 'utf8'), 'new');
+    assert.equal(await readFile(join(dir, 'Markdown BBCode.exe'), 'utf8'), 'old', 'the running copy is untouched until the swap');
+    await swapStagedExecutable(dir);
+    assert.equal(await readFile(join(dir, 'Markdown BBCode.exe'), 'utf8'), 'new');
+    await assert.rejects(() => access(staged));
+    await assert.rejects(() => swapStagedExecutable(dir, { attempts: 1 }), /Cannot replace/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('isFileLockedForWrite returns false for missing and unlocked temp files', async () => {

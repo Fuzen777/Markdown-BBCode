@@ -1,4 +1,6 @@
 @echo off
+rem Builds and deploys the portable app to D:\Apps\Markdown BBCode through scripts\package.mjs: the new exe is staged
+rem beside the old one, a running copy is closed gracefully (one admin prompt if it runs elevated), swapped and relaunched.
 setlocal enableextensions enabledelayedexpansion
 cd /d "%~dp0"
 
