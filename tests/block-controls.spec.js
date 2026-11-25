@@ -358,3 +358,21 @@ test('divider handle and add button center vertically on horizontal rule', async
   const lockedHandleBox = await handle.boundingBox();
   expect(Math.abs((lockedHandleBox.y + lockedHandleBox.height / 2) - hrCenterY)).toBeLessThanOrEqual(4);
 });
+
+test('the drag handle centers on the first line of headings and task items', async ({ page }) => {
+  await page.evaluate(() => window.blockEditor.commands.setContent('<h1>Heading</h1><ul data-type="taskList"><li data-type="taskItem" data-checked="false"><p>Task one</p></li><li data-type="taskItem" data-checked="false"><p>Task two</p></li></ul>'));
+  const textCenter = selector => page.locator(selector).evaluate(element => {
+    const range = document.createRange();
+    range.selectNodeContents(element.firstChild);
+    const rect = range.getClientRects()[0];
+    return rect.top + rect.height / 2;
+  });
+  const handleCenter = async () => {
+    const box = await page.getByRole('button', { name: 'Block Actions And Drag Handle', exact: true }).boundingBox();
+    return box.y + box.height / 2;
+  };
+  for (const selector of ['.tiptap h1', '.tiptap li p >> nth=0', '.tiptap li p >> nth=1']) {
+    await page.locator(selector).hover();
+    await expect.poll(async () => Math.abs(await handleCenter() - await textCenter(selector))).toBeLessThan(1.5);
+  }
+});

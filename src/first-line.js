@@ -5,6 +5,12 @@
 const skippedSelector = '.block-controls, .hybrid-block-controls, button, select, option, [hidden], [aria-hidden="true"]';
 const textFieldTypes = new Set(['text', 'search', 'url', 'email', 'tel', '']);
 
+// Screen-reader-only text (Tiptap's task checkbox label is a 1 px clipped span) has no visible line to center on.
+function isVisuallyHidden(element) {
+  const rect = element.getBoundingClientRect();
+  return rect.width <= 1 && rect.height <= 1;
+}
+
 function firstCharacterRect(textNode) {
   const index = [...textNode.textContent].findIndex(character => character.trim());
   if (index < 0) return null;
@@ -30,7 +36,7 @@ export function firstLineCenter(element) {
   const walker = document.createTreeWalker(element, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       if (node.nodeType === Node.TEXT_NODE) return node.textContent.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
-      if (node.matches(skippedSelector)) return NodeFilter.FILTER_REJECT;
+      if (node.matches(skippedSelector) || isVisuallyHidden(node)) return NodeFilter.FILTER_REJECT;
       if (node.matches('textarea') || (node.matches('input') && textFieldTypes.has(node.getAttribute('type') ?? ''))) return NodeFilter.FILTER_ACCEPT;
       return NodeFilter.FILTER_SKIP;
     },
